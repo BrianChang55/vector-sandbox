@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Durations */
+  --internal-apps-duration-instant: 100ms;
+  --internal-apps-duration-fast: 160ms;
+  --internal-apps-duration-standard: 220ms;
+  --internal-apps-duration-slow: 300ms;
+  --internal-apps-duration-slow-plus: 380ms;
+
+  /* Easings */
+  --internal-apps-ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1);
+  --internal-apps-ease-in-soft: cubic-bezier(0.7, 0, 0.84, 0);
+  --internal-apps-ease-in-out-soft: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@layer base {
+  html, body {
+    overscroll-behavior: none;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: "Source Serif 4", serif;
+  }
+}
+
+@layer utilities {
+  .fade-out {
+    opacity: 0;
+    transition: opacity 0.3s ease-out;
+  }
+}
+
