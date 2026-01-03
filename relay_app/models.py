@@ -59,6 +59,12 @@ class Organization(BaseModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255)
     slug = models.SlugField(max_length=255, unique=True)
+    logo = models.ImageField(
+        upload_to='org_logos/',
+        null=True,
+        blank=True,
+        help_text='Organization logo image'
+    )
     
     def __str__(self):
         return self.name
@@ -468,7 +474,7 @@ class ChatSession(BaseModel):
     title = models.CharField(max_length=255, default="New Chat")
     model_id = models.CharField(
         max_length=100,
-        default="anthropic/claude-3.5-sonnet",
+        default="anthropic/claude-sonnet-4",
         help_text="AI model used for this session"
     )
     is_active = models.BooleanField(default=True)
@@ -586,7 +592,7 @@ class AgentConfiguration(BaseModel):
     # Model configuration
     default_model = models.CharField(
         max_length=100,
-        default="anthropic/claude-3.5-sonnet"
+        default="anthropic/claude-sonnet-4"
     )
     fallback_model = models.CharField(
         max_length=100,

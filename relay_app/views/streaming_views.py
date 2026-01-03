@@ -17,6 +17,8 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import status as http_status
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework.request import Request
 
 from ..models import InternalApp, AppVersion, VersionFile
 from ..models import ChatSession, ChatMessage, CodeGenerationJob
@@ -55,7 +57,7 @@ class AvailableModelsView(APIView):
         return Response({
             "models": models,
             "grouped": grouped,
-            "default": "anthropic/claude-3.5-sonnet",
+            "default": "anthropic/claude-sonnet-4",
         })
 
 
@@ -109,7 +111,7 @@ class ChatSessionViewSet(APIView):
             session = ChatSession.objects.create(
                 internal_app=app,
                 title=request.data.get("title", "New Chat"),
-                model_id=request.data.get("model_id", "anthropic/claude-3.5-sonnet"),
+                model_id=request.data.get("model_id", "anthropic/claude-sonnet-4"),
                 created_by=request.user,
             )
             
@@ -192,7 +194,7 @@ class StreamingGenerateView(View):
         # Get parameters
         session_id = request.GET.get('session_id')
         message = request.GET.get('message', '')
-        model = request.GET.get('model', 'anthropic/claude-3.5-sonnet')
+        model = request.GET.get('model', 'anthropic/claude-sonnet-4')
         mode = request.GET.get('mode', 'appspec')  # 'appspec' or 'code'
         
         if not message:
@@ -202,12 +204,32 @@ class StreamingGenerateView(View):
             )
         
         # Verify authentication via session or token
-        if not request.user.is_authenticated:
+        user = request.user
+        if not user.is_authenticated:
             # Try JWT from Authorization header
             auth_header = request.META.get('HTTP_AUTHORIZATION', '')
             if not auth_header:
                 return JsonResponse(
                     {"error": "Authentication required"},
+                    status=401
+                )
+            
+            # Manually authenticate using JWT
+            try:
+                jwt_auth = JWTAuthentication()
+                # Wrap in DRF Request for JWT auth to work
+                drf_request = Request(request)
+                auth_result = jwt_auth.authenticate(drf_request)
+                if auth_result is None:
+                    return JsonResponse(
+                        {"error": "Invalid authentication token"},
+                        status=401
+                    )
+                user, _ = auth_result
+            except Exception as e:
+                logger.warning(f"JWT authentication failed: {e}")
+                return JsonResponse(
+                    {"error": "Authentication failed"},
                     status=401
                 )
         
@@ -227,7 +249,7 @@ class StreamingGenerateView(View):
                 model=model,
                 mode=mode,
                 session_id=session_id,
-                user=request.user,
+                user=user,
             ),
             content_type='text/event-stream'
         )
@@ -500,7 +522,7 @@ class NonStreamingGenerateView(APIView):
                 )
             
             message = request.data.get('message', '')
-            model = request.data.get('model', 'anthropic/claude-3.5-sonnet')
+            model = request.data.get('model', 'anthropic/claude-sonnet-4')
             session_id = request.data.get('session_id')
             
             if not message:

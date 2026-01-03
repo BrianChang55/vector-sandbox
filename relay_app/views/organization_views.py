@@ -6,10 +6,12 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.shortcuts import get_object_or_404
 
 from ..models import Organization, UserOrganization
 from ..serializers import OrganizationSerializer, OrganizationCreateSerializer, UserOrganizationSerializer
+from ..serializers.organization import OrganizationUpdateSerializer, OrganizationLogoUploadSerializer
 
 logger = logging.getLogger(__name__)
 
@@ -20,10 +22,14 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     GET /api/v1/orgs - List organizations
     POST /api/v1/orgs - Create organization
     GET /api/v1/orgs/:id - Get organization
+    PATCH /api/v1/orgs/:id - Update organization
     POST /api/v1/orgs/:id/switch - Switch current organization
+    POST /api/v1/orgs/:id/logo - Upload organization logo
+    DELETE /api/v1/orgs/:id/logo - Remove organization logo
     """
     permission_classes = [IsAuthenticated]
     serializer_class = OrganizationSerializer
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
     
     def get_queryset(self):
         """Filter organizations to those the user belongs to."""
@@ -33,14 +39,35 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         return Organization.objects.filter(id__in=org_ids)
     
     def get_serializer_class(self):
-        """Use create serializer for POST."""
+        """Use appropriate serializer based on action."""
         if self.action == 'create':
             return OrganizationCreateSerializer
+        if self.action in ['update', 'partial_update']:
+            return OrganizationUpdateSerializer
         return OrganizationSerializer
     
     def perform_create(self, serializer):
         """Set organization in context."""
         serializer.save()
+    
+    def update(self, request, *args, **kwargs):
+        """Update organization (only admins)."""
+        org = self.get_object()
+        
+        # Check if user is admin
+        user_org = UserOrganization.objects.filter(
+            user=request.user, 
+            organization=org,
+            role=UserOrganization.ROLE_ADMIN
+        ).first()
+        
+        if not user_org:
+            return Response(
+                {'error': 'Only admins can update organization settings'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        return super().update(request, *args, **kwargs)
     
     @action(detail=True, methods=['post'])
     def switch(self, request, pk=None):
@@ -59,8 +86,72 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         request.session.save()
         
         return Response({
-            'organization': OrganizationSerializer(org).data,
+            'organization': OrganizationSerializer(org, context={'request': request}).data,
             'message': 'Organization switched',
+        })
+    
+    @action(detail=True, methods=['post'], parser_classes=[MultiPartParser, FormParser])
+    def logo(self, request, pk=None):
+        """Upload organization logo."""
+        org = self.get_object()
+        
+        # Check if user is admin
+        user_org = UserOrganization.objects.filter(
+            user=request.user, 
+            organization=org,
+            role=UserOrganization.ROLE_ADMIN
+        ).first()
+        
+        if not user_org:
+            return Response(
+                {'error': 'Only admins can upload organization logo'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        serializer = OrganizationLogoUploadSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Delete old logo if exists
+        if org.logo:
+            org.logo.delete(save=False)
+        
+        # Save new logo
+        org.logo = serializer.validated_data['logo']
+        org.save()
+        
+        logger.info(f"Logo uploaded for organization {org.id}")
+        
+        return Response({
+            'message': 'Logo uploaded successfully',
+            'organization': OrganizationSerializer(org, context={'request': request}).data,
+        })
+    
+    @logo.mapping.delete
+    def delete_logo(self, request, pk=None):
+        """Delete organization logo."""
+        org = self.get_object()
+        
+        # Check if user is admin
+        user_org = UserOrganization.objects.filter(
+            user=request.user, 
+            organization=org,
+            role=UserOrganization.ROLE_ADMIN
+        ).first()
+        
+        if not user_org:
+            return Response(
+                {'error': 'Only admins can delete organization logo'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        if org.logo:
+            org.logo.delete(save=True)
+            logger.info(f"Logo deleted for organization {org.id}")
+        
+        return Response({
+            'message': 'Logo deleted successfully',
+            'organization': OrganizationSerializer(org, context={'request': request}).data,
         })
 
 
@@ -76,4 +167,3 @@ class UserOrganizationViewSet(viewsets.ReadOnlyModelViewSet):
         """Filter to organization memberships."""
         org_id = self.kwargs.get('organization_pk')
         return UserOrganization.objects.filter(organization_id=org_id).select_related('user', 'organization')
-

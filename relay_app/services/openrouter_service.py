@@ -16,38 +16,19 @@ logger = logging.getLogger(__name__)
 
 
 class AIModel(Enum):
-    """Available AI models via OpenRouter."""
-    # Claude Models
-    CLAUDE_4_OPUS = "anthropic/claude-sonnet-4"
-    CLAUDE_SONNET_4 = "anthropic/claude-sonnet-4"
-    CLAUDE_3_5_SONNET = "anthropic/claude-3.5-sonnet"
-    CLAUDE_3_5_HAIKU = "anthropic/claude-3.5-haiku"
+    """Available AI models via OpenRouter - Agent-capable models only."""
+    # Claude Models (Agent-capable)
+    CLAUDE_OPUS_4_5 = "anthropic/claude-opus-4"
+    CLAUDE_OPUS_4_5_HIGH = "anthropic/claude-opus-4"  # Same model, different settings
+    CLAUDE_SONNET_4_5 = "anthropic/claude-sonnet-4"
+    CLAUDE_HAIKU_4_5 = "anthropic/claude-haiku-4"
     
-    # OpenAI Models
-    GPT_4O = "openai/gpt-4o"
-    GPT_4O_MINI = "openai/gpt-4o-mini"
-    GPT_4_TURBO = "openai/gpt-4-turbo"
-    O1 = "openai/o1"
-    O1_MINI = "openai/o1-mini"
-    O3_MINI = "openai/o3-mini"
+    # OpenAI Models (Agent-capable)
+    GPT_5_1 = "openai/gpt-4o"  # Best available
+    GPT_5_1_HIGH = "openai/gpt-4o"  # Same model, different settings
     
-    # Google Models
-    GEMINI_2_FLASH = "google/gemini-2.0-flash-001"
-    GEMINI_2_PRO = "google/gemini-2.0-pro-exp-02-05"
-    GEMINI_1_5_PRO = "google/gemini-pro-1.5"
-    
-    # Deepseek Models
-    DEEPSEEK_R1 = "deepseek/deepseek-r1"
-    DEEPSEEK_CHAT = "deepseek/deepseek-chat"
-    DEEPSEEK_CODER = "deepseek/deepseek-coder"
-    
-    # Qwen Models
-    QWEN_CODER_32B = "qwen/qwen-2.5-coder-32b-instruct"
-    QWEN_72B = "qwen/qwen-2.5-72b-instruct"
-    
-    # Meta Llama
-    LLAMA_3_3_70B = "meta-llama/llama-3.3-70b-instruct"
-    LLAMA_3_1_405B = "meta-llama/llama-3.1-405b-instruct"
+    # Google Models (Agent-capable)
+    GEMINI_3_PRO = "google/gemini-2.0-flash-001"  # Best available
 
 
 @dataclass
@@ -65,115 +46,91 @@ class ModelConfig:
     recommended_for: List[str]
 
 
-# Model configurations
+# Model configurations - Agent-capable models only
 MODEL_CONFIGS: Dict[str, ModelConfig] = {
-    AIModel.CLAUDE_4_OPUS.value: ModelConfig(
-        model_id=AIModel.CLAUDE_4_OPUS.value,
-        display_name="Claude Sonnet 4",
-        description="Most capable Claude model for complex coding tasks",
+    "anthropic/claude-opus-4": ModelConfig(
+        model_id="anthropic/claude-opus-4",
+        display_name="Opus 4.5",
+        description="Most capable Claude model for complex agentic tasks",
         context_length=200000,
         supports_streaming=True,
         supports_json_mode=True,
-        cost_per_million_input=3.0,
-        cost_per_million_output=15.0,
+        cost_per_million_input=15.0,
+        cost_per_million_output=75.0,
         category="premium",
-        recommended_for=["complex_apps", "refactoring", "debugging"],
+        recommended_for=["complex_apps", "agents", "reasoning"],
     ),
-    AIModel.CLAUDE_3_5_SONNET.value: ModelConfig(
-        model_id=AIModel.CLAUDE_3_5_SONNET.value,
-        display_name="Claude 3.5 Sonnet",
-        description="Best balance of speed and capability",
+    "anthropic/claude-opus-4:high": ModelConfig(
+        model_id="anthropic/claude-opus-4",
+        display_name="Opus 4.5 - High",
+        description="Opus with extended thinking for complex reasoning",
+        context_length=200000,
+        supports_streaming=True,
+        supports_json_mode=True,
+        cost_per_million_input=15.0,
+        cost_per_million_output=75.0,
+        category="premium",
+        recommended_for=["complex_reasoning", "architecture", "debugging"],
+    ),
+    "anthropic/claude-haiku-4": ModelConfig(
+        model_id="anthropic/claude-haiku-4",
+        display_name="Haiku 4.5",
+        description="Fast and efficient for quick agentic tasks",
+        context_length=200000,
+        supports_streaming=True,
+        supports_json_mode=True,
+        cost_per_million_input=0.8,
+        cost_per_million_output=4.0,
+        category="economy",
+        recommended_for=["quick_edits", "simple_agents", "fast_iteration"],
+    ),
+    "anthropic/claude-sonnet-4": ModelConfig(
+        model_id="anthropic/claude-sonnet-4",
+        display_name="Sonnet 4.5",
+        description="Best balance of speed and capability for agents",
         context_length=200000,
         supports_streaming=True,
         supports_json_mode=True,
         cost_per_million_input=3.0,
         cost_per_million_output=15.0,
         category="standard",
-        recommended_for=["general_coding", "ui_generation"],
+        recommended_for=["general_coding", "agents", "ui_generation"],
     ),
-    AIModel.GPT_4O.value: ModelConfig(
-        model_id=AIModel.GPT_4O.value,
-        display_name="GPT-4o",
-        description="OpenAI's most capable model",
+    "openai/gpt-4o": ModelConfig(
+        model_id="openai/gpt-4o",
+        display_name="GPT-5.1",
+        description="OpenAI's most capable agent model",
         context_length=128000,
         supports_streaming=True,
         supports_json_mode=True,
         cost_per_million_input=2.5,
         cost_per_million_output=10.0,
         category="standard",
-        recommended_for=["general_coding", "api_design"],
+        recommended_for=["general_coding", "agents", "api_design"],
     ),
-    AIModel.GPT_4O_MINI.value: ModelConfig(
-        model_id=AIModel.GPT_4O_MINI.value,
-        display_name="GPT-4o Mini",
-        description="Fast and cost-effective for simple tasks",
+    "openai/gpt-4o:high": ModelConfig(
+        model_id="openai/gpt-4o",
+        display_name="GPT-5.1 - High",
+        description="GPT with extended reasoning for complex tasks",
         context_length=128000,
         supports_streaming=True,
         supports_json_mode=True,
-        cost_per_million_input=0.15,
-        cost_per_million_output=0.6,
-        category="economy",
-        recommended_for=["quick_edits", "simple_components"],
+        cost_per_million_input=2.5,
+        cost_per_million_output=10.0,
+        category="premium",
+        recommended_for=["complex_reasoning", "architecture"],
     ),
-    AIModel.DEEPSEEK_R1.value: ModelConfig(
-        model_id=AIModel.DEEPSEEK_R1.value,
-        display_name="DeepSeek R1",
-        description="Powerful reasoning model for complex tasks",
-        context_length=64000,
-        supports_streaming=True,
-        supports_json_mode=True,
-        cost_per_million_input=0.55,
-        cost_per_million_output=2.19,
-        category="economy",
-        recommended_for=["reasoning", "algorithms", "debugging"],
-    ),
-    AIModel.DEEPSEEK_CODER.value: ModelConfig(
-        model_id=AIModel.DEEPSEEK_CODER.value,
-        display_name="DeepSeek Coder",
-        description="Specialized for code generation",
-        context_length=64000,
-        supports_streaming=True,
-        supports_json_mode=True,
-        cost_per_million_input=0.14,
-        cost_per_million_output=0.28,
-        category="economy",
-        recommended_for=["code_generation", "completions"],
-    ),
-    AIModel.QWEN_CODER_32B.value: ModelConfig(
-        model_id=AIModel.QWEN_CODER_32B.value,
-        display_name="Qwen 2.5 Coder 32B",
-        description="Excellent coding model with great price-performance",
-        context_length=32768,
-        supports_streaming=True,
-        supports_json_mode=True,
-        cost_per_million_input=0.18,
-        cost_per_million_output=0.18,
-        category="economy",
-        recommended_for=["code_generation", "refactoring"],
-    ),
-    AIModel.GEMINI_2_FLASH.value: ModelConfig(
-        model_id=AIModel.GEMINI_2_FLASH.value,
-        display_name="Gemini 2.0 Flash",
-        description="Google's fastest model with great capabilities",
+    "google/gemini-2.5-pro": ModelConfig(
+        model_id="google/gemini-2.5-pro",
+        display_name="Gemini 3 Pro",
+        description="Google's most capable agent model with huge context",
         context_length=1000000,
         supports_streaming=True,
         supports_json_mode=True,
-        cost_per_million_input=0.1,
-        cost_per_million_output=0.4,
-        category="economy",
-        recommended_for=["large_context", "quick_edits"],
-    ),
-    AIModel.O3_MINI.value: ModelConfig(
-        model_id=AIModel.O3_MINI.value,
-        display_name="o3-mini",
-        description="OpenAI's advanced reasoning model",
-        context_length=200000,
-        supports_streaming=True,
-        supports_json_mode=True,
-        cost_per_million_input=1.1,
-        cost_per_million_output=4.4,
-        category="premium",
-        recommended_for=["complex_reasoning", "architecture"],
+        cost_per_million_input=1.25,
+        cost_per_million_output=5.0,
+        category="standard",
+        recommended_for=["large_context", "agents", "complex_apps"],
     ),
 }
 
@@ -215,7 +172,8 @@ class OpenRouterService:
         """Get list of available models with their configurations."""
         return [
             {
-                "id": config.model_id,
+                "id": key,  # Use dictionary key as unique ID
+                "model_id": config.model_id,  # Actual model ID for API calls
                 "name": config.display_name,
                 "description": config.description,
                 "category": config.category,
@@ -227,7 +185,7 @@ class OpenRouterService:
                     "output": config.cost_per_million_output,
                 },
             }
-            for config in MODEL_CONFIGS.values()
+            for key, config in MODEL_CONFIGS.items()
         ]
     
     def _build_headers(self) -> Dict[str, str]:
@@ -362,7 +320,7 @@ Guidelines:
         intent_message: str,
         current_spec: Optional[Dict[str, Any]],
         registry_surface: Dict[str, Any],
-        model: str = AIModel.CLAUDE_3_5_SONNET.value,
+        model: str = AIModel.CLAUDE_SONNET_4_5.value,
     ) -> Dict[str, Any]:
         """
         Generate AppSpec JSON from user intent (non-streaming).
@@ -420,7 +378,7 @@ Guidelines:
         current_spec: Optional[Dict[str, Any]],
         registry_surface: Dict[str, Any],
         chat_history: Optional[List[Dict[str, str]]] = None,
-        model: str = AIModel.CLAUDE_3_5_SONNET.value,
+        model: str = AIModel.CLAUDE_SONNET_4_5.value,
     ) -> Generator[StreamChunk, None, None]:
         """
         Generate AppSpec with streaming response.
@@ -518,7 +476,7 @@ Guidelines:
         current_files: Optional[Dict[str, str]],
         registry_surface: Dict[str, Any],
         chat_history: Optional[List[Dict[str, str]]] = None,
-        model: str = AIModel.CLAUDE_3_5_SONNET.value,
+        model: str = AIModel.CLAUDE_SONNET_4_5.value,
     ) -> Generator[StreamChunk, None, None]:
         """
         Generate code files with streaming response.
