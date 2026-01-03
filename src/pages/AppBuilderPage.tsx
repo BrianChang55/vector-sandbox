@@ -4,7 +4,7 @@
  * Production-ready vibe coding interface for building internal apps.
  * Three-panel layout: Chat + Preview + Code/Versions
  * 
- * Inspired by Cursor, Lovable, Replit, and v0.
+ * Light enterprise theme matching the rest of the application.
  */
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
@@ -21,7 +21,6 @@ import {
   Loader2,
   CheckCircle
 } from 'lucide-react'
-import { motion, AnimatePresence } from 'framer-motion'
 
 import { useApp, useAppVersions, useRollback, usePublishApp } from '../hooks/useApps'
 import { useAppSelector, useAppDispatch } from '../store/hooks'
@@ -32,6 +31,7 @@ import { PreviewPanel } from '../components/builder/PreviewPanel'
 import { CodeEditor } from '../components/builder/CodeEditor'
 import { VersionsPanel } from '../components/builder/VersionsPanel'
 import { Button } from '../components/ui/button'
+import { cn } from '../lib/utils'
 
 type RightPanelView = 'code' | 'versions'
 
@@ -94,16 +94,16 @@ export function AppBuilderPage() {
 
   if (appLoading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-zinc-950">
-        <Loader2 className="h-8 w-8 text-violet-500 animate-spin" />
+      <div className="flex items-center justify-center h-screen bg-gray-50">
+        <Loader2 className="h-8 w-8 text-gray-400 animate-spin" />
       </div>
     )
   }
 
   if (!app) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-zinc-950">
-        <p className="text-zinc-400 mb-4">App not found</p>
+      <div className="flex flex-col items-center justify-center h-screen bg-gray-50">
+        <p className="text-gray-700 mb-4">App not found</p>
         <Button onClick={() => navigate('/apps')} variant="outline">
           Back to Apps
         </Button>
@@ -112,34 +112,34 @@ export function AppBuilderPage() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-zinc-950 overflow-hidden">
+    <div className="flex flex-col h-screen bg-gray-50 overflow-hidden">
       {/* Top Bar */}
-      <header className="flex items-center justify-between px-4 py-2 border-b border-zinc-800/50 bg-zinc-900/50 backdrop-blur-xl">
+      <header className="flex items-center justify-between px-4 py-2 border-b border-gray-200 bg-white">
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate('/apps')}
-            className="p-2 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded-lg transition-colors"
+            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
           >
             <ArrowLeft className="h-4 w-4" />
           </button>
           
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-500 
-                          flex items-center justify-center">
-              <Layers className="h-4 w-4 text-white" />
+            <div className="w-8 h-8 rounded-md bg-gray-100 flex items-center justify-center">
+              <Layers className="h-4 w-4 text-gray-500" />
             </div>
             <div>
-              <h1 className="text-sm font-semibold text-zinc-200">{app.name}</h1>
+              <h1 className="text-sm font-semibold text-gray-900">{app.name}</h1>
               <div className="flex items-center gap-2">
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                <span className={cn(
+                  'text-[10px] px-1.5 py-0.5 rounded-full font-medium',
                   app.status === 'published' 
-                    ? 'bg-emerald-500/20 text-emerald-400'
-                    : 'bg-zinc-700/50 text-zinc-500'
-                }`}>
+                    ? 'bg-green-50 text-green-700 border border-green-200'
+                    : 'bg-gray-100 text-gray-600'
+                )}>
                   {app.status}
                 </span>
                 {selectedVersion && (
-                  <span className="text-[10px] text-zinc-600">
+                  <span className="text-[10px] text-gray-600">
                     v{selectedVersion.version_number}
                   </span>
                 )}
@@ -153,7 +153,7 @@ export function AppBuilderPage() {
           <Button
             variant="outline"
             size="sm"
-            className="gap-1.5 text-xs border-zinc-700 bg-zinc-800/50"
+            className="gap-1.5 text-xs"
             onClick={() => {
               if (selectedVersion) {
                 window.open(`/preview/apps/${appId}?version=${selectedVersion.id}`, '_blank')
@@ -168,8 +168,7 @@ export function AppBuilderPage() {
           {/* Publish button */}
           <Button
             size="sm"
-            className="gap-1.5 text-xs bg-gradient-to-r from-violet-600 to-fuchsia-600 
-                     hover:from-violet-500 hover:to-fuchsia-500 border-0"
+            className="gap-1.5 text-xs"
             onClick={handlePublish}
             disabled={isPublishing || !selectedVersion}
           >
@@ -183,15 +182,15 @@ export function AppBuilderPage() {
             {isPublishing ? 'Publishing...' : app.status === 'published' ? 'Published' : 'Publish'}
           </Button>
 
-          <div className="w-px h-6 bg-zinc-800" />
+          <div className="w-px h-6 bg-gray-200" />
 
-          <button className="p-2 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded-lg transition-colors">
+          <button className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors">
             <Share2 className="h-4 w-4" />
           </button>
-          <button className="p-2 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded-lg transition-colors">
+          <button className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors">
             <Settings className="h-4 w-4" />
           </button>
-          <button className="p-2 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded-lg transition-colors">
+          <button className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors">
             <MoreVertical className="h-4 w-4" />
           </button>
         </div>
@@ -200,12 +199,7 @@ export function AppBuilderPage() {
       {/* Main Content - Three Panel Layout */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left Panel - Chat */}
-        <motion.div 
-          className="w-96 flex-shrink-0 border-r border-zinc-800/50"
-          initial={{ x: -20, opacity: 0 }}
-          animate={{ x: 0, opacity: 1 }}
-          transition={{ duration: 0.2 }}
-        >
+        <div className="w-96 flex-shrink-0 border-r border-gray-200 bg-white">
           <ChatPanel
             appId={appId!}
             sessionId={sessionId}
@@ -213,31 +207,21 @@ export function AppBuilderPage() {
             onVersionCreated={handleVersionCreated}
             className="h-full"
           />
-        </motion.div>
+        </div>
 
         {/* Center Panel - Preview */}
-        <motion.div 
-          className="flex-1 min-w-0"
-          initial={{ y: 20, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ duration: 0.2, delay: 0.1 }}
-        >
+        <div className="flex-1 min-w-0">
           <PreviewPanel
             appId={appId!}
             versionId={selectedVersionId}
             className="h-full"
           />
-        </motion.div>
+        </div>
 
         {/* Right Panel - Code/Versions */}
-        <motion.div 
-          className="w-96 flex-shrink-0 border-l border-zinc-800/50 flex flex-col"
-          initial={{ x: 20, opacity: 0 }}
-          animate={{ x: 0, opacity: 1 }}
-          transition={{ duration: 0.2, delay: 0.2 }}
-        >
+        <div className="w-96 flex-shrink-0 border-l border-gray-200 bg-white flex flex-col">
           {/* Panel Tabs */}
-          <div className="flex border-b border-zinc-800/50">
+          <div className="flex border-b border-gray-200">
             {[
               { key: 'code' as RightPanelView, icon: Code2, label: 'Code' },
               { key: 'versions' as RightPanelView, icon: Clock, label: 'Versions' },
@@ -245,20 +229,17 @@ export function AppBuilderPage() {
               <button
                 key={key}
                 onClick={() => setRightPanelView(key)}
-                className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm
-                          transition-colors relative ${
-                            rightPanelView === key
-                              ? 'text-zinc-200'
-                              : 'text-zinc-500 hover:text-zinc-300'
-                          }`}
+                className={cn(
+                  'flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm transition-colors relative',
+                  rightPanelView === key
+                    ? 'text-gray-900'
+                    : 'text-gray-500 hover:text-gray-700'
+                )}
               >
                 <Icon className="h-4 w-4" />
                 {label}
                 {rightPanelView === key && (
-                  <motion.div
-                    layoutId="rightPanelTab"
-                    className="absolute bottom-0 left-0 right-0 h-0.5 bg-violet-500"
-                  />
+                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gray-900" />
                 )}
               </button>
             ))}
@@ -266,46 +247,28 @@ export function AppBuilderPage() {
 
           {/* Panel Content */}
           <div className="flex-1 overflow-hidden">
-            <AnimatePresence mode="wait">
-              {rightPanelView === 'code' ? (
-                <motion.div
-                  key="code"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  className="h-full"
-                >
-                  <CodeEditor
-                    files={selectedVersion?.files || []}
-                    previousFiles={
-                      versions && versions.length > 1 && selectedVersion
-                        ? versions.find(v => v.version_number === selectedVersion.version_number - 1)?.files
-                        : undefined
-                    }
-                    readOnly
-                    className="h-full"
-                  />
-                </motion.div>
-              ) : (
-                <motion.div
-                  key="versions"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  className="h-full"
-                >
-                  <VersionsPanel
-                    versions={versions || []}
-                    selectedVersionId={selectedVersionId}
-                    onVersionSelect={handleVersionSelect}
-                    onRollback={handleRollback}
-                    className="h-full"
-                  />
-                </motion.div>
-              )}
-            </AnimatePresence>
+            {rightPanelView === 'code' ? (
+              <CodeEditor
+                files={selectedVersion?.files || []}
+                previousFiles={
+                  versions && versions.length > 1 && selectedVersion
+                    ? versions.find(v => v.version_number === selectedVersion.version_number - 1)?.files
+                    : undefined
+                }
+                readOnly
+                className="h-full"
+              />
+            ) : (
+              <VersionsPanel
+                versions={versions || []}
+                selectedVersionId={selectedVersionId}
+                onVersionSelect={handleVersionSelect}
+                onRollback={handleRollback}
+                className="h-full"
+              />
+            )}
           </div>
-        </motion.div>
+        </div>
       </div>
     </div>
   )

@@ -122,7 +122,7 @@ export function generateCodeStreaming(
   
   const params = new URLSearchParams({
     message,
-    model: options.model || 'anthropic/claude-3.5-sonnet',
+    model: options.model || 'anthropic/claude-sonnet-4',
     mode: options.mode || 'appspec',
   })
   
@@ -133,11 +133,9 @@ export function generateCodeStreaming(
   const url = `${api.defaults.baseURL}/apps/${appId}/generate/stream/?${params.toString()}`
   
   // Get auth token from localStorage
-  const token = localStorage.getItem('accessToken')
+  const token = localStorage.getItem('access_token')
   
-  const eventSource = new EventSource(url)
-  
-  // If we need auth, we'll use fetch with streaming instead
+  // Use fetch for authenticated requests (EventSource doesn't support custom headers)
   if (token) {
     // Use fetch for authenticated requests
     fetch(url, {
@@ -202,6 +200,8 @@ export function generateCodeStreaming(
     })
   } else {
     // Fallback to EventSource for unauthenticated (shouldn't happen in prod)
+    const eventSource = new EventSource(url)
+    
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data)

@@ -3,6 +3,7 @@
  * 
  * Live preview of the generated internal app.
  * Supports responsive viewport and refresh controls.
+ * Light enterprise theme.
  */
 import { useState, useRef, useEffect } from 'react'
 import { 
@@ -15,7 +16,7 @@ import {
   Play,
   Pause
 } from 'lucide-react'
-import { motion } from 'framer-motion'
+import { cn } from '../../lib/utils'
 
 interface PreviewPanelProps {
   appId: string
@@ -76,14 +77,14 @@ export function PreviewPanel({ appId, versionId, className = '' }: PreviewPanelP
   const scale = viewport === 'desktop' ? 1 : 0.75
 
   return (
-    <div ref={containerRef} className={`flex flex-col h-full bg-zinc-950 ${className}`}>
+    <div ref={containerRef} className={`flex flex-col h-full bg-gray-100 ${className}`}>
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800/50">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-white">
         <div className="flex items-center gap-3">
-          <span className="text-sm font-semibold text-zinc-200">Preview</span>
+          <span className="text-sm font-semibold text-gray-900">Preview</span>
           
           {/* Viewport Selector */}
-          <div className="flex items-center gap-1 bg-zinc-800/50 rounded-lg p-1">
+          <div className="flex items-center gap-1 bg-gray-100 rounded-md p-1">
             {[
               { key: 'mobile' as Viewport, icon: Smartphone },
               { key: 'tablet' as Viewport, icon: Tablet },
@@ -92,11 +93,12 @@ export function PreviewPanel({ appId, versionId, className = '' }: PreviewPanelP
               <button
                 key={key}
                 onClick={() => setViewport(key)}
-                className={`p-1.5 rounded-md transition-colors ${
+                className={cn(
+                  'p-1.5 rounded transition-colors',
                   viewport === key
-                    ? 'bg-zinc-700 text-zinc-200'
-                    : 'text-zinc-500 hover:text-zinc-300'
-                }`}
+                    ? 'bg-white shadow-sm text-gray-900'
+                    : 'text-gray-400 hover:text-gray-600'
+                )}
                 title={viewportSizes[key].label}
               >
                 <Icon className="h-4 w-4" />
@@ -104,7 +106,7 @@ export function PreviewPanel({ appId, versionId, className = '' }: PreviewPanelP
             ))}
           </div>
           
-          <span className="text-[10px] text-zinc-600">
+          <span className="text-[10px] text-gray-600">
             {viewportConfig.width} × {viewportConfig.height}
           </span>
         </div>
@@ -113,11 +115,12 @@ export function PreviewPanel({ appId, versionId, className = '' }: PreviewPanelP
           {/* Auto-refresh toggle */}
           <button
             onClick={() => setAutoRefresh(!autoRefresh)}
-            className={`p-1.5 rounded-md transition-colors ${
+            className={cn(
+              'p-1.5 rounded-md transition-colors',
               autoRefresh
-                ? 'bg-emerald-500/20 text-emerald-400'
-                : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800'
-            }`}
+                ? 'bg-green-50 text-green-600'
+                : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
+            )}
             title={autoRefresh ? 'Auto-refresh on' : 'Auto-refresh off'}
           >
             {autoRefresh ? (
@@ -130,16 +133,16 @@ export function PreviewPanel({ appId, versionId, className = '' }: PreviewPanelP
           <button
             onClick={handleRefresh}
             disabled={!previewUrl}
-            className="p-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 
+            className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 
                      disabled:opacity-50 disabled:cursor-not-allowed rounded-md transition-colors"
             title="Refresh preview"
           >
-            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={cn('h-4 w-4', isLoading && 'animate-spin')} />
           </button>
           
           <button
             onClick={handleFullscreen}
-            className="p-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded-md transition-colors"
+            className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
             title="Fullscreen"
           >
             <Maximize2 className="h-4 w-4" />
@@ -148,7 +151,7 @@ export function PreviewPanel({ appId, versionId, className = '' }: PreviewPanelP
           <button
             onClick={handleOpenExternal}
             disabled={!previewUrl}
-            className="p-1.5 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 
+            className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 
                      disabled:opacity-50 disabled:cursor-not-allowed rounded-md transition-colors"
             title="Open in new tab"
           >
@@ -158,11 +161,10 @@ export function PreviewPanel({ appId, versionId, className = '' }: PreviewPanelP
       </div>
 
       {/* Preview Area */}
-      <div className="flex-1 flex items-center justify-center overflow-auto p-4 bg-[#1a1a1a]">
+      <div className="flex-1 flex items-center justify-center overflow-auto p-4">
         {previewUrl ? (
-          <motion.div
-            layout
-            className="relative bg-white rounded-lg shadow-2xl overflow-hidden"
+          <div
+            className="relative bg-white rounded-lg shadow-lg overflow-hidden border border-gray-200"
             style={{
               width: viewport === 'desktop' ? '100%' : viewportConfig.width,
               height: viewport === 'desktop' ? '100%' : viewportConfig.height,
@@ -172,10 +174,10 @@ export function PreviewPanel({ appId, versionId, className = '' }: PreviewPanelP
               transformOrigin: 'center center',
             }}
           >
-            {/* Device Frame */}
+            {/* Device Frame for mobile/tablet */}
             {viewport !== 'desktop' && (
               <div className="absolute inset-0 pointer-events-none z-10">
-                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-6 bg-black rounded-b-xl" />
+                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-6 bg-gray-900 rounded-b-xl" />
               </div>
             )}
             
@@ -189,20 +191,20 @@ export function PreviewPanel({ appId, versionId, className = '' }: PreviewPanelP
             
             {/* Loading overlay */}
             {isLoading && (
-              <div className="absolute inset-0 bg-zinc-900/80 flex items-center justify-center">
-                <RefreshCw className="h-8 w-8 text-violet-400 animate-spin" />
+              <div className="absolute inset-0 bg-white/80 flex items-center justify-center">
+                <RefreshCw className="h-8 w-8 text-gray-400 animate-spin" />
               </div>
             )}
-          </motion.div>
+          </div>
         ) : (
           <div className="flex flex-col items-center justify-center text-center">
-            <div className="w-20 h-20 rounded-2xl bg-zinc-800/50 flex items-center justify-center mb-4">
-              <Monitor className="h-10 w-10 text-zinc-600" />
+            <div className="h-20 w-20 rounded-xl bg-gray-200 flex items-center justify-center mb-4">
+              <Monitor className="h-10 w-10 text-gray-500" />
             </div>
-            <h3 className="text-lg font-semibold text-zinc-400 mb-2">
+            <h3 className="text-lg font-medium text-gray-900 mb-2">
               No Preview Available
             </h3>
-            <p className="text-sm text-zinc-600 max-w-xs">
+            <p className="text-sm text-gray-700 max-w-xs">
               Generate your first version using the AI builder to see a live preview.
             </p>
           </div>
@@ -211,11 +213,14 @@ export function PreviewPanel({ appId, versionId, className = '' }: PreviewPanelP
 
       {/* Status Bar */}
       {versionId && (
-        <div className="flex items-center justify-between px-4 py-2 border-t border-zinc-800/50 
-                      text-[10px] text-zinc-600">
+        <div className="flex items-center justify-between px-4 py-2 border-t border-gray-200 bg-white
+                      text-[10px] text-gray-700">
           <span>Version: {versionId.slice(0, 8)}...</span>
           <span className="flex items-center gap-1">
-            <span className={`w-1.5 h-1.5 rounded-full ${isLoading ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+            <span className={cn(
+              'w-1.5 h-1.5 rounded-full',
+              isLoading ? 'bg-yellow-500' : 'bg-green-500'
+            )} />
             {isLoading ? 'Loading...' : 'Ready'}
           </span>
         </div>
@@ -223,4 +228,3 @@ export function PreviewPanel({ appId, versionId, className = '' }: PreviewPanelP
     </div>
   )
 }
-

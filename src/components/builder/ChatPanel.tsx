@@ -3,10 +3,10 @@
  * 
  * AI chat interface for building internal apps.
  * Supports streaming responses with real-time updates.
+ * Light enterprise theme.
  */
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Send, Loader2, Sparkles, Code2, CheckCircle, XCircle } from 'lucide-react'
-import { motion, AnimatePresence } from 'framer-motion'
 import { ModelSelector } from './ModelSelector'
 import { 
   generateCodeStreaming, 
@@ -14,6 +14,7 @@ import {
   type ChatMessage,
   type StreamEvent 
 } from '../../services/aiService'
+import { cn } from '../../lib/utils'
 
 interface ChatPanelProps {
   appId: string
@@ -190,12 +191,12 @@ export function ChatPanel({
   }
 
   return (
-    <div className={`flex flex-col h-full bg-zinc-950 ${className}`}>
+    <div className={`flex flex-col h-full bg-white ${className}`}>
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800/50">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
         <div className="flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-violet-400" />
-          <span className="text-sm font-semibold text-zinc-200">AI Builder</span>
+          <Sparkles className="h-4 w-4 text-gray-700" />
+          <span className="text-sm font-semibold text-gray-900">AI Builder</span>
         </div>
         <ModelSelector
           selectedModel={selectedModel}
@@ -207,14 +208,13 @@ export function ChatPanel({
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 
-                          flex items-center justify-center mb-4">
-              <Code2 className="h-8 w-8 text-violet-400" />
+            <div className="h-16 w-16 rounded-xl bg-gray-100 flex items-center justify-center mb-4">
+              <Code2 className="h-8 w-8 text-gray-400" />
             </div>
-            <h3 className="text-lg font-semibold text-zinc-200 mb-2">
+            <h3 className="text-lg font-medium text-gray-900 mb-2">
               Start Building
             </h3>
-            <p className="text-sm text-zinc-500 max-w-xs">
+            <p className="text-sm text-gray-700 max-w-xs">
               Describe the internal app you want to build. I'll generate the UI and connect it to your data.
             </p>
             <div className="mt-6 flex flex-wrap gap-2 justify-center">
@@ -226,8 +226,8 @@ export function ChatPanel({
                 <button
                   key={suggestion}
                   onClick={() => setInput(suggestion)}
-                  className="px-3 py-1.5 text-xs text-zinc-400 bg-zinc-800/50 rounded-full
-                           hover:bg-zinc-800 hover:text-zinc-300 transition-all"
+                  className="px-3 py-1.5 text-xs text-gray-900 bg-gray-100 rounded-full
+                           hover:bg-gray-200 transition-colors"
                 >
                   {suggestion}
                 </button>
@@ -236,78 +236,77 @@ export function ChatPanel({
           </div>
         )}
 
-        <AnimatePresence mode="popLayout">
-          {messages.map((message) => (
-            <motion.div
-              key={message.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+        {messages.map((message) => (
+          <div
+            key={message.id}
+            className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+          >
+            <div
+              className={cn(
+                'max-w-[85%] rounded-lg px-4 py-3',
+                message.role === 'user'
+                  ? 'bg-gray-900 text-white'
+                  : 'bg-gray-50 border border-gray-200'
+              )}
             >
-              <div
-                className={`max-w-[85%] rounded-2xl px-4 py-3 ${
-                  message.role === 'user'
-                    ? 'bg-violet-600 text-white'
-                    : 'bg-zinc-800/50 border border-zinc-700/50'
-                }`}
-              >
-                {message.role === 'assistant' && (
-                  <div className="flex items-center gap-2 mb-2 text-xs text-zinc-500">
-                    <Sparkles className="h-3 w-3 text-violet-400" />
-                    <span>{message.model_id?.split('/')[1] || 'AI'}</span>
-                    {message.isStreaming && (
-                      <Loader2 className="h-3 w-3 animate-spin text-violet-400" />
-                    )}
-                    {message.status === 'complete' && !message.isStreaming && (
-                      <CheckCircle className="h-3 w-3 text-emerald-400" />
-                    )}
-                    {message.status === 'error' && (
-                      <XCircle className="h-3 w-3 text-red-400" />
-                    )}
-                  </div>
-                )}
-                
-                <div className="text-sm whitespace-pre-wrap">
-                  {message.content || (
-                    <span className="text-zinc-500 italic">Generating...</span>
+              {message.role === 'assistant' && (
+                <div className="flex items-center gap-2 mb-2 text-xs text-gray-600">
+                  <Sparkles className="h-3 w-3 text-gray-500" />
+                  <span>{message.model_id?.split('/')[1] || 'AI'}</span>
+                  {message.isStreaming && (
+                    <Loader2 className="h-3 w-3 animate-spin text-gray-500" />
+                  )}
+                  {message.status === 'complete' && !message.isStreaming && (
+                    <CheckCircle className="h-3 w-3 text-green-600" />
+                  )}
+                  {message.status === 'error' && (
+                    <XCircle className="h-3 w-3 text-red-500" />
                   )}
                 </div>
-
-                {message.role === 'assistant' && message.status === 'complete' && (
-                  <div className="mt-3 pt-3 border-t border-zinc-700/50 flex items-center gap-2">
-                    {message.version_created ? (
-                      <span className="text-xs text-emerald-400 flex items-center gap-1">
-                        <CheckCircle className="h-3 w-3" />
-                        Applied as version
-                      </span>
-                    ) : message.generated_spec_json ? (
-                      <button
-                        onClick={() => handleApplyCode(message.id)}
-                        className="text-xs px-3 py-1 bg-violet-600 hover:bg-violet-500 
-                                 text-white rounded-full transition-colors"
-                      >
-                        Apply Changes
-                      </button>
-                    ) : null}
-                  </div>
-                )}
-
-                {message.error_message && (
-                  <div className="mt-2 p-2 bg-red-500/10 border border-red-500/20 rounded-lg">
-                    <p className="text-xs text-red-400">{message.error_message}</p>
-                  </div>
+              )}
+              
+              <div className={cn(
+                'text-sm whitespace-pre-wrap',
+                message.role === 'assistant' && 'text-gray-900'
+              )}>
+                {message.content || (
+                  <span className="text-gray-400 italic">Generating...</span>
                 )}
               </div>
-            </motion.div>
-          ))}
-        </AnimatePresence>
+
+              {message.role === 'assistant' && message.status === 'complete' && (
+                <div className="mt-3 pt-3 border-t border-gray-200 flex items-center gap-2">
+                  {message.version_created ? (
+                    <span className="text-xs text-green-600 flex items-center gap-1">
+                      <CheckCircle className="h-3 w-3" />
+                      Applied as version
+                    </span>
+                  ) : message.generated_spec_json ? (
+                    <button
+                      onClick={() => handleApplyCode(message.id)}
+                      className="text-xs px-3 py-1 bg-gray-900 hover:bg-gray-800 
+                               text-white rounded-md transition-colors"
+                    >
+                      Apply Changes
+                    </button>
+                  ) : null}
+                </div>
+              )}
+
+              {message.error_message && (
+                <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-md">
+                  <p className="text-xs text-red-700">{message.error_message}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
 
         <div ref={messagesEndRef} />
       </div>
 
       {/* Input */}
-      <div className="p-4 border-t border-zinc-800/50">
+      <div className="p-4 border-t border-gray-200">
         <div className="relative">
           <textarea
             ref={inputRef}
@@ -317,9 +316,9 @@ export function ChatPanel({
             placeholder="Describe what you want to build..."
             rows={3}
             disabled={isLoading}
-            className="w-full px-4 py-3 pr-24 bg-zinc-900 border border-zinc-700/50 rounded-xl
-                     text-sm text-zinc-200 placeholder-zinc-500 resize-none
-                     focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/25
+            className="w-full px-4 py-3 pr-24 bg-white border border-gray-200 rounded-lg
+                     text-sm text-gray-900 placeholder-gray-500 resize-none
+                     focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent
                      disabled:opacity-50"
           />
           
@@ -327,16 +326,16 @@ export function ChatPanel({
             {isLoading ? (
               <button
                 onClick={handleCancel}
-                className="p-2 bg-zinc-700 hover:bg-zinc-600 rounded-lg transition-colors"
+                className="p-2 bg-gray-200 hover:bg-gray-300 rounded-md transition-colors"
               >
-                <XCircle className="h-4 w-4 text-zinc-300" />
+                <XCircle className="h-4 w-4 text-gray-600" />
               </button>
             ) : (
               <button
                 onClick={handleSubmit}
                 disabled={!input.trim()}
-                className="p-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 
-                         disabled:cursor-not-allowed rounded-lg transition-colors"
+                className="p-2 bg-gray-900 hover:bg-gray-800 disabled:opacity-50 
+                         disabled:cursor-not-allowed rounded-md transition-colors"
               >
                 <Send className="h-4 w-4 text-white" />
               </button>
@@ -344,11 +343,10 @@ export function ChatPanel({
           </div>
         </div>
         
-        <p className="mt-2 text-[10px] text-zinc-600 text-center">
+        <p className="mt-2 text-[10px] text-gray-400 text-center">
           Press Enter to send, Shift+Enter for new line
         </p>
       </div>
     </div>
   )
 }
-

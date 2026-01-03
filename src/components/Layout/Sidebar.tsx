@@ -1,12 +1,18 @@
 /**
  * Sidebar navigation (left rail)
- * Dark theme with gradient accents
+ * Clean light enterprise theme with organization switcher
  */
 import { Link, useLocation } from 'react-router-dom'
 import { useAppSelector } from '../../store/hooks'
-import { Layers, Database, Settings, Sparkles } from 'lucide-react'
+import { useOrganizations, useSwitchOrganization } from '../../hooks/useOrganizations'
+import { Layers, Database, Settings, ChevronDown, Check, Building2 } from 'lucide-react'
 import { cn } from '../../lib/utils'
-import { motion } from 'framer-motion'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../ui/dropdown-menu'
 
 const navItems = [
   { path: '/apps', label: 'Apps', icon: Layers },
@@ -17,25 +23,82 @@ const navItems = [
 export function Sidebar() {
   const location = useLocation()
   const selectedOrgId = useAppSelector((state) => state.ui.selectedOrgId)
+  const { data: organizations } = useOrganizations()
+  const switchOrg = useSwitchOrganization()
+  const selectedOrg = organizations?.find((org) => org.id === selectedOrgId)
 
   if (!selectedOrgId) {
     return null
   }
 
   return (
-    <aside className="w-64 border-r border-zinc-800/50 bg-zinc-900/50 backdrop-blur-xl">
-      {/* Logo / Brand */}
-      <div className="p-4 border-b border-zinc-800/50">
-        <Link to="/apps" className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-500 
-                        flex items-center justify-center">
-            <Sparkles className="h-4 w-4 text-white" />
-          </div>
-          <span className="font-bold text-zinc-100">Relay</span>
-        </Link>
+    <aside className="w-56 border-r border-gray-200 bg-white flex flex-col">
+      {/* Organization Switcher */}
+      <div className="p-3 border-b border-gray-200">
+        <DropdownMenu>
+          <DropdownMenuTrigger className="w-full">
+            <div className="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-gray-50 transition-colors">
+              {/* Organization Logo or Fallback */}
+              {selectedOrg?.logo_url ? (
+                <img
+                  src={selectedOrg.logo_url}
+                  alt={`${selectedOrg.name} logo`}
+                  className="h-8 w-8 rounded-md object-cover flex-shrink-0"
+                />
+              ) : (
+                <div className="h-8 w-8 rounded-md bg-gray-100 flex items-center justify-center flex-shrink-0">
+                  <Building2 className="h-4 w-4 text-gray-500" />
+                </div>
+              )}
+              <div className="flex-1 min-w-0 text-left">
+                <div className="text-sm font-medium text-gray-900 truncate">
+                  {selectedOrg?.name || 'Select Org'}
+                </div>
+                <div className="text-xs text-gray-500 truncate">
+                  Organization
+                </div>
+              </div>
+              <ChevronDown className="h-4 w-4 text-gray-400 flex-shrink-0" />
+            </div>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent 
+            align="start" 
+            className="w-52 bg-white border-gray-200 shadow-lg"
+          >
+            <div className="px-2 py-1.5 text-xs text-gray-500 font-medium uppercase tracking-wider">
+              Organizations
+            </div>
+            {organizations?.map((org) => (
+              <DropdownMenuItem
+                key={org.id}
+                onClick={() => switchOrg.mutate(org.id)}
+                className="flex items-center gap-2 text-gray-700 hover:text-gray-900 
+                         hover:bg-gray-50 focus:bg-gray-50 cursor-pointer"
+              >
+                {/* Org logo in dropdown */}
+                {org.logo_url ? (
+                  <img
+                    src={org.logo_url}
+                    alt={`${org.name} logo`}
+                    className="h-5 w-5 rounded object-cover flex-shrink-0"
+                  />
+                ) : (
+                  <div className="h-5 w-5 rounded bg-gray-100 flex items-center justify-center flex-shrink-0">
+                    <Building2 className="h-3 w-3 text-gray-400" />
+                  </div>
+                )}
+                <span className="truncate flex-1">{org.name}</span>
+                {selectedOrgId === org.id && (
+                  <Check className="h-4 w-4 text-gray-900 flex-shrink-0" />
+                )}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
-      <nav className="p-3 space-y-1">
+      {/* Navigation */}
+      <nav className="flex-1 p-3 space-y-1">
         {navItems.map((item) => {
           const Icon = item.icon
           const isActive = location.pathname.startsWith(item.path)
@@ -44,33 +107,25 @@ export function Sidebar() {
               key={item.path}
               to={item.path}
               className={cn(
-                'relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all',
+                'flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors',
                 isActive
-                  ? 'text-zinc-100'
-                  : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50'
+                  ? 'bg-gray-100 text-gray-900'
+                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
               )}
             >
-              {isActive && (
-                <motion.div
-                  layoutId="sidebar-active"
-                  className="absolute inset-0 bg-zinc-800/80 border border-zinc-700/50 rounded-lg"
-                  transition={{ type: 'spring', duration: 0.3, bounce: 0.1 }}
-                />
-              )}
-              <Icon className={cn('h-4 w-4 relative z-10', isActive && 'text-violet-400')} />
-              <span className="relative z-10">{item.label}</span>
+              <Icon className={cn('h-4 w-4', isActive ? 'text-gray-700' : 'text-gray-400')} />
+              {item.label}
             </Link>
           )
         })}
       </nav>
 
-      {/* Pro tip / help section */}
-      <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-zinc-800/50">
-        <div className="p-3 rounded-lg bg-gradient-to-br from-violet-500/10 to-fuchsia-500/10 
-                      border border-violet-500/20">
-          <p className="text-xs text-zinc-400 leading-relaxed">
-            <span className="text-violet-400 font-medium">Pro tip:</span> Use the AI builder 
-            to create apps instantly. Just describe what you need!
+      {/* Help section */}
+      <div className="p-4 border-t border-gray-200">
+        <div className="p-3 rounded-lg bg-gray-50 border border-gray-100">
+          <p className="text-xs text-gray-500 leading-relaxed">
+            <span className="text-gray-700 font-medium">Tip:</span> Use the AI builder 
+            to create apps instantly. Just describe what you need.
           </p>
         </div>
       </div>

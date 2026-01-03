@@ -1,13 +1,13 @@
 /**
  * Settings page - Organization and user settings
  */
-import { useState } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useAppSelector, useAppDispatch } from '../store/hooks'
 import { logout } from '../store/slices/authSlice'
-import { useOrganizations } from '../hooks/useOrganizations'
+import { useOrganizations, useUploadOrganizationLogo, useDeleteOrganizationLogo, useUpdateOrganization } from '../hooks/useOrganizations'
 import { Button } from '../components/ui/button'
 import { useDialog } from '../components/ui/dialog-provider'
-import { User, Building2, LogOut, Shield, Bell } from 'lucide-react'
+import { User, Building2, LogOut, Shield, Bell, Upload, Trash2, Loader2 } from 'lucide-react'
 import { cn } from '../lib/utils'
 
 type SettingsTab = 'profile' | 'organization' | 'security' | 'notifications'
@@ -19,16 +19,91 @@ const tabs: { id: SettingsTab; label: string; icon: React.ElementType }[] = [
   { id: 'notifications', label: 'Notifications', icon: Bell },
 ]
 
+// Debounce hook
+function useDebouncedCallback<T extends (...args: Parameters<T>) => void>(
+  callback: T,
+  delay: number
+): T {
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  
+  return useCallback(
+    ((...args: Parameters<T>) => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current)
+      }
+      timeoutRef.current = setTimeout(() => {
+        callback(...args)
+      }, delay)
+    }) as T,
+    [callback, delay]
+  )
+}
+
 export function SettingsPage() {
   const dispatch = useAppDispatch()
   const { user } = useAppSelector((state) => state.auth)
   const selectedOrgId = useAppSelector((state) => state.ui.selectedOrgId)
   const { data: organizations } = useOrganizations()
-  const { confirm } = useDialog()
+  const uploadLogo = useUploadOrganizationLogo()
+  const deleteLogo = useDeleteOrganizationLogo()
+  const updateOrganization = useUpdateOrganization()
+  const { confirm, alert } = useDialog()
   
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile')
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [orgName, setOrgName] = useState('')
+  const [orgSlug, setOrgSlug] = useState('')
 
   const currentOrg = organizations?.find((org) => org.id === selectedOrgId)
+
+  // Generate slug from name: lowercase, replace spaces with hyphens, remove special chars
+  const generateSlug = (name: string): string => {
+    return name
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9-]/g, '')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '')
+  }
+
+  // Sync org name and slug with current org
+  useEffect(() => {
+    if (currentOrg) {
+      setOrgName(currentOrg.name)
+      setOrgSlug(currentOrg.slug)
+    }
+  }, [currentOrg?.id]) // Only sync when org changes, not on every name update
+
+  // Track if name has changed to avoid unnecessary saves
+  const orgNameDirty = useRef(false)
+
+  // Debounced save function (3 seconds)
+  const debouncedSave = useDebouncedCallback(
+    (name: string, slug: string) => {
+      if (selectedOrgId && name.trim() && orgNameDirty.current) {
+        updateOrganization.mutate({ orgId: selectedOrgId, data: { name, slug } })
+        orgNameDirty.current = false
+      }
+    },
+    3000
+  )
+
+  const handleOrgNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newName = e.target.value
+    const newSlug = generateSlug(newName)
+    setOrgName(newName)
+    setOrgSlug(newSlug)
+    orgNameDirty.current = true
+    debouncedSave(newName, newSlug)
+  }
+
+  const handleOrgNameBlur = () => {
+    if (selectedOrgId && orgName.trim() && orgNameDirty.current) {
+      updateOrganization.mutate({ orgId: selectedOrgId, data: { name: orgName, slug: orgSlug } })
+      orgNameDirty.current = false
+    }
+  }
 
   const handleLogout = async () => {
     const confirmed = await confirm({
@@ -41,6 +116,80 @@ export function SettingsPage() {
     if (confirmed) {
       dispatch(logout())
       window.location.href = '/login'
+    }
+  }
+
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !selectedOrgId) return
+
+    // Validate file type
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+    if (!allowedTypes.includes(file.type)) {
+      await alert({
+        title: 'Invalid File Type',
+        description: 'Please upload a JPEG, PNG, GIF, or WebP image.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    // Validate file size (5MB max)
+    if (file.size > 5 * 1024 * 1024) {
+      await alert({
+        title: 'File Too Large',
+        description: 'Logo must be less than 5MB.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    try {
+      await uploadLogo.mutateAsync({ orgId: selectedOrgId, file })
+      await alert({
+        title: 'Logo Uploaded',
+        description: 'Your organization logo has been updated.',
+        variant: 'success',
+      })
+    } catch (error: any) {
+      await alert({
+        title: 'Upload Failed',
+        description: error?.response?.data?.error || 'Failed to upload logo.',
+        variant: 'destructive',
+      })
+    }
+
+    // Reset file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
+
+  const handleDeleteLogo = async () => {
+    if (!selectedOrgId) return
+
+    const confirmed = await confirm({
+      title: 'Remove Logo',
+      description: 'Are you sure you want to remove the organization logo?',
+      confirmText: 'Remove',
+      cancelText: 'Cancel',
+    })
+
+    if (confirmed) {
+      try {
+        await deleteLogo.mutateAsync(selectedOrgId)
+        await alert({
+          title: 'Logo Removed',
+          description: 'Your organization logo has been removed.',
+          variant: 'success',
+        })
+      } catch (error: any) {
+        await alert({
+          title: 'Error',
+          description: error?.response?.data?.error || 'Failed to remove logo.',
+          variant: 'destructive',
+        })
+      }
     }
   }
 
@@ -111,7 +260,7 @@ export function SettingsPage() {
                       type="text"
                       value={user?.first_name || ''}
                       readOnly
-                      className="w-full px-3 py-2 border border-gray-200 rounded-md bg-gray-50 text-sm"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-md bg-gray-50 text-sm text-gray-900"
                     />
                   </div>
                   <div>
@@ -122,7 +271,7 @@ export function SettingsPage() {
                       type="text"
                       value={user?.last_name || ''}
                       readOnly
-                      className="w-full px-3 py-2 border border-gray-200 rounded-md bg-gray-50 text-sm"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-md bg-gray-50 text-sm text-gray-900"
                     />
                   </div>
                   <div>
@@ -133,7 +282,7 @@ export function SettingsPage() {
                       type="email"
                       value={user?.email || ''}
                       readOnly
-                      className="w-full px-3 py-2 border border-gray-200 rounded-md bg-gray-50 text-sm"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-md bg-gray-50 text-sm text-gray-900"
                     />
                   </div>
                 </div>
@@ -153,46 +302,111 @@ export function SettingsPage() {
               <h1 className="text-xl font-semibold text-gray-900 mb-6">Organization</h1>
               
               {currentOrg ? (
-                <div className="bg-white rounded-lg border border-gray-200 p-6">
-                  <div className="flex items-center gap-3 mb-6">
-                    <div className="h-12 w-12 rounded-lg bg-blue-100 flex items-center justify-center text-blue-600">
-                      <Building2 className="h-6 w-6" />
-                    </div>
-                    <div>
-                      <h2 className="font-medium text-gray-900">{currentOrg.name}</h2>
-                      <p className="text-sm text-gray-500">/{currentOrg.slug}</p>
+                <div className="space-y-6">
+                  {/* Logo Section */}
+                  <div className="bg-white rounded-lg border border-gray-200 p-5">
+                    <div className="flex items-center gap-4">
+                      {/* Logo Preview */}
+                      <div className="flex-shrink-0">
+                        {currentOrg.logo_url ? (
+                          <img
+                            src={currentOrg.logo_url}
+                            alt={`${currentOrg.name} logo`}
+                            className="h-14 w-14 rounded-lg object-cover border border-gray-200"
+                          />
+                        ) : (
+                          <div className="h-14 w-14 rounded-lg bg-gray-100 flex items-center justify-center border border-gray-200">
+                            <Building2 className="h-6 w-6 text-gray-400" />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Upload Controls */}
+                      <div className="flex-0 min-w-0">
+                        <div className="flex items-center justify-between mb-2">
+                          <h2 className="font-medium text-gray-900 text-sm">Logo</h2>
+                        </div>
+                        
+                        <div className="flex items-center gap-2">
+                          <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept="image/jpeg,image/png,image/gif,image/webp"
+                            onChange={handleLogoUpload}
+                            className="hidden"
+                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={uploadLogo.isPending}
+                          >
+                            {uploadLogo.isPending ? (
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            ) : (
+                              <Upload className="h-4 w-4 mr-2" />
+                            )}
+                            {currentOrg.logo_url ? 'Change' : 'Upload'}
+                          </Button>
+                          
+                          {currentOrg.logo_url && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={handleDeleteLogo}
+                              disabled={deleteLogo.isPending}
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            >
+                              {deleteLogo.isPending ? (
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-4 w-4 mr-2" />
+                              )}
+                              Remove
+                            </Button>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Organization Name
-                      </label>
-                      <input
-                        type="text"
-                        value={currentOrg.name}
-                        readOnly
-                        className="w-full px-3 py-2 border border-gray-200 rounded-md bg-gray-50 text-sm"
-                      />
+                  {/* Organization Details */}
+                  <div className="bg-white rounded-lg border border-gray-200 p-6">
+                    <h2 className="font-medium text-gray-900 mb-4">Details</h2>
+                    
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Organization Name
+                        </label>
+                        <input
+                          type="text"
+                          value={orgName}
+                          onChange={handleOrgNameChange}
+                          onBlur={handleOrgNameBlur}
+                          className="w-full px-3 py-2 border border-gray-200 rounded-md bg-white text-sm text-gray-900 focus:outline-none"
+                          placeholder="Organization name"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Slug
+                        </label>
+                        <input
+                          type="text"
+                          value={orgSlug}
+                          disabled
+                          tabIndex={-1}
+                          className="w-full px-3 py-2 border border-gray-200 rounded-md bg-gray-50 text-sm text-gray-900 cursor-not-allowed"
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Slug
-                      </label>
-                      <input
-                        type="text"
-                        value={currentOrg.slug}
-                        readOnly
-                        className="w-full px-3 py-2 border border-gray-200 rounded-md bg-gray-50 text-sm"
-                      />
-                    </div>
-                  </div>
 
-                  <div className="mt-6 pt-4 border-t border-gray-100">
-                    <p className="text-xs text-gray-400">
-                      Created {new Date(currentOrg.created_at).toLocaleDateString()}
-                    </p>
+                    <div className="mt-6 pt-4 border-t border-gray-100">
+                      <p className="text-xs text-gray-400">
+                        Created {new Date(currentOrg.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -259,4 +473,3 @@ export function SettingsPage() {
     </div>
   )
 }
-
