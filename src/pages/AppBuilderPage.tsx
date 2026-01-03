@@ -2,7 +2,7 @@
  * App Builder Page
  * 
  * Production-ready vibe coding interface for building internal apps.
- * Three-panel layout: Chat + Preview + Code/Versions
+ * Two-panel layout: Chat + Preview/Code
  * 
  * Light enterprise theme matching the rest of the application.
  */
@@ -14,26 +14,20 @@ import {
   Share2, 
   MoreVertical,
   Layers,
-  Code2,
-  Clock,
   Play,
   Rocket,
   Loader2,
   CheckCircle
 } from 'lucide-react'
 
-import { useApp, useAppVersions, useRollback, usePublishApp } from '../hooks/useApps'
+import { useApp, useAppVersions, usePublishApp } from '../hooks/useApps'
 import { useAppSelector, useAppDispatch } from '../store/hooks'
 import { setSelectedVersion } from '../store/slices/uiSlice'
 
 import { ChatPanel } from '../components/builder/ChatPanel'
 import { PreviewPanel } from '../components/builder/PreviewPanel'
-import { CodeEditor } from '../components/builder/CodeEditor'
-import { VersionsPanel } from '../components/builder/VersionsPanel'
 import { Button } from '../components/ui/button'
 import { cn } from '../lib/utils'
-
-type RightPanelView = 'code' | 'versions'
 
 export function AppBuilderPage() {
   const { appId } = useParams<{ appId: string }>()
@@ -42,13 +36,11 @@ export function AppBuilderPage() {
   
   const { data: app, isLoading: appLoading } = useApp(appId || null)
   const { data: versions, refetch: refetchVersions } = useAppVersions(appId || null)
-  const rollback = useRollback()
   const publishApp = usePublishApp()
   
   const selectedVersionId = useAppSelector((state) => state.ui.selectedVersionId)
   
   const [sessionId, setSessionId] = useState<string | null>(null)
-  const [rightPanelView, setRightPanelView] = useState<RightPanelView>('code')
   const [isPublishing, setIsPublishing] = useState(false)
 
   // Select latest version by default
@@ -64,20 +56,6 @@ export function AppBuilderPage() {
     dispatch(setSelectedVersion(versionId))
     refetchVersions()
   }, [dispatch, refetchVersions])
-
-  const handleVersionSelect = useCallback((versionId: string) => {
-    dispatch(setSelectedVersion(versionId))
-  }, [dispatch])
-
-  const handleRollback = useCallback(async (versionId: string) => {
-    try {
-      const result = await rollback.mutateAsync(versionId)
-      dispatch(setSelectedVersion(result.id))
-      refetchVersions()
-    } catch (error) {
-      console.error('Rollback failed:', error)
-    }
-  }, [rollback, dispatch, refetchVersions])
 
   const handlePublish = async () => {
     if (!appId) return
@@ -209,65 +187,19 @@ export function AppBuilderPage() {
           />
         </div>
 
-        {/* Center Panel - Preview */}
+        {/* Center Panel - Preview/Code */}
         <div className="flex-1 min-w-0">
           <PreviewPanel
             appId={appId!}
             versionId={selectedVersionId}
+            versionFiles={selectedVersion?.files || []}
+            previousVersionFiles={
+              versions && versions.length > 1 && selectedVersion
+                ? versions.find(v => v.version_number === selectedVersion.version_number - 1)?.files
+                : undefined
+            }
             className="h-full"
           />
-        </div>
-
-        {/* Right Panel - Code/Versions */}
-        <div className="w-96 flex-shrink-0 border-l border-gray-200 bg-white flex flex-col">
-          {/* Panel Tabs */}
-          <div className="flex border-b border-gray-200">
-            {[
-              { key: 'code' as RightPanelView, icon: Code2, label: 'Code' },
-              { key: 'versions' as RightPanelView, icon: Clock, label: 'Versions' },
-            ].map(({ key, icon: Icon, label }) => (
-              <button
-                key={key}
-                onClick={() => setRightPanelView(key)}
-                className={cn(
-                  'flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm transition-colors relative',
-                  rightPanelView === key
-                    ? 'text-gray-900'
-                    : 'text-gray-500 hover:text-gray-700'
-                )}
-              >
-                <Icon className="h-4 w-4" />
-                {label}
-                {rightPanelView === key && (
-                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gray-900" />
-                )}
-              </button>
-            ))}
-          </div>
-
-          {/* Panel Content */}
-          <div className="flex-1 overflow-hidden">
-            {rightPanelView === 'code' ? (
-              <CodeEditor
-                files={selectedVersion?.files || []}
-                previousFiles={
-                  versions && versions.length > 1 && selectedVersion
-                    ? versions.find(v => v.version_number === selectedVersion.version_number - 1)?.files
-                    : undefined
-                }
-                readOnly
-                className="h-full"
-              />
-            ) : (
-              <VersionsPanel
-                versions={versions || []}
-                selectedVersionId={selectedVersionId}
-                onVersionSelect={handleVersionSelect}
-                onRollback={handleRollback}
-                className="h-full"
-              />
-            )}
-          </div>
         </div>
       </div>
     </div>

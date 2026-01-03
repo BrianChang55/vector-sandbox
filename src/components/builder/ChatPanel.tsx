@@ -39,7 +39,7 @@ export function ChatPanel({
   const [messages, setMessages] = useState<LocalMessage[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [selectedModel, setSelectedModel] = useState('anthropic/claude-3.5-sonnet')
+  const [selectedModel, setSelectedModel] = useState('anthropic/claude-opus-4')
   const [abortController, setAbortController] = useState<AbortController | null>(null)
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -318,11 +318,10 @@ export function ChatPanel({
             disabled={isLoading}
             className="w-full px-4 py-3 pr-24 bg-white border border-gray-200 rounded-lg
                      text-sm text-gray-900 placeholder-gray-500 resize-none
-                     focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent
-                     disabled:opacity-50"
+                     focus:outline-none disabled:opacity-50"
           />
           
-          <div className="absolute right-2 bottom-2 flex items-center gap-2">
+          <div className="absolute right-3 bottom-4 flex items-center gap-2">
             {isLoading ? (
               <button
                 onClick={handleCancel}

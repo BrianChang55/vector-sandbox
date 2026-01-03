@@ -1,13 +1,13 @@
 /**
  * Settings page - Organization and user settings
  */
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useAppSelector, useAppDispatch } from '../store/hooks'
 import { logout } from '../store/slices/authSlice'
 import { useOrganizations, useUploadOrganizationLogo, useDeleteOrganizationLogo, useUpdateOrganization } from '../hooks/useOrganizations'
 import { Button } from '../components/ui/button'
 import { useDialog } from '../components/ui/dialog-provider'
-import { User, Building2, LogOut, Shield, Bell, Upload, Trash2, Loader2 } from 'lucide-react'
+import { User, Building2, LogOut, Shield, Bell, Upload, Trash2, Loader2, Check } from 'lucide-react'
 import { cn } from '../lib/utils'
 
 type SettingsTab = 'profile' | 'organization' | 'security' | 'notifications'
@@ -18,26 +18,6 @@ const tabs: { id: SettingsTab; label: string; icon: React.ElementType }[] = [
   { id: 'security', label: 'Security', icon: Shield },
   { id: 'notifications', label: 'Notifications', icon: Bell },
 ]
-
-// Debounce hook
-function useDebouncedCallback<T extends (...args: Parameters<T>) => void>(
-  callback: T,
-  delay: number
-): T {
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  
-  return useCallback(
-    ((...args: Parameters<T>) => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current)
-      }
-      timeoutRef.current = setTimeout(() => {
-        callback(...args)
-      }, delay)
-    }) as T,
-    [callback, delay]
-  )
-}
 
 export function SettingsPage() {
   const dispatch = useAppDispatch()
@@ -53,6 +33,8 @@ export function SettingsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [orgName, setOrgName] = useState('')
   const [orgSlug, setOrgSlug] = useState('')
+  const [isOrgSaving, setIsOrgSaving] = useState(false)
+  const [orgSaveSuccess, setOrgSaveSuccess] = useState(false)
 
   const currentOrg = organizations?.find((org) => org.id === selectedOrgId)
 
@@ -78,30 +60,35 @@ export function SettingsPage() {
   // Track if name has changed to avoid unnecessary saves
   const orgNameDirty = useRef(false)
 
-  // Debounced save function (3 seconds)
-  const debouncedSave = useDebouncedCallback(
-    (name: string, slug: string) => {
-      if (selectedOrgId && name.trim() && orgNameDirty.current) {
-        updateOrganization.mutate({ orgId: selectedOrgId, data: { name, slug } })
-        orgNameDirty.current = false
-      }
-    },
-    3000
-  )
-
   const handleOrgNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newName = e.target.value
     const newSlug = generateSlug(newName)
     setOrgName(newName)
     setOrgSlug(newSlug)
     orgNameDirty.current = true
-    debouncedSave(newName, newSlug)
   }
 
-  const handleOrgNameBlur = () => {
+  const handleOrgNameBlur = async () => {
     if (selectedOrgId && orgName.trim() && orgNameDirty.current) {
-      updateOrganization.mutate({ orgId: selectedOrgId, data: { name: orgName, slug: orgSlug } })
-      orgNameDirty.current = false
+      setIsOrgSaving(true)
+      const startTime = Date.now()
+      
+      try {
+        await updateOrganization.mutateAsync({ orgId: selectedOrgId, data: { name: orgName, slug: orgSlug } })
+        orgNameDirty.current = false
+        
+        // Ensure loader shows for at least 1 second
+        const elapsed = Date.now() - startTime
+        const remainingTime = Math.max(0, 400 - elapsed)
+        
+        await new Promise(resolve => setTimeout(resolve, remainingTime))
+        setIsOrgSaving(false)
+        setOrgSaveSuccess(true)
+        setTimeout(() => setOrgSaveSuccess(false), 1500)
+      } catch {
+        setIsOrgSaving(false)
+        // Error handled by mutation
+      }
     }
   }
 
@@ -251,39 +238,14 @@ export function SettingsPage() {
                   </div>
                 </div>
 
-                <div className="space-y-4">
+                <div className="space-y-3">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      First Name
-                    </label>
-                    <input
-                      type="text"
-                      value={user?.first_name || ''}
-                      readOnly
-                      className="w-full px-3 py-2 border border-gray-200 rounded-md bg-gray-50 text-sm text-gray-900"
-                    />
+                    <span className="text-sm text-gray-500">Name</span>
+                    <p className="text-sm text-gray-900">{user?.first_name} {user?.last_name}</p>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Last Name
-                    </label>
-                    <input
-                      type="text"
-                      value={user?.last_name || ''}
-                      readOnly
-                      className="w-full px-3 py-2 border border-gray-200 rounded-md bg-gray-50 text-sm text-gray-900"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Email
-                    </label>
-                    <input
-                      type="email"
-                      value={user?.email || ''}
-                      readOnly
-                      className="w-full px-3 py-2 border border-gray-200 rounded-md bg-gray-50 text-sm text-gray-900"
-                    />
+                    <span className="text-sm text-gray-500">Email</span>
+                    <p className="text-sm text-gray-900">{user?.email}</p>
                   </div>
                 </div>
 
@@ -376,20 +338,35 @@ export function SettingsPage() {
                     
                     <div className="space-y-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Organization Name
-                        </label>
+                        <div className="flex items-center justify-between mb-2.5">
+                          <label className="block text-sm font-medium text-gray-700">
+                            Organization Name
+                          </label>
+                          {isOrgSaving && (
+                            <span className="flex items-center gap-1 text-xs text-gray-500">
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                              Saving...
+                            </span>
+                          )}
+                          {orgSaveSuccess && !isOrgSaving && (
+                            <span className="flex items-center gap-1 text-xs text-green-600">
+                              <Check className="h-3 w-3" />
+                              Saved
+                            </span>
+                          )}
+                        </div>
                         <input
                           type="text"
                           value={orgName}
                           onChange={handleOrgNameChange}
                           onBlur={handleOrgNameBlur}
-                          className="w-full px-3 py-2 border border-gray-200 rounded-md bg-white text-sm text-gray-900 focus:outline-none"
+                          disabled={isOrgSaving}
+                          className="w-full px-3 py-2 border border-gray-200 rounded-md bg-white text-sm text-gray-900 focus:outline-none disabled:opacity-50"
                           placeholder="Organization name"
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                        <label className="block text-sm font-medium text-gray-700 mb-2.5">
                           Slug
                         </label>
                         <input

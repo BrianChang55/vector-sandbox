@@ -18,25 +18,16 @@ interface ModelSelectorProps {
 
 const categoryConfig = {
   premium: {
-    label: 'Premium',
     icon: Sparkles,
     color: 'text-yellow-700',
-    bgColor: 'bg-yellow-50 border-yellow-200',
-    description: 'Best for complex apps',
   },
   standard: {
-    label: 'Standard',
     icon: Zap,
     color: 'text-green-700',
-    bgColor: 'bg-green-50 border-green-200',
-    description: 'Great balance',
   },
   economy: {
-    label: 'Economy',
     icon: DollarSign,
     color: 'text-blue-700',
-    bgColor: 'bg-blue-50 border-blue-200',
-    description: 'Cost effective',
   },
 }
 
@@ -98,24 +89,12 @@ export function ModelSelector({ selectedModel, onModelChange, className = '' }: 
           >
             <div className="p-2 max-h-96 overflow-y-auto">
               {(['premium', 'standard', 'economy'] as const).map((category) => {
-                const config = categoryConfig[category]
                 const categoryModels = grouped[category] || []
-                const Icon = config.icon
 
                 if (categoryModels.length === 0) return null
 
                 return (
-                  <div key={category} className="mb-3 last:mb-0">
-                    <div className={cn('flex items-center gap-2 px-3 py-2 rounded-md mb-1 border', config.bgColor)}>
-                      <Icon className={cn('h-4 w-4', config.color)} />
-                      <span className={cn('text-xs font-semibold uppercase tracking-wider', config.color)}>
-                        {config.label}
-                      </span>
-                      <span className="text-xs text-gray-700 ml-auto">
-                        {config.description}
-                      </span>
-                    </div>
-                    
+                  <div key={category} className="mb-1 last:mb-0">
                     <div className="space-y-0.5">
                       {categoryModels.map((model) => (
                         <button
