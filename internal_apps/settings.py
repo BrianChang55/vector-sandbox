@@ -8,7 +8,7 @@ environ.Env.read_env(BASE_DIR / '.env')
 
 SECRET_KEY = env('DJANGO_SECRET_KEY', default='django-insecure-change-this-in-production')
 DEBUG = env.bool('DEBUG', default=True)
-BASE_URL = env('BASE_URL', default='http://localhost:8000')
+BASE_URL = env('BASE_URL', default='http://localhost:8001')
 
 ALLOWED_HOSTS = ['*']
 
@@ -16,8 +16,8 @@ RENDER_EXTERNAL_HOSTNAME = env('RENDER_EXTERNAL_HOSTNAME', default=None)
 if RENDER_EXTERNAL_HOSTNAME:
     ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
 
-# Custom User Model (uncomment and configure when you create your user model)
-# AUTH_USER_MODEL = 'internal_apps_app.User'
+# Custom User Model
+AUTH_USER_MODEL = 'relay_app.User'
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -28,7 +28,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'corsheaders',
     'rest_framework',
-    # 'internal_apps_app',  # Uncomment when you create your app
+    'relay_app',
 ]
 
 MIDDLEWARE = [
@@ -138,6 +138,18 @@ AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',  # Email/password
 ]
 
+# Google OAuth Configuration
+GOOGLE_OAUTH_CLIENT_ID = env('GOOGLE_OAUTH_CLIENT_ID', default='')
+GOOGLE_OAUTH_CLIENT_SECRET = env('GOOGLE_OAUTH_CLIENT_SECRET', default='')
+GOOGLE_OAUTH_REDIRECT_URI = env('GOOGLE_OAUTH_REDIRECT_URI', default='')
+
+# If no explicit redirect URI is set, auto-generate based on environment
+if not GOOGLE_OAUTH_REDIRECT_URI:
+    if RENDER_EXTERNAL_HOSTNAME:
+        GOOGLE_OAUTH_REDIRECT_URI = f'https://{RENDER_EXTERNAL_HOSTNAME}/api/v1/auth/google/callback'
+    else:
+        GOOGLE_OAUTH_REDIRECT_URI = 'http://localhost:8001/api/v1/auth/google/callback'
+
 # Session Configuration
 SESSION_COOKIE_AGE = 60 * 60 * 24 * 30  # 30 days
 SESSION_EXPIRE_AT_BROWSER_CLOSE = False
@@ -163,12 +175,15 @@ CORS_ALLOWED_ORIGINS = [
     'http://localhost:5173',
     'http://localhost:5174',
     'http://localhost:5175',
+    'http://localhost:5176',
     'https://localhost:3000',
     'https://localhost:3001',
 ]
 
-if env('FRONTEND_URL', default=None):
-    CORS_ALLOWED_ORIGINS.append(env('FRONTEND_URL'))
+FRONTEND_URL = env('FRONTEND_URL', default='http://localhost:5176')
+
+if FRONTEND_URL:
+    CORS_ALLOWED_ORIGINS.append(FRONTEND_URL)
 
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_METHODS = [
@@ -203,6 +218,17 @@ if API_DOMAIN:
 # External API Configuration (configure as needed)
 OPENAI_API_KEY = env('OPENAI_API_KEY', default='')
 MIXPANEL_TOKEN = env('MIXPANEL_TOKEN', default='')
+
+# OpenRouter Configuration for AI Code Generation
+OPENROUTER_API_KEY = env('OPENROUTER_API_KEY', default='')
+OPENROUTER_APP_NAME = env('OPENROUTER_APP_NAME', default='Internal Apps Builder')
+
+# If OpenRouter key not set, fall back to OpenAI key
+if not OPENROUTER_API_KEY and OPENAI_API_KEY:
+    OPENROUTER_API_KEY = OPENAI_API_KEY
+
+# Encryption Key for secrets (generate with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')
+ENCRYPTION_KEY = env('ENCRYPTION_KEY', default=None)
 
 # Sentry Error Tracking
 SENTRY_DSN = env('SENTRY_DSN', default='')

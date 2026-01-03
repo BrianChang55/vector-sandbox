@@ -1,0 +1,649 @@
+"""
+OpenRouter AI Service for Code Generation
+
+Production-ready service supporting multiple AI models via OpenRouter.
+Includes streaming support for live updates (like Cursor, Lovable, Replit).
+"""
+import logging
+import json
+from typing import Dict, Any, List, Optional, Generator, AsyncGenerator
+from dataclasses import dataclass
+from enum import Enum
+import httpx
+from django.conf import settings
+
+logger = logging.getLogger(__name__)
+
+
+class AIModel(Enum):
+    """Available AI models via OpenRouter."""
+    # Claude Models
+    CLAUDE_4_OPUS = "anthropic/claude-sonnet-4"
+    CLAUDE_SONNET_4 = "anthropic/claude-sonnet-4"
+    CLAUDE_3_5_SONNET = "anthropic/claude-3.5-sonnet"
+    CLAUDE_3_5_HAIKU = "anthropic/claude-3.5-haiku"
+    
+    # OpenAI Models
+    GPT_4O = "openai/gpt-4o"
+    GPT_4O_MINI = "openai/gpt-4o-mini"
+    GPT_4_TURBO = "openai/gpt-4-turbo"
+    O1 = "openai/o1"
+    O1_MINI = "openai/o1-mini"
+    O3_MINI = "openai/o3-mini"
+    
+    # Google Models
+    GEMINI_2_FLASH = "google/gemini-2.0-flash-001"
+    GEMINI_2_PRO = "google/gemini-2.0-pro-exp-02-05"
+    GEMINI_1_5_PRO = "google/gemini-pro-1.5"
+    
+    # Deepseek Models
+    DEEPSEEK_R1 = "deepseek/deepseek-r1"
+    DEEPSEEK_CHAT = "deepseek/deepseek-chat"
+    DEEPSEEK_CODER = "deepseek/deepseek-coder"
+    
+    # Qwen Models
+    QWEN_CODER_32B = "qwen/qwen-2.5-coder-32b-instruct"
+    QWEN_72B = "qwen/qwen-2.5-72b-instruct"
+    
+    # Meta Llama
+    LLAMA_3_3_70B = "meta-llama/llama-3.3-70b-instruct"
+    LLAMA_3_1_405B = "meta-llama/llama-3.1-405b-instruct"
+
+
+@dataclass
+class ModelConfig:
+    """Configuration for an AI model."""
+    model_id: str
+    display_name: str
+    description: str
+    context_length: int
+    supports_streaming: bool
+    supports_json_mode: bool
+    cost_per_million_input: float
+    cost_per_million_output: float
+    category: str
+    recommended_for: List[str]
+
+
+# Model configurations
+MODEL_CONFIGS: Dict[str, ModelConfig] = {
+    AIModel.CLAUDE_4_OPUS.value: ModelConfig(
+        model_id=AIModel.CLAUDE_4_OPUS.value,
+        display_name="Claude Sonnet 4",
+        description="Most capable Claude model for complex coding tasks",
+        context_length=200000,
+        supports_streaming=True,
+        supports_json_mode=True,
+        cost_per_million_input=3.0,
+        cost_per_million_output=15.0,
+        category="premium",
+        recommended_for=["complex_apps", "refactoring", "debugging"],
+    ),
+    AIModel.CLAUDE_3_5_SONNET.value: ModelConfig(
+        model_id=AIModel.CLAUDE_3_5_SONNET.value,
+        display_name="Claude 3.5 Sonnet",
+        description="Best balance of speed and capability",
+        context_length=200000,
+        supports_streaming=True,
+        supports_json_mode=True,
+        cost_per_million_input=3.0,
+        cost_per_million_output=15.0,
+        category="standard",
+        recommended_for=["general_coding", "ui_generation"],
+    ),
+    AIModel.GPT_4O.value: ModelConfig(
+        model_id=AIModel.GPT_4O.value,
+        display_name="GPT-4o",
+        description="OpenAI's most capable model",
+        context_length=128000,
+        supports_streaming=True,
+        supports_json_mode=True,
+        cost_per_million_input=2.5,
+        cost_per_million_output=10.0,
+        category="standard",
+        recommended_for=["general_coding", "api_design"],
+    ),
+    AIModel.GPT_4O_MINI.value: ModelConfig(
+        model_id=AIModel.GPT_4O_MINI.value,
+        display_name="GPT-4o Mini",
+        description="Fast and cost-effective for simple tasks",
+        context_length=128000,
+        supports_streaming=True,
+        supports_json_mode=True,
+        cost_per_million_input=0.15,
+        cost_per_million_output=0.6,
+        category="economy",
+        recommended_for=["quick_edits", "simple_components"],
+    ),
+    AIModel.DEEPSEEK_R1.value: ModelConfig(
+        model_id=AIModel.DEEPSEEK_R1.value,
+        display_name="DeepSeek R1",
+        description="Powerful reasoning model for complex tasks",
+        context_length=64000,
+        supports_streaming=True,
+        supports_json_mode=True,
+        cost_per_million_input=0.55,
+        cost_per_million_output=2.19,
+        category="economy",
+        recommended_for=["reasoning", "algorithms", "debugging"],
+    ),
+    AIModel.DEEPSEEK_CODER.value: ModelConfig(
+        model_id=AIModel.DEEPSEEK_CODER.value,
+        display_name="DeepSeek Coder",
+        description="Specialized for code generation",
+        context_length=64000,
+        supports_streaming=True,
+        supports_json_mode=True,
+        cost_per_million_input=0.14,
+        cost_per_million_output=0.28,
+        category="economy",
+        recommended_for=["code_generation", "completions"],
+    ),
+    AIModel.QWEN_CODER_32B.value: ModelConfig(
+        model_id=AIModel.QWEN_CODER_32B.value,
+        display_name="Qwen 2.5 Coder 32B",
+        description="Excellent coding model with great price-performance",
+        context_length=32768,
+        supports_streaming=True,
+        supports_json_mode=True,
+        cost_per_million_input=0.18,
+        cost_per_million_output=0.18,
+        category="economy",
+        recommended_for=["code_generation", "refactoring"],
+    ),
+    AIModel.GEMINI_2_FLASH.value: ModelConfig(
+        model_id=AIModel.GEMINI_2_FLASH.value,
+        display_name="Gemini 2.0 Flash",
+        description="Google's fastest model with great capabilities",
+        context_length=1000000,
+        supports_streaming=True,
+        supports_json_mode=True,
+        cost_per_million_input=0.1,
+        cost_per_million_output=0.4,
+        category="economy",
+        recommended_for=["large_context", "quick_edits"],
+    ),
+    AIModel.O3_MINI.value: ModelConfig(
+        model_id=AIModel.O3_MINI.value,
+        display_name="o3-mini",
+        description="OpenAI's advanced reasoning model",
+        context_length=200000,
+        supports_streaming=True,
+        supports_json_mode=True,
+        cost_per_million_input=1.1,
+        cost_per_million_output=4.4,
+        category="premium",
+        recommended_for=["complex_reasoning", "architecture"],
+    ),
+}
+
+
+@dataclass
+class StreamChunk:
+    """Chunk of streaming response."""
+    type: str  # 'content', 'thinking', 'error', 'done'
+    content: str
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class OpenRouterService:
+    """
+    Production-ready AI service using OpenRouter.
+    
+    Features:
+    - Multi-model support with automatic routing
+    - Streaming responses for real-time updates
+    - Structured JSON output for AppSpec generation
+    - Error handling and retries
+    - Cost tracking
+    """
+    
+    OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+    
+    def __init__(self):
+        self.api_key = getattr(settings, 'OPENROUTER_API_KEY', None)
+        if not self.api_key:
+            # Fall back to OpenAI key if OpenRouter not set
+            self.api_key = getattr(settings, 'OPENAI_API_KEY', None)
+            if self.api_key:
+                logger.info("Using OpenAI API key for OpenRouter (fallback mode)")
+        
+        self.app_name = getattr(settings, 'OPENROUTER_APP_NAME', 'Internal Apps Builder')
+        self.site_url = getattr(settings, 'BASE_URL', 'http://localhost:8001')
+    
+    def get_available_models(self) -> List[Dict[str, Any]]:
+        """Get list of available models with their configurations."""
+        return [
+            {
+                "id": config.model_id,
+                "name": config.display_name,
+                "description": config.description,
+                "category": config.category,
+                "context_length": config.context_length,
+                "supports_streaming": config.supports_streaming,
+                "recommended_for": config.recommended_for,
+                "cost": {
+                    "input": config.cost_per_million_input,
+                    "output": config.cost_per_million_output,
+                },
+            }
+            for config in MODEL_CONFIGS.values()
+        ]
+    
+    def _build_headers(self) -> Dict[str, str]:
+        """Build request headers for OpenRouter."""
+        return {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": self.site_url,
+            "X-Title": self.app_name,
+        }
+    
+    def _build_system_prompt(
+        self,
+        registry_surface: Dict[str, Any],
+        mode: str = "appspec"
+    ) -> str:
+        """Build system prompt based on mode."""
+        
+        resources_text = ""
+        if registry_surface.get('resources'):
+            resources_text = "\n".join([
+                f"- {r['resource_id']}: {r['resource_name']} (fields: {', '.join(r.get('exposed_fields', []))})"
+                for r in registry_surface.get('resources', [])
+            ])
+        
+        if mode == "appspec":
+            return f"""You are an expert internal application builder. You generate AppSpec JSON that describes internal apps.
+
+IMPORTANT: Generated apps must call the Relay Runtime API for all data operations:
+- Use runtimeQuery() for reads
+- Use runtimeAction() for mutations
+- Never call Supabase or any backend directly
+
+Available Resources:
+{resources_text if resources_text else "No resources connected yet - generate a placeholder UI"}
+
+AppSpec JSON Schema:
+{{
+  "appName": "string",
+  "pages": [{{
+    "id": "string",
+    "title": "string", 
+    "layout": "table_detail_drawer" | "tabbed_views" | "dashboard" | "form" | "kanban",
+    "primaryResource": "resource_id",
+    "view": {{
+      "table": {{
+        "columns": [{{"field": "string", "label": "string", "type": "text|number|date|badge|avatar"}}],
+        "filterableFields": ["string"],
+        "searchableFields": ["string"],
+        "sort": {{"field": "string", "dir": "asc"|"desc"}},
+        "pagination": {{"pageSize": number}},
+        "rowActions": [{{"label": "string", "actionId": "string", "confirm": boolean, "variant": "default|destructive"}}],
+        "bulkActions": [{{"label": "string", "actionId": "string", "confirm": boolean}}]
+      }},
+      "detailDrawer": {{
+        "titleField": "string",
+        "sections": [{{
+          "title": "string",
+          "fields": [{{"field": "string", "label": "string", "readOnly": boolean, "type": "text|textarea|select|date"}}]
+        }}],
+        "actions": [{{"label": "string", "actionId": "string", "confirm": boolean}}]
+      }},
+      "stats": [{{
+        "label": "string",
+        "value": "string",
+        "change": "string",
+        "trend": "up|down|neutral"
+      }}]
+    }}
+  }}]
+}}
+
+Rules:
+1. Only reference resources/fields from the available list
+2. Only reference actionIds from allowed_actions
+3. Generate complete, valid JSON
+4. Design modern, professional UIs
+5. Include helpful labels and sensible defaults"""
+
+        elif mode == "code":
+            return f"""You are an expert React/TypeScript developer. You generate production-quality code for internal applications.
+
+Tech Stack:
+- React 18+ with TypeScript
+- TailwindCSS for styling
+- Lucide React for icons
+- Framer Motion for animations
+- React Query for data fetching
+
+Available Resources:
+{resources_text if resources_text else "No resources connected - use placeholder data"}
+
+Runtime API (MUST use for all data operations):
+```typescript
+import {{ runtimeQuery, runtimeAction }} from '../lib/runtimeClient';
+
+// Query data
+const result = await runtimeQuery({{
+  appId: string,
+  versionId: string,
+  resourceId: string,
+  querySpec: {{
+    select: string[],
+    filters: Array<{{ field: string, op: string, value: any }}>,
+    orderBy: Array<{{ field: string, dir: 'asc' | 'desc' }}>,
+    limit: number,
+    offset: number
+  }}
+}});
+
+// Execute action
+const result = await runtimeAction({{
+  appId: string,
+  versionId: string,
+  actionId: string,
+  args: Record<string, any>
+}});
+```
+
+Guidelines:
+1. Generate clean, modular code
+2. Use TypeScript types properly
+3. Handle loading and error states
+4. Make responsive designs
+5. Include helpful comments
+6. Follow React best practices"""
+
+        return "You are a helpful AI coding assistant."
+    
+    def generate_app_spec(
+        self,
+        intent_message: str,
+        current_spec: Optional[Dict[str, Any]],
+        registry_surface: Dict[str, Any],
+        model: str = AIModel.CLAUDE_3_5_SONNET.value,
+    ) -> Dict[str, Any]:
+        """
+        Generate AppSpec JSON from user intent (non-streaming).
+        
+        Args:
+            intent_message: User's intent/prompt
+            current_spec: Current AppSpec (if editing)
+            registry_surface: Sanitized registry data
+            model: Model ID to use
+            
+        Returns:
+            AppSpec JSON dictionary
+        """
+        if not self.api_key:
+            raise ValueError("OpenRouter/OpenAI API key not configured")
+        
+        system_prompt = self._build_system_prompt(registry_surface, mode="appspec")
+        
+        user_prompt = self._build_user_prompt(intent_message, current_spec)
+        
+        try:
+            with httpx.Client(timeout=120.0) as client:
+                response = client.post(
+                    self.OPENROUTER_API_URL,
+                    headers=self._build_headers(),
+                    json={
+                        "model": model,
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt},
+                        ],
+                        "response_format": {"type": "json_object"},
+                        "temperature": 0.3,
+                    },
+                )
+                response.raise_for_status()
+                
+                result = response.json()
+                content = result["choices"][0]["message"]["content"]
+                spec_json = json.loads(content)
+                
+                # Validate basic structure
+                if not isinstance(spec_json, dict) or 'appName' not in spec_json:
+                    raise ValueError("Invalid AppSpec structure")
+                
+                return spec_json
+                
+        except Exception as e:
+            logger.error(f"Error generating AppSpec: {e}")
+            raise
+    
+    def generate_app_spec_streaming(
+        self,
+        intent_message: str,
+        current_spec: Optional[Dict[str, Any]],
+        registry_surface: Dict[str, Any],
+        chat_history: Optional[List[Dict[str, str]]] = None,
+        model: str = AIModel.CLAUDE_3_5_SONNET.value,
+    ) -> Generator[StreamChunk, None, None]:
+        """
+        Generate AppSpec with streaming response.
+        
+        Yields StreamChunk objects for real-time updates.
+        """
+        if not self.api_key:
+            yield StreamChunk(type="error", content="API key not configured")
+            return
+        
+        system_prompt = self._build_system_prompt(registry_surface, mode="appspec")
+        
+        messages = [{"role": "system", "content": system_prompt}]
+        
+        # Add chat history if provided
+        if chat_history:
+            for msg in chat_history[-10:]:  # Last 10 messages for context
+                messages.append({
+                    "role": msg.get("role", "user"),
+                    "content": msg.get("content", ""),
+                })
+        
+        # Add current request
+        user_prompt = self._build_user_prompt(intent_message, current_spec)
+        messages.append({"role": "user", "content": user_prompt})
+        
+        try:
+            with httpx.Client(timeout=120.0) as client:
+                with client.stream(
+                    "POST",
+                    self.OPENROUTER_API_URL,
+                    headers=self._build_headers(),
+                    json={
+                        "model": model,
+                        "messages": messages,
+                        "response_format": {"type": "json_object"},
+                        "temperature": 0.3,
+                        "stream": True,
+                    },
+                ) as response:
+                    response.raise_for_status()
+                    
+                    full_content = ""
+                    for line in response.iter_lines():
+                        if not line:
+                            continue
+                        
+                        if line.startswith("data: "):
+                            data = line[6:]
+                            if data == "[DONE]":
+                                break
+                            
+                            try:
+                                chunk_data = json.loads(data)
+                                delta = chunk_data.get("choices", [{}])[0].get("delta", {})
+                                content = delta.get("content", "")
+                                
+                                if content:
+                                    full_content += content
+                                    yield StreamChunk(
+                                        type="content",
+                                        content=content,
+                                        metadata={"accumulated": len(full_content)},
+                                    )
+                            except json.JSONDecodeError:
+                                continue
+                    
+                    # Parse final JSON
+                    try:
+                        spec_json = json.loads(full_content)
+                        yield StreamChunk(
+                            type="done",
+                            content="",
+                            metadata={"spec_json": spec_json},
+                        )
+                    except json.JSONDecodeError as e:
+                        yield StreamChunk(
+                            type="error",
+                            content=f"Failed to parse response as JSON: {str(e)}",
+                            metadata={"raw_content": full_content},
+                        )
+                        
+        except httpx.HTTPStatusError as e:
+            yield StreamChunk(
+                type="error",
+                content=f"API error: {e.response.status_code}",
+            )
+        except Exception as e:
+            logger.error(f"Streaming error: {e}")
+            yield StreamChunk(type="error", content=str(e))
+    
+    def generate_code_streaming(
+        self,
+        intent_message: str,
+        current_files: Optional[Dict[str, str]],
+        registry_surface: Dict[str, Any],
+        chat_history: Optional[List[Dict[str, str]]] = None,
+        model: str = AIModel.CLAUDE_3_5_SONNET.value,
+    ) -> Generator[StreamChunk, None, None]:
+        """
+        Generate code files with streaming response.
+        
+        For direct code generation (bypassing AppSpec when user wants raw code).
+        """
+        if not self.api_key:
+            yield StreamChunk(type="error", content="API key not configured")
+            return
+        
+        system_prompt = self._build_system_prompt(registry_surface, mode="code")
+        
+        messages = [{"role": "system", "content": system_prompt}]
+        
+        if chat_history:
+            for msg in chat_history[-10:]:
+                messages.append({
+                    "role": msg.get("role", "user"),
+                    "content": msg.get("content", ""),
+                })
+        
+        # Build user prompt with current code context
+        user_prompt = f"Request: {intent_message}\n\n"
+        if current_files:
+            user_prompt += "Current files:\n"
+            for path, content in current_files.items():
+                user_prompt += f"\n--- {path} ---\n{content[:2000]}...\n"
+        
+        user_prompt += "\nGenerate the requested code changes. Wrap each file in ```filepath:path/to/file.tsx blocks."
+        messages.append({"role": "user", "content": user_prompt})
+        
+        try:
+            with httpx.Client(timeout=180.0) as client:
+                with client.stream(
+                    "POST",
+                    self.OPENROUTER_API_URL,
+                    headers=self._build_headers(),
+                    json={
+                        "model": model,
+                        "messages": messages,
+                        "temperature": 0.3,
+                        "stream": True,
+                    },
+                ) as response:
+                    response.raise_for_status()
+                    
+                    full_content = ""
+                    for line in response.iter_lines():
+                        if not line:
+                            continue
+                        
+                        if line.startswith("data: "):
+                            data = line[6:]
+                            if data == "[DONE]":
+                                break
+                            
+                            try:
+                                chunk_data = json.loads(data)
+                                delta = chunk_data.get("choices", [{}])[0].get("delta", {})
+                                content = delta.get("content", "")
+                                
+                                if content:
+                                    full_content += content
+                                    yield StreamChunk(type="content", content=content)
+                            except json.JSONDecodeError:
+                                continue
+                    
+                    # Parse files from response
+                    files = self._parse_code_blocks(full_content)
+                    yield StreamChunk(
+                        type="done",
+                        content="",
+                        metadata={"files": files},
+                    )
+                        
+        except Exception as e:
+            logger.error(f"Code generation error: {e}")
+            yield StreamChunk(type="error", content=str(e))
+    
+    def _build_user_prompt(
+        self,
+        intent_message: str,
+        current_spec: Optional[Dict[str, Any]]
+    ) -> str:
+        """Build user prompt with context."""
+        if current_spec:
+            return f"""Current AppSpec:
+{json.dumps(current_spec, indent=2)}
+
+User Request: {intent_message}
+
+Generate an updated AppSpec JSON that addresses the request. Return ONLY valid JSON."""
+        else:
+            return f"""User Request: {intent_message}
+
+Generate an AppSpec JSON for a new internal app. Return ONLY valid JSON."""
+    
+    def _parse_code_blocks(self, content: str) -> Dict[str, str]:
+        """Parse code blocks from response into file dict."""
+        import re
+        
+        files = {}
+        
+        # Match ```filepath:path/to/file.ext or ```path/to/file.ext
+        pattern = r'```(?:filepath:)?([^\n`]+)\n(.*?)```'
+        matches = re.findall(pattern, content, re.DOTALL)
+        
+        for filepath, code in matches:
+            filepath = filepath.strip()
+            # Clean up filepath
+            if filepath.startswith(('tsx', 'ts', 'js', 'jsx', 'css', 'json')):
+                continue  # Skip language-only markers
+            files[filepath] = code.strip()
+        
+        return files
+
+
+# Singleton instance
+_openrouter_service: Optional[OpenRouterService] = None
+
+
+def get_openrouter_service() -> OpenRouterService:
+    """Get singleton OpenRouter service instance."""
+    global _openrouter_service
+    if _openrouter_service is None:
+        _openrouter_service = OpenRouterService()
+    return _openrouter_service
+
