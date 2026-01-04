@@ -14,7 +14,6 @@ import {
   Sparkles,
   CheckCircle,
   XCircle,
-  StopCircle,
   Lightbulb,
   FileCode2,
   ChevronDown,
@@ -581,6 +580,14 @@ export function AgenticChatPanel({
     })
   }
 
+  const handleSendClick = () => {
+    if (isLoading) {
+      handleCancel()
+    } else {
+      handleSubmit()
+    }
+  }
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
@@ -621,10 +628,6 @@ export function AgenticChatPanel({
           </div>
           <span className="text-sm font-semibold text-gray-900">Agent</span>
         </div>
-        <ModelSelector
-          selectedModel={selectedModel}
-          onModelChange={setSelectedModel}
-        />
       </div>
 
       {/* Messages */}
@@ -745,51 +748,48 @@ export function AgenticChatPanel({
       </div>
 
       {/* Input area */}
-      <div className="border-t border-gray-200 bg-white">
-        <div className="max-w-3xl mx-auto px-4 py-4">
-          <div className="relative">
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Describe what you want to build..."
-              rows={1}
-              disabled={isLoading}
-              className="w-full px-4 py-3 pr-14 bg-gray-50 border border-gray-200 rounded-xl
-                       text-sm text-gray-900 placeholder-gray-500 resize-none
-                       focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent
-                       focus:bg-white disabled:opacity-50 transition-all"
-              style={{ minHeight: '48px', maxHeight: '120px' }}
-              onInput={(e) => {
-                const target = e.target as HTMLTextAreaElement
-                target.style.height = 'auto'
-                target.style.height = Math.min(target.scrollHeight, 120) + 'px'
-              }}
-            />
+      <div className="border-t border-gray-200 bg-gray-50">
+        <div className="max-w-3xl mx-auto px-4 py-5">
+          <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
+            <div className="px-4 pt-4">
+              <textarea
+                ref={inputRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Describe what you want to build..."
+                rows={1}
+                disabled={isLoading}
+                className="w-full bg-transparent border-none text-sm text-gray-900 placeholder-gray-500 resize-none
+                           focus:outline-none focus:ring-0 disabled:opacity-60"
+                style={{ minHeight: '48px', maxHeight: '140px' }}
+                onInput={(e) => {
+                  const target = e.target as HTMLTextAreaElement
+                  target.style.height = 'auto'
+                  target.style.height = Math.min(target.scrollHeight, 140) + 'px'
+                }}
+              />
+            </div>
 
-            <div className="absolute right-2 bottom-2">
-              {isLoading ? (
-                <button
-                  onClick={handleCancel}
-                  className="p-2 bg-red-50 hover:bg-red-100 border border-red-200 
-                           rounded-lg transition-colors"
-                  title="Stop generation"
-                >
-                  <StopCircle className="h-4 w-4 text-red-700" />
-                </button>
-              ) : (
-                <button
-                  onClick={handleSubmit}
-                  disabled={!input.trim()}
-                  className="p-2 bg-gray-900 hover:bg-gray-800
-                           disabled:opacity-30 disabled:cursor-not-allowed 
-                           rounded-lg transition-colors"
-                  title="Send message"
-                >
-                  <Send className="h-4 w-4 text-white" />
-                </button>
-              )}
+            <div className="mt-3 flex items-center justify-between gap-3 border-t border-gray-100 px-4 py-3 bg-white rounded-b-2xl">
+              <ModelSelector
+                selectedModel={selectedModel}
+                onModelChange={setSelectedModel}
+                className="min-w-[220px]"
+              />
+              <button
+                onClick={handleSendClick}
+                disabled={!isLoading && !input.trim()}
+                className="inline-flex items-center justify-center h-10 w-10 rounded-full bg-gray-900 text-white
+                           hover:bg-gray-800 disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-sm"
+                title={isLoading ? 'Stop generation' : 'Send message'}
+              >
+                {isLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+              </button>
             </div>
           </div>
         </div>

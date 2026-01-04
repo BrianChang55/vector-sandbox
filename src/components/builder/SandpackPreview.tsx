@@ -4,7 +4,7 @@
  * Live React app runtime using CodeSandbox's Sandpack bundler.
  * Renders generated React code in a sandboxed iframe with hot reloading.
  */
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useRef } from 'react'
 import {
   SandpackProvider,
   SandpackPreview as SandpackPreviewPane,
@@ -14,7 +14,6 @@ import {
 } from '@codesandbox/sandpack-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Play,
   RefreshCw,
   Monitor,
   Code2,
@@ -303,6 +302,8 @@ function convertToSandpackFiles(
 function PreviewStatus() {
   const { sandpack } = useSandpack()
   const { status } = sandpack
+  const [showLoading, setShowLoading] = useState(false)
+  const loadingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const statusConfig: Record<string, { icon: typeof CheckCircle2; label: string; color: string; animate?: boolean }> = {
     idle: { icon: CheckCircle2, label: 'Ready', color: 'text-green-600' },
@@ -311,7 +312,33 @@ function PreviewStatus() {
     done: { icon: CheckCircle2, label: 'Ready', color: 'text-green-600' },
   }
 
-  const config = statusConfig[status] || statusConfig.idle
+  useEffect(() => {
+    if (status === 'running') {
+      setShowLoading(true)
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current)
+      }
+      loadingTimeoutRef.current = setTimeout(() => {
+        setShowLoading(false)
+      }, 2000)
+    } else {
+      setShowLoading(false)
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current)
+        loadingTimeoutRef.current = null
+      }
+    }
+
+    return () => {
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current)
+        loadingTimeoutRef.current = null
+      }
+    }
+  }, [status])
+
+  const displayStatus = showLoading ? 'running' : 'done'
+  const config = statusConfig[displayStatus] || statusConfig.idle
   const Icon = config.icon
 
   return (
@@ -383,70 +410,128 @@ function RefreshButton() {
   )
 }
 
-// Save button that saves files to the backend
-function SaveButton({ versionId, onSave }: { versionId: string; onSave?: () => void }) {
-  const { sandpack } = useSandpack()
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
+// Normalize Sandpack files into backend payload
+function toBackendFiles(
+  sandpackFiles: Record<string, { code: string }>
+): { path: string; content: string }[] {
+  return Object.entries(sandpackFiles)
+    .map(([path, file]) => ({
+      path: path.startsWith('/') ? path.slice(1) : path,
+      content: file.code || '',
+    }))
+    .filter((f) => {
+      if (!f.content.trim()) return false
+      if (f.path === 'public/index.html') return false
+      if (f.path === 'package.json' || f.path === 'tsconfig.json') return false
+      return /\.(tsx|ts|css|json)$/.test(f.path)
+    })
+    .map((f) => ({
+      path: f.path.startsWith('src/') ? f.path : `src/${f.path}`,
+      content: f.content,
+    }))
+}
 
-  const handleSave = async () => {
-    if (!versionId || saving) return
-    
-    setSaving(true)
-    try {
-      // Get all files from Sandpack
-      const files = Object.entries(sandpack.files).map(([path, file]) => ({
-        path: path.startsWith('/') ? path.slice(1) : path,
-        content: (file as { code: string }).code || '',
-      }))
-      
-      // Persist only code files and normalize back to backend's src/* convention
-      const backendFiles = files
-        .filter(f => {
-          if (!f.content.trim()) return false
-          if (f.path === 'public/index.html') return false
-          if (f.path === 'package.json' || f.path === 'tsconfig.json') return false
-          // Save typical source files
-          return /\.(tsx|ts|css|json)$/.test(f.path)
-        })
-        .map(f => ({
-          // Sandpack is root-based; backend expects src/*
-          path: f.path.startsWith('src/') ? f.path : `src/${f.path}`,
-          content: f.content,
-        }))
-      
-      await api.post(`/versions/${versionId}/save-files/`, { files: backendFiles })
-      setSaved(true)
-      setTimeout(() => setSaved(false), 2000)
-      onSave?.()
-    } catch (error) {
-      console.error('Save error:', error)
-    } finally {
-      setSaving(false)
+// Autosave edits to backend with debounce
+function AutoSave({ versionId, resetKey }: { versionId: string; resetKey?: string }) {
+  const { sandpack } = useSandpack()
+  const [status, setStatus] = useState<'idle' | 'pending' | 'saving' | 'saved' | 'error'>('idle')
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastSavedHashRef = useRef<string>('')
+
+  const currentHash = useMemo(
+    () => hashSandpackRuntimeFiles(sandpack.files as Record<string, unknown>),
+    [sandpack.files]
+  )
+
+  // Reset tracking when switching versions or when parent signals a new baseline (e.g., new files set)
+  useEffect(() => {
+    lastSavedHashRef.current = hashSandpackRuntimeFiles(
+      sandpack.files as Record<string, unknown>
+    )
+    setStatus('idle')
+    setErrorMessage(null)
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current)
+      saveTimeoutRef.current = null
     }
+  }, [versionId, resetKey])
+
+  useEffect(() => {
+    if (!versionId) return
+    if (currentHash === lastSavedHashRef.current) return
+
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current)
+    }
+
+    setStatus('pending')
+
+    saveTimeoutRef.current = setTimeout(async () => {
+      setStatus('saving')
+      try {
+        const backendFiles = toBackendFiles(
+          sandpack.files as Record<string, { code: string }>
+        )
+
+        if (backendFiles.length === 0) {
+          lastSavedHashRef.current = currentHash
+          setStatus('saved')
+          setTimeout(() => setStatus('idle'), 1200)
+          return
+        }
+
+        await api.post(`/versions/${versionId}/save-files/`, { files: backendFiles })
+        lastSavedHashRef.current = currentHash
+        setStatus('saved')
+        setErrorMessage(null)
+        setTimeout(() => setStatus('idle'), 1200)
+      } catch (error) {
+        console.error('Autosave error:', error)
+        setStatus('error')
+        setErrorMessage((error as Error).message)
+      }
+    }, 1200)
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current)
+        saveTimeoutRef.current = null
+      }
+    }
+  }, [currentHash, versionId, sandpack.files])
+
+  const labelByStatus: Record<typeof status, { text: string; className: string }> = {
+    idle: { text: '', className: 'text-gray-500' },
+    pending: { text: 'Pending...', className: 'text-amber-600' },
+    saving: { text: 'Saving…', className: 'text-amber-600' },
+    saved: { text: 'Saved', className: 'text-green-700' },
+    error: { text: 'Save failed', className: 'text-red-600' },
   }
 
+  const { text, className } = labelByStatus[status]
+
   return (
-    <button
-      onClick={handleSave}
-      disabled={saving || !versionId}
-      className={cn(
-        'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
-        saved
-          ? 'bg-green-100 text-green-700'
-          : 'bg-gray-900 text-white hover:bg-gray-800 disabled:opacity-50'
-      )}
-      title="Save changes"
-    >
-      {saving ? (
-        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-      ) : saved ? (
-        <CheckCircle2 className="h-3.5 w-3.5" />
+    <div className={cn('text-xs', className)} title={errorMessage || text}>
+      {status === 'saving' ? (
+        <span className="inline-flex items-center gap-1">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          {text}
+        </span>
+      ) : status === 'error' ? (
+        <span className="inline-flex items-center gap-1">
+          <AlertCircle className="h-3.5 w-3.5" />
+          {text}
+        </span>
+      ) : status === 'saved' ? (
+        <span className="inline-flex items-center gap-1">
+          <CheckCircle2 className="h-3.5 w-3.5" />
+          {text}
+        </span>
       ) : (
-        <Play className="h-3.5 w-3.5" />
+        text
       )}
-      {saving ? 'Saving...' : saved ? 'Saved!' : 'Save'}
-    </button>
+    </div>
   )
 }
 
@@ -544,9 +629,8 @@ export function SandpackPreview({
             <PreviewStatus />
           </div>
 
-          <div className="flex items-center gap-2">
-            <SaveButton versionId={versionId} />
-            
+          <div className="flex items-center gap-3">
+            <AutoSave versionId={versionId} resetKey={filesKey} />
             <div className="flex items-center gap-1">
             <button
               onClick={() => setShowConsole(!showConsole)}
@@ -654,7 +738,7 @@ export function SandpackPreview({
                         text-[10px] text-gray-500">
             <span>{files.length} files generated</span>
             <span className="flex items-center gap-1">
-              <Play className="h-2.5 w-2.5" />
+              <Eye className="h-2.5 w-2.5" />
               Live Preview
             </span>
           </div>
