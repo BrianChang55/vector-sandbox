@@ -17,6 +17,7 @@ import { AppsPage } from './pages/AppsPage'
 import { AppBuilderPage } from './pages/AppBuilderPage'
 import { ResourcesPage } from './pages/ResourcesPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { AppPreviewPage } from './pages/AppPreviewPage'
 
 function App() {
   return (
@@ -49,6 +50,14 @@ function App() {
               element={
                 <AuthGuard>
                   <AppBuilderPage />
+                </AuthGuard>
+              }
+            />
+            <Route
+              path="/preview/apps/:appId"
+              element={
+                <AuthGuard>
+                  <AppPreviewPage />
                 </AuthGuard>
               }
             />

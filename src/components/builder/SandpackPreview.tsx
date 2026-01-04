@@ -357,6 +357,18 @@ function PreviewStatus() {
   )
 }
 
+function StartupLoadingOverlay({ show }: { show: boolean }) {
+  if (!show) return null
+  return (
+    <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/80 backdrop-blur-[1px]">
+      <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 shadow-sm">
+        <Loader2 className="h-4 w-4 animate-spin text-gray-700" />
+        <span className="text-xs font-medium text-gray-700">Preparing preview…</span>
+      </div>
+    </div>
+  )
+}
+
 function AutoRunPreview({ filesKey }: { filesKey: string }) {
   const { sandpack } = useSandpack()
 
@@ -712,6 +724,7 @@ export function SandpackPreview({
   const [viewMode, setViewMode] = useState<ViewMode>('preview')
   const [showConsole, setShowConsole] = useState(false)
   const filesKey = useMemo(() => hashFiles(files), [files])
+  const [showStartupLoading, setShowStartupLoading] = useState(true)
   
   // Track file count to know when to reset Sandpack
   // Only reset when file count changes (new generation) or versionId changes
@@ -753,6 +766,12 @@ export function SandpackPreview({
     const keys = Object.keys(filesToUse)
     return keys[0] || '/App.tsx'
   }, [filesToUse])
+
+  useEffect(() => {
+    setShowStartupLoading(true)
+    const t = window.setTimeout(() => setShowStartupLoading(false), 3000)
+    return () => window.clearTimeout(t)
+  }, [filesKey])
 
   return (
     <div
@@ -851,13 +870,18 @@ export function SandpackPreview({
         {/* Content - fills remaining space (Sandpack editor needs explicit full-height wrappers) */}
         <div className="flex-1 min-h-0 overflow-hidden">
           {viewMode === 'preview' && (
-            <div className="h-full min-h-0 overflow-auto">
+            <div className="relative h-full min-h-0 overflow-auto">
+              <StartupLoadingOverlay show={showStartupLoading} />
               <SandpackPreviewPane
                 className="h-full"
                 showNavigator={false}
                 showRefreshButton={false}
                 showOpenInCodeSandbox={false}
-                style={{ height: '100%', width: '100%' }}
+                style={{
+                  height: '100%',
+                  width: '100%',
+                  visibility: showStartupLoading ? 'hidden' : 'visible',
+                }}
               />
             </div>
           )}
@@ -902,13 +926,18 @@ export function SandpackPreview({
                 </div>
               </div>
               <div className="w-1/2 h-full min-h-0 flex flex-col overflow-hidden">
-                <div className="flex-1 min-h-0 overflow-auto">
+                <div className="relative flex-1 min-h-0 overflow-auto">
+                  <StartupLoadingOverlay show={showStartupLoading} />
                   <SandpackPreviewPane
                     className="h-full"
                     showNavigator={false}
                     showRefreshButton={false}
                     showOpenInCodeSandbox={false}
-                    style={{ height: '100%', width: '100%' }}
+                    style={{
+                      height: '100%',
+                      width: '100%',
+                      visibility: showStartupLoading ? 'hidden' : 'visible',
+                    }}
                   />
                 </div>
               </div>

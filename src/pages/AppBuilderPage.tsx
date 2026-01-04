@@ -177,7 +177,8 @@ export function AppBuilderPage() {
             className="gap-1.5 text-xs"
             onClick={() => {
               if (selectedVersion) {
-                window.open(`/preview/apps/${appId}?version=${selectedVersion.id}`, '_blank')
+                const previewPageUrl = `/preview/apps/${appId}?version=${selectedVersion.id}`
+                window.open(previewPageUrl, '_blank')
               }
             }}
             disabled={!selectedVersion}

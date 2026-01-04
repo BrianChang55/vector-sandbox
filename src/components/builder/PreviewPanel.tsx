@@ -48,7 +48,8 @@ export function PreviewPanel({
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  const previewUrl = versionId ? buildPreviewUrl(appId, versionId) : null
+  // If no versionId, backend will serve latest version
+  const previewUrl = buildPreviewUrl(appId, versionId || undefined)
 
   const handleRefresh = () => {
     if (iframeRef.current && previewUrl) {
