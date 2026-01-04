@@ -53,7 +53,9 @@ const DEFAULT_FILES = {
   <div id="root"></div>
 </body>
 </html>`,
-  '/src/index.tsx': `import React from 'react';
+  // Sandpack's react-ts template uses root entrypoints (/index.tsx, /App.tsx, /styles.css).
+  // We keep backend-stored paths under src/, but normalize them into this structure for preview.
+  '/index.tsx': `import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import './styles.css';
@@ -63,7 +65,7 @@ if (container) {
   const root = createRoot(container);
   root.render(<App />);
 }`,
-  '/src/styles.css': `@tailwind base;
+  '/styles.css': `@tailwind base;
 @tailwind components;
 @tailwind utilities;
 
@@ -71,7 +73,7 @@ body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }`,
-  '/src/App.tsx': `import React from 'react';
+  '/App.tsx': `import React from 'react';
 import { Sparkles } from 'lucide-react';
 
 export default function App() {
@@ -87,7 +89,7 @@ export default function App() {
     </div>
   );
 }`,
-  '/src/lib/runtime.ts': `// Runtime API Client
+  '/lib/runtime.ts': `// Runtime API Client
 declare global {
   interface Window {
     __RELAY_CONFIG__?: {
@@ -232,21 +234,28 @@ function convertToSandpackFiles(
       path = '/' + path
     }
     
+    // Backend stores code under src/*; Sandpack's react-ts template expects root files.
+    // Map /src/... -> /... so we don't end up with two entrypoints (App.tsx and src/App.tsx).
+    if (path.startsWith('/src/')) {
+      path = path.replace(/^\/src\//, '/')
+    }
+
     // Map common path patterns to Sandpack's expected structure
     // index.html or src/index.html → skip (we inject our own with runtime config)
     if (path === '/index.html' || path === '/src/index.html') {
       continue
     }
     
-    // main.tsx → /src/index.tsx (Sandpack's expected entry point)
-    if (path === '/src/main.tsx' || path === '/main.tsx') {
-      sandpackFiles['/src/index.tsx'] = content
+    // main.tsx → /index.tsx (Sandpack's expected entry point)
+    if (path === '/main.tsx') {
+      sandpackFiles['/index.tsx'] = content
       continue
     }
     
-    // Ensure all source files are in /src
-    if (!path.startsWith('/src') && !path.startsWith('/public')) {
-      path = '/src' + path
+    // Keep /public as-is; everything else should live at root for this template.
+    if (path.startsWith('/public/')) {
+      sandpackFiles[path] = content
+      continue
     }
     
     // This overwrites any default file at the same path
@@ -256,8 +265,8 @@ function convertToSandpackFiles(
   // Debug: log what files we're sending to Sandpack
   
   // Verify App.tsx was properly set
-  if (sandpackFiles['/src/App.tsx']) {
-    console.log('App.tsx content preview:', sandpackFiles['/src/App.tsx'].substring(0, 100))
+  if (sandpackFiles['/App.tsx']) {
+    console.log('App.tsx content preview:', sandpackFiles['/App.tsx'].substring(0, 100))
   }
 
   return sandpackFiles
@@ -325,10 +334,22 @@ function SaveButton({ versionId, onSave }: { versionId: string; onSave?: () => v
         content: (file as { code: string }).code || '',
       }))
       
-      // Filter to only src files (not public/index.html etc)
-      const srcFiles = files.filter(f => f.path.startsWith('src/'))
+      // Persist only code files and normalize back to backend's src/* convention
+      const backendFiles = files
+        .filter(f => {
+          if (!f.content.trim()) return false
+          if (f.path === 'public/index.html') return false
+          if (f.path === 'package.json' || f.path === 'tsconfig.json') return false
+          // Save typical source files
+          return /\.(tsx|ts|css|json)$/.test(f.path)
+        })
+        .map(f => ({
+          // Sandpack is root-based; backend expects src/*
+          path: f.path.startsWith('src/') ? f.path : `src/${f.path}`,
+          content: f.content,
+        }))
       
-      await api.post(`/versions/${versionId}/save-files/`, { files: srcFiles })
+      await api.post(`/versions/${versionId}/save-files/`, { files: backendFiles })
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
       onSave?.()

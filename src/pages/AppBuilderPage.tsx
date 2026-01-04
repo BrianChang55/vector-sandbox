@@ -68,11 +68,28 @@ export function AppBuilderPage() {
   useEffect(() => {
     if (selectedVersion?.files && selectedVersion.files.length > 0) {
       // Convert version files to FileChange format for SandpackPreview
-      const filesForPreview: FileChange[] = selectedVersion.files.map((f: { path: string; content: string }) => ({
-        path: f.path,
-        content: f.content,
-        type: 'create' as const,
-      }))
+      const filesForPreview: FileChange[] = selectedVersion.files.map(
+        (f: { path: string; content: string }) => {
+          const ext = f.path.split('.').pop()?.toLowerCase()
+          const language: FileChange['language'] =
+            ext === 'css'
+              ? 'css'
+              : ext === 'json'
+                ? 'json'
+                : ext === 'html'
+                  ? 'html'
+                  : ext === 'ts'
+                    ? 'ts'
+                    : 'tsx'
+
+          return {
+            path: f.path,
+            content: f.content,
+            action: 'create',
+            language,
+          }
+        }
+      )
       setGeneratedFiles(filesForPreview)
     }
   }, [selectedVersion]) // Re-run when selected version object changes
