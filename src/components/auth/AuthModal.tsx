@@ -3,7 +3,7 @@
  * Supports magic link and Google OAuth with signin/signup mode toggle
  */
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+// import { useNavigate } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { 
   requestMagicLink, 
@@ -26,7 +26,7 @@ export function AuthModal({
   referralCode,
   prefillEmail = ''
 }: AuthModalProps) {
-  const navigate = useNavigate()
+  // const navigate = useNavigate() // Reserved for future navigation needs
   const dispatch = useAppDispatch()
   const { loading, error, magicLinkSent, magicLinkEmail } = useAppSelector((state) => state.auth)
 

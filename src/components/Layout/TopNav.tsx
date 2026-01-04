@@ -13,6 +13,7 @@ import {
   DropdownMenuSeparator,
 } from '../ui/dropdown-menu'
 import { User, LogOut } from 'lucide-react'
+import { Logo } from '../Logo'
 
 export function TopNav() {
   const logout = useLogout()
@@ -25,10 +26,7 @@ export function TopNav() {
     <nav className="border-b border-gray-200 bg-white h-14 flex items-center justify-between px-4">
       {/* Logo / Brand */}
       <Link to="/apps" className="flex items-center gap-2">
-        <div className="h-7 w-7 rounded bg-gray-900 flex items-center justify-center">
-          <span className="text-white text-xs font-bold">R</span>
-        </div>
-        <span className="font-semibold text-gray-900">Relay</span>
+        <Logo size="sm" showText />
       </Link>
 
       <div className="flex items-center gap-2">

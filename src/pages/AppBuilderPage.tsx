@@ -1,8 +1,13 @@
 /**
  * App Builder Page
  * 
- * Production-ready vibe coding interface for building internal apps.
- * Two-panel layout: Chat + Preview/Code
+ * Production-ready agentic coding interface for building internal apps.
+ * Two-panel layout: Agentic Chat + Live Preview
+ * 
+ * Features:
+ * - Research → Plan → Execute → Validate workflow
+ * - Real-time thinking and progress visibility
+ * - Sandpack-based live React app preview
  * 
  * Light enterprise theme matching the rest of the application.
  */
@@ -17,17 +22,21 @@ import {
   Play,
   Rocket,
   Loader2,
-  CheckCircle
+  CheckCircle,
+  Zap,
+  Sparkles,
 } from 'lucide-react'
 
 import { useApp, useAppVersions, usePublishApp } from '../hooks/useApps'
 import { useAppSelector, useAppDispatch } from '../store/hooks'
 import { setSelectedVersion } from '../store/slices/uiSlice'
 
-import { ChatPanel } from '../components/builder/ChatPanel'
+import { AgenticChatPanel } from '../components/builder/AgenticChatPanel'
 import { PreviewPanel } from '../components/builder/PreviewPanel'
+import { SandpackPreview } from '../components/builder/SandpackPreview'
 import { Button } from '../components/ui/button'
 import { cn } from '../lib/utils'
+import type { FileChange } from '../types/agent'
 
 export function AppBuilderPage() {
   const { appId } = useParams<{ appId: string }>()
@@ -42,6 +51,8 @@ export function AppBuilderPage() {
   
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [isPublishing, setIsPublishing] = useState(false)
+  const [generatedFiles, setGeneratedFiles] = useState<FileChange[]>([])
+  const [useAgentic, setUseAgentic] = useState(true) // Default to agentic mode
 
   // Select latest version by default
   useEffect(() => {
@@ -52,10 +63,28 @@ export function AppBuilderPage() {
 
   const selectedVersion = versions?.find((v) => v.id === selectedVersionId) || versions?.[0]
 
-  const handleVersionCreated = useCallback((versionId: string, _versionNumber: number) => {
+  // Load existing version files into generatedFiles for Sandpack preview
+  // This runs when a version is selected (either on initial load or when switching versions)
+  useEffect(() => {
+    if (selectedVersion?.files && selectedVersion.files.length > 0) {
+      // Convert version files to FileChange format for SandpackPreview
+      const filesForPreview: FileChange[] = selectedVersion.files.map((f: { path: string; content: string }) => ({
+        path: f.path,
+        content: f.content,
+        type: 'create' as const,
+      }))
+      setGeneratedFiles(filesForPreview)
+    }
+  }, [selectedVersion]) // Re-run when selected version object changes
+
+  const handleVersionCreated = useCallback((versionId: string, _: number) => {
     dispatch(setSelectedVersion(versionId))
     refetchVersions()
   }, [dispatch, refetchVersions])
+
+  const handleFilesGenerated = useCallback((files: FileChange[]) => {
+    setGeneratedFiles(files)
+  }, [])
 
   const handlePublish = async () => {
     if (!appId) return
@@ -127,6 +156,24 @@ export function AppBuilderPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Agentic mode toggle */}
+          <button
+            onClick={() => setUseAgentic(!useAgentic)}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-all',
+              useAgentic
+                ? 'bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-lg shadow-violet-500/25'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            )}
+          >
+            {useAgentic ? (
+              <Zap className="h-3.5 w-3.5" />
+            ) : (
+              <Sparkles className="h-3.5 w-3.5" />
+            )}
+            {useAgentic ? 'Agentic' : 'Simple'}
+          </button>
+
           {/* Run/Preview button */}
           <Button
             variant="outline"
@@ -174,32 +221,43 @@ export function AppBuilderPage() {
         </div>
       </header>
 
-      {/* Main Content - Three Panel Layout */}
+      {/* Main Content - Two Panel Layout */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Left Panel - Chat */}
-        <div className="w-96 flex-shrink-0 border-r border-gray-200 bg-white">
-          <ChatPanel
+        {/* Left Panel - Chat (Agentic or Simple) */}
+        <div className="w-[420px] flex-shrink-0 border-r border-gray-200 bg-white h-full">
+          <AgenticChatPanel
             appId={appId!}
             sessionId={sessionId}
             onSessionChange={setSessionId}
             onVersionCreated={handleVersionCreated}
+            onFilesGenerated={handleFilesGenerated}
             className="h-full"
           />
         </div>
 
-        {/* Center Panel - Preview/Code */}
-        <div className="flex-1 min-w-0">
-          <PreviewPanel
-            appId={appId!}
-            versionId={selectedVersionId}
-            versionFiles={selectedVersion?.files || []}
-            previousVersionFiles={
-              versions && versions.length > 1 && selectedVersion
-                ? versions.find(v => v.version_number === selectedVersion.version_number - 1)?.files
-                : undefined
-            }
-            className="h-full"
-          />
+        {/* Right Panel - Preview (Sandpack for generated files, iframe for versions) */}
+        <div className="flex-1 min-w-0 h-full">
+          {generatedFiles.length > 0 ? (
+            <SandpackPreview
+              files={generatedFiles}
+              appId={appId!}
+              versionId={selectedVersionId || undefined}
+              appName={app.name}
+              className="h-full"
+            />
+          ) : (
+            <PreviewPanel
+              appId={appId!}
+              versionId={selectedVersionId}
+              versionFiles={selectedVersion?.files || []}
+              previousVersionFiles={
+                versions && versions.length > 1 && selectedVersion
+                  ? versions.find(v => v.version_number === selectedVersion.version_number - 1)?.files
+                  : undefined
+              }
+              className="h-full"
+            />
+          )}
         </div>
       </div>
     </div>

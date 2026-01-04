@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useAppDispatch } from '@/store/hooks'
 import { verifyMagicLink, clearError } from '@/store/slices/authSlice'
+import { Logo } from '@/components/Logo'
 
 type VerifyStatus = 'verifying' | 'success' | 'error'
 
@@ -60,12 +61,8 @@ export function MagicLinkVerifyPage() {
     <div className="relative min-h-screen w-full overflow-hidden bg-gray-50">
       {/* Header / Logo */}
       <header className="relative z-10 px-8 py-6">
-        <a href="/" className="flex items-center gap-2">
-          {/* Placeholder for logo */}
-          <div className="h-8 w-8 bg-blue-600 rounded-md flex items-center justify-center text-white font-bold">IA</div>
-          <span className="font-semibold text-xl text-gray-900">
-            Internal Apps
-          </span>
+        <a href="/">
+          <Logo size="lg" showText />
         </a>
       </header>
 

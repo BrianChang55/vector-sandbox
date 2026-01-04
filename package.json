@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@codesandbox/sandpack-react": "^2.19.8",
     "@monaco-editor/react": "^4.6.0",
     "@pipedream/sdk": "^2.3.5",
     "@radix-ui/react-accordion": "^1.2.12",

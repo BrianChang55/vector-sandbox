@@ -6,6 +6,7 @@ import { useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAppSelector } from '@/store/hooks'
 import { AuthModal } from '@/components/auth/AuthModal'
+import { Logo } from '@/components/Logo'
 
 export function LoginPage() {
   const navigate = useNavigate()
@@ -38,9 +39,8 @@ export function LoginPage() {
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="mb-8 flex justify-center">
-          <a href="/" className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded bg-gray-900"></div>
-            <span className="text-lg font-semibold text-gray-900">Internal Apps</span>
+          <a href="/">
+            <Logo size="lg" showText />
           </a>
         </div>
 

@@ -1,0 +1,341 @@
+/**
+ * Agent Service for Agentic Code Generation
+ * 
+ * Handles streaming SSE communication with the backend for
+ * the Research → Plan → Execute → Validate workflow.
+ */
+
+import { api } from './api'
+import type {
+  AgentEvent,
+  AgentEventType,
+  AgentState,
+} from '../types/agent'
+
+// Helper type for accessing event data with any properties
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type EventData = Record<string, any>
+
+export type AgentEventCallback = (event: AgentEvent) => void
+
+export interface AgentGenerateOptions {
+  sessionId?: string
+  model?: string
+  onEvent: AgentEventCallback
+  onComplete?: () => void
+  onError?: (error: Error) => void
+}
+
+// Generation state from backend
+export interface GenerationState {
+  has_generation: boolean
+  version_id?: string
+  version_number?: number
+  generation_status?: 'pending' | 'generating' | 'complete' | 'error'
+  generation_plan?: {
+    id: string
+    goal: string
+    reasoning: string
+    steps: Array<{
+      id: string
+      type: string
+      title: string
+      description: string
+      status: string
+    }>
+  }
+  current_step?: number
+  error?: string
+  files?: Array<{
+    path: string
+    content: string
+    action: string
+    language: string
+  }>
+  file_count?: number
+  is_complete?: boolean
+  is_generating?: boolean
+  created_at?: string
+}
+
+/**
+ * Fetch the latest generation state for an app
+ */
+export async function fetchLatestGeneration(appId: string): Promise<GenerationState | null> {
+  try {
+    const response = await api.get<GenerationState>(`/apps/${appId}/latest-generation/`)
+    return response.data
+  } catch (error) {
+    console.error('Failed to fetch generation state:', error)
+    return null
+  }
+}
+
+/**
+ * Fetch generation state for a specific version
+ */
+export async function fetchGenerationState(versionId: string): Promise<GenerationState | null> {
+  try {
+    const response = await api.get<GenerationState>(`/versions/${versionId}/generation-state/`)
+    return response.data
+  } catch (error) {
+    console.error('Failed to fetch generation state:', error)
+    return null
+  }
+}
+
+/**
+ * Start agentic code generation with streaming progress
+ */
+export function startAgenticGeneration(
+  appId: string,
+  message: string,
+  options: AgentGenerateOptions
+): AbortController {
+  const controller = new AbortController()
+
+  const params = new URLSearchParams({
+    message,
+    model: options.model || 'anthropic/claude-sonnet-4',
+    mode: 'agentic',
+  })
+
+  if (options.sessionId) {
+    params.set('session_id', options.sessionId)
+  }
+
+  const url = `${api.defaults.baseURL}/apps/${appId}/generate/agentic/?${params.toString()}`
+  const token = localStorage.getItem('access_token')
+
+  if (token) {
+    fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'text/event-stream',
+      },
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+        }
+
+        const reader = response.body?.getReader()
+        if (!reader) {
+          throw new Error('No response body')
+        }
+
+        const decoder = new TextDecoder()
+        let buffer = ''
+
+        while (true) {
+          const { done, value } = await reader.read()
+
+          if (done) {
+            options.onComplete?.()
+            break
+          }
+
+          buffer += decoder.decode(value, { stream: true })
+
+          // Parse SSE events
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+
+          let eventType = ''
+          let eventData = ''
+
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              eventType = line.slice(7).trim()
+            } else if (line.startsWith('data: ')) {
+              eventData = line.slice(6)
+            } else if (line === '' && eventType && eventData) {
+              try {
+                const data = JSON.parse(eventData)
+                const event: AgentEvent = {
+                  type: eventType as AgentEventType,
+                  timestamp: new Date().toISOString(),
+                  data,
+                }
+                options.onEvent(event)
+              } catch (e) {
+                console.warn('Failed to parse SSE data:', eventData)
+              }
+              eventType = ''
+              eventData = ''
+            }
+          }
+        }
+      })
+      .catch((error) => {
+        if (error.name !== 'AbortError') {
+          options.onError?.(error)
+        }
+      })
+  } else {
+    options.onError?.(new Error('Authentication required'))
+  }
+
+  return controller
+}
+
+/**
+ * Reducer for agent state updates from events
+ */
+export function agentStateReducer(
+  state: AgentState,
+  event: AgentEvent
+): AgentState {
+  const data = event.data as EventData
+  
+  switch (event.type) {
+    case 'agent_start':
+      return {
+        ...state,
+        phase: 'researching',
+        startedAt: event.timestamp,
+        error: null,
+      }
+
+    case 'phase_change':
+      return {
+        ...state,
+        phase: data.phase,
+      }
+
+    case 'thinking':
+      return {
+        ...state,
+        thinking: [
+          ...state.thinking,
+          {
+            id: crypto.randomUUID(),
+            timestamp: event.timestamp,
+            phase: state.phase,
+            content: data.content,
+            type: data.type,
+          },
+        ],
+      }
+
+    case 'plan_created':
+      return {
+        ...state,
+        plan: data.plan,
+        phase: 'executing',
+      }
+
+    case 'step_start':
+      return {
+        ...state,
+        currentStepIndex: data.stepIndex ?? data.step_index,
+        plan: state.plan
+          ? {
+              ...state.plan,
+              steps: state.plan.steps.map((step, i) =>
+                i === (data.stepIndex ?? data.step_index)
+                  ? { ...step, status: 'in_progress' as const }
+                  : step
+              ),
+            }
+          : null,
+      }
+
+    case 'step_complete': {
+      const stepIndex = data.stepIndex ?? data.step_index
+      return {
+        ...state,
+        plan: state.plan
+          ? {
+              ...state.plan,
+              steps: state.plan.steps.map((step, i) =>
+                i === stepIndex
+                  ? {
+                      ...step,
+                      status: data.status || 'complete',
+                      duration: data.duration,
+                      output: data.output,
+                    }
+                  : step
+              ),
+            }
+          : null,
+      }
+    }
+
+    case 'file_generated': {
+      return {
+        ...state,
+        generatedFiles: [...state.generatedFiles, data.file],
+      }
+    }
+
+    case 'preview_ready':
+      return {
+        ...state,
+        previewReady: true,
+        phase: 'complete',
+      }
+
+    case 'agent_complete':
+      return {
+        ...state,
+        phase: 'complete',
+        completedAt: event.timestamp,
+      }
+
+    case 'agent_error': {
+      return {
+        ...state,
+        phase: 'error',
+        error: data.message,
+      }
+    }
+
+    default:
+      return state
+  }
+}
+
+/**
+ * Get phase display info
+ */
+export function getPhaseInfo(phase: AgentState['phase']): {
+  label: string
+  icon: string
+  color: string
+} {
+  const phases = {
+    idle: { label: 'Ready', icon: '○', color: 'gray' },
+    researching: { label: 'Researching', icon: '🔍', color: 'blue' },
+    planning: { label: 'Planning', icon: '📋', color: 'purple' },
+    executing: { label: 'Building', icon: '🔨', color: 'amber' },
+    validating: { label: 'Validating', icon: '✓', color: 'green' },
+    complete: { label: 'Complete', icon: '✅', color: 'green' },
+    error: { label: 'Error', icon: '❌', color: 'red' },
+  }
+  return phases[phase]
+}
+
+/**
+ * Calculate overall progress percentage
+ */
+export function calculateProgress(state: AgentState): number {
+  if (state.phase === 'idle') return 0
+  if (state.phase === 'complete') return 100
+  if (!state.plan) return 5 // Just started
+
+  const completedSteps = state.plan.steps.filter(
+    (s) => s.status === 'complete' || s.status === 'skipped'
+  ).length
+
+  // Reserve 10% for research/planning, 80% for execution, 10% for validation
+  const baseProgress = 10
+  const executionProgress = (completedSteps / state.plan.steps.length) * 80
+  const validationProgress = state.phase === 'validating' ? 5 : 0
+
+  return Math.min(95, baseProgress + executionProgress + validationProgress)
+}
+
