@@ -39,6 +39,24 @@ interface SandpackPreviewProps {
 
 type ViewMode = 'preview' | 'code' | 'split'
 
+function hashString(input: string): string {
+  // Lightweight deterministic hash (djb2)
+  let hash = 5381
+  for (let i = 0; i < input.length; i++) {
+    hash = ((hash << 5) + hash) ^ input.charCodeAt(i)
+  }
+  return (hash >>> 0).toString(16)
+}
+
+function hashFiles(files: FileChange[]): string {
+  // Include path + content so any edit triggers a refresh.
+  const parts = files
+    .map((f) => `${f.path}\n${f.content || ''}`)
+    .sort()
+    .join('\n---\n')
+  return hashString(parts)
+}
+
 // Default files for a React app
 const DEFAULT_FILES = {
   '/public/index.html': `<!DOCTYPE html>
@@ -301,6 +319,17 @@ function PreviewStatus() {
   )
 }
 
+function AutoRunPreview({ filesKey }: { filesKey: string }) {
+  const { sandpack } = useSandpack()
+
+  useEffect(() => {
+    sandpack.runSandpack()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filesKey])
+
+  return null
+}
+
 // Refresh button that uses Sandpack context
 function RefreshButton() {
   const { sandpack } = useSandpack()
@@ -394,6 +423,7 @@ export function SandpackPreview({
 }: SandpackPreviewProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('preview')
   const [showConsole, setShowConsole] = useState(false)
+  const filesKey = useMemo(() => hashFiles(files), [files])
   
   // Track file count to know when to reset Sandpack
   // Only reset when file count changes (new generation) or versionId changes
@@ -438,11 +468,12 @@ export function SandpackPreview({
         }}
         options={{
           externalResources: ['https://cdn.tailwindcss.com'],
-          recompileMode: 'delayed',
-          recompileDelay: 500,
+          recompileMode: 'immediate',
+          recompileDelay: 0,
         }}
         theme="light"
       >
+        <AutoRunPreview filesKey={filesKey} />
         {/* Flex container - uses absolute positioning to ensure footer stays pinned */}
         <div className="relative flex flex-col h-full min-h-0">
         {/* Header - fixed at top */}
