@@ -56,8 +56,11 @@ export interface AppVersion {
   id: string
   internal_app: string
   version_number: number
-  source: 'ai' | 'code' | 'publish'
+  parent_version: string | null
+  source: 'ai_edit' | 'code_edit' | 'rollback' | 'publish' | 'ai' | 'code'
   source_display: string
+  intent_message?: string | null
+  generation_status?: 'pending' | 'generating' | 'complete' | 'error'
   spec_json: AppSpec
   scope_snapshot_json: any | null
   created_by: string

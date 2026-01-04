@@ -237,14 +237,14 @@ function AlertDialog({
             <Icon className={cn('h-5 w-5', config.iconColor)} />
           </div>
           
-          <h3 className="mt-4 text-base font-semibold text-gray-900">
+          <DialogTitle className="mt-4 text-base font-semibold text-gray-900">
             {title}
-          </h3>
+          </DialogTitle>
           
           {description && (
-            <p className="mt-1.5 text-sm text-gray-500">
+            <DialogDescription className="mt-1.5 text-sm text-gray-500">
               {description}
-            </p>
+            </DialogDescription>
           )}
           
           <div className="mt-5">
@@ -323,14 +323,14 @@ function ConfirmDialog({
             <Icon className={cn('h-5 w-5', config.iconColor)} />
           </div>
           
-          <h3 className="mt-4 text-base font-semibold text-gray-900">
+          <DialogTitle className="mt-4 text-base font-semibold text-gray-900">
             {title}
-          </h3>
+          </DialogTitle>
           
           {description && (
-            <p className="mt-1.5 text-sm text-gray-500">
+            <DialogDescription className="mt-1.5 text-sm text-gray-500">
               {description}
-            </p>
+            </DialogDescription>
           )}
           
           <div className="mt-5 flex gap-2">
@@ -440,13 +440,13 @@ function PromptDialog({
       <DialogContent showCloseButton className="max-w-sm">
         <div className="p-5">
           {/* Header */}
-          <h3 className="text-base font-semibold text-gray-900">
+          <DialogTitle className="text-base font-semibold text-gray-900">
             {title}
-          </h3>
+          </DialogTitle>
           {description && (
-            <p className="mt-1 text-sm text-gray-500">
+            <DialogDescription className="mt-1 text-sm text-gray-500">
               {description}
-            </p>
+            </DialogDescription>
           )}
           
           {/* Input */}

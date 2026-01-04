@@ -159,19 +159,17 @@ export function AppsPage() {
       <div className="min-h-full bg-gray-50">
       {/* Header */}
       <div className="bg-white border-b border-gray-200">
-        <div className="max-w-6xl mx-auto px-6 py-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-xl font-semibold text-gray-900">Apps</h1>
-              <p className="text-sm text-gray-500 mt-0.5">
-                Build and manage your internal applications
-              </p>
-            </div>
-            <Button onClick={openCreateDialog}>
-              <Plus className="h-4 w-4 mr-2" />
-              New App
-            </Button>
+        <div className="max-w-6xl mx-auto px-6 py-3 min-h-[66px] flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-semibold text-gray-900">Apps</h1>
+            <p className="text-sm text-gray-500 mt-0.5">
+              Build and manage your internal applications
+            </p>
           </div>
+          <Button onClick={openCreateDialog}>
+            <Plus className="h-4 w-4 mr-2" />
+            New App
+          </Button>
         </div>
       </div>
 

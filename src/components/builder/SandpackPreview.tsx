@@ -37,6 +37,7 @@ interface SandpackPreviewProps {
   appName?: string
   className?: string
   hideToolbar?: boolean
+  onFilesChange?: (files: FileChange[]) => void
 }
 
 type ViewMode = 'preview' | 'code' | 'split'
@@ -541,11 +542,13 @@ function AutoSave({
   resetKey,
   viewMode,
   onPersistLocalFiles,
+  onFilesChange,
 }: {
   versionId: string
   resetKey?: string
   viewMode: ViewMode
   onPersistLocalFiles: (files: Record<string, { code: string }>) => void
+  onFilesChange?: (files: FileChange[]) => void
 }) {
   const { sandpack } = useSandpack()
   const [status, setStatus] = useState<'idle' | 'pending' | 'saving' | 'saved' | 'error'>('idle')
@@ -660,6 +663,21 @@ function AutoSave({
         await api.post(`/versions/${versionId}/save-files/`, { files: backendFiles })
         // Persist the current sandpack files locally so rehydration uses the saved snapshot
         onPersistLocalFiles(sandpack.files as Record<string, { code: string }>)
+        if (onFilesChange) {
+          const updated: FileChange[] = backendFiles.map((f) => ({
+            path: f.path,
+            content: f.content,
+            action: 'modify',
+            language: f.path.endsWith('.css')
+              ? 'css'
+              : f.path.endsWith('.json')
+                ? 'json'
+                : f.path.endsWith('.ts') && !f.path.endsWith('.tsx')
+                  ? 'ts'
+                  : 'tsx',
+          }))
+          onFilesChange(updated)
+        }
         lastSavedHashRef.current = currentHash
         hasUserEditRef.current = false
         setStatus('saved')
@@ -722,6 +740,7 @@ export function SandpackPreview({
   appName = 'App',
   className = '',
   hideToolbar = false,
+  onFilesChange,
 }: SandpackPreviewProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('preview')
   const [showConsole, setShowConsole] = useState(false)
@@ -847,6 +866,7 @@ export function SandpackPreview({
                 resetKey={filesKey}
                 viewMode={viewMode}
                 onPersistLocalFiles={handlePersistLocalFiles}
+                onFilesChange={onFilesChange}
               />
               <div className="flex items-center gap-1">
               <button

@@ -30,8 +30,10 @@ import {
   fetchLatestGeneration,
   upsertFileChange,
 } from '../../services/agentService'
-import type { AgentEvent, PlanStep, FileChange, AgentState } from '../../types/agent'
+import type { AgentEvent, PlanStep, FileChange } from '../../types/agent'
 import { initialAgentState } from '../../types/agent'
+import { useChatSessions, useCreateChatSession, useChatMessages } from '../../hooks/useAI'
+import type { ChatMessage as ApiChatMessage } from '../../services/aiService'
 import { cn } from '../../lib/utils'
 
 // Helper type for accessing event data with any properties
@@ -57,18 +59,8 @@ interface LocalMessage {
   tasks?: PlanStep[]
   files?: FileChange[]
   exploredInfo?: { directories: number; files: number; searches: number }
-  progressUpdates?: ProgressUpdate[]
   error?: string
   createdAt: string
-}
-
-type ProgressVariant = 'info' | 'phase' | 'thinking' | 'step' | 'file' | 'preview' | 'error'
-
-interface ProgressUpdate {
-  id: string
-  text: string
-  timestamp: string
-  variant: ProgressVariant
 }
 
 // Animated thinking indicator with timer
@@ -270,129 +262,6 @@ function ExploredBadge({ info }: { info: { directories: number; files: number; s
   )
 }
 
-function formatTimeLabel(timestamp: string) {
-  try {
-    return new Intl.DateTimeFormat(undefined, {
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(new Date(timestamp))
-  } catch {
-    return ''
-  }
-}
-
-function ProgressFeed({
-  updates,
-  isStreaming,
-}: {
-  updates: ProgressUpdate[]
-  isStreaming: boolean
-}) {
-  const [isOpen, setIsOpen] = useState(false)
-  if (!updates.length) return null
-
-  const latestId = updates[updates.length - 1]?.id
-  const shimmerStyle = {
-    backgroundImage:
-      'linear-gradient(90deg, rgba(200,200,200,0.1) 0%, rgba(230,230,230,0.8) 50%, rgba(200,200,200,0.1) 100%)',
-    backgroundSize: '260% 100%',
-  } as const
-
-  return (
-    <div className="space-y-1">
-      <button
-        onClick={() => setIsOpen((v) => !v)}
-        className="inline-flex items-center gap-2 text-xs font-medium text-gray-700 hover:text-gray-900"
-      >
-        <ChevronDown
-          className={cn(
-            'h-3 w-3 transition-transform',
-            isOpen ? 'rotate-0' : '-rotate-90'
-          )}
-        />
-        <span className="relative inline-flex items-center gap-1 text-gray-800">
-          <span>Live activity</span>
-          <motion.span
-            className="pointer-events-none absolute inset-0 rounded-sm opacity-80 mix-blend-screen"
-            style={shimmerStyle}
-            animate={
-              isStreaming
-                ? { backgroundPosition: ['-40% 50%', '140% 50%', '-40% 50%'] }
-                : { backgroundPosition: '-40% 50%' }
-            }
-            transition={
-              isStreaming
-                ? { duration: 1.6, repeat: Infinity, ease: 'linear', repeatDelay: 0.25 }
-                : undefined
-            }
-          />
-        </span>
-      </button>
-
-      {!isOpen && latestId && (
-        <div className="pl-5 text-[12px] text-gray-800 relative inline-flex">
-          <span>{updates[updates.length - 1]?.text}</span>
-          <motion.span
-            className="pointer-events-none absolute inset-0 opacity-80 mix-blend-screen"
-            style={shimmerStyle}
-            animate={
-              isStreaming
-                ? { backgroundPosition: ['-40% 50%', '140% 50%', '-40% 50%'] }
-                : { backgroundPosition: '-40% 50%' }
-            }
-            transition={
-              isStreaming
-                ? { duration: 1.6, repeat: Infinity, ease: 'linear', repeatDelay: 0.25 }
-                : undefined
-            }
-          />
-        </div>
-      )}
-
-      <AnimatePresence initial={false}>
-        {isOpen && (
-          <motion.ul
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="space-y-2 pl-5 text-xs text-gray-700"
-          >
-            {updates.map((update, idx) => {
-              const isLatest = update.id === latestId
-              return (
-                <motion.li
-                  key={update.id}
-                  initial={{ opacity: 0, x: -6 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -6 }}
-                  transition={{ duration: 0.12, delay: idx * 0.02 }}
-                  className="leading-relaxed"
-                >
-                  <span className="text-[11px] text-gray-500 mr-2">
-                    {formatTimeLabel(update.timestamp)}
-                  </span>
-                  <span className="relative inline-flex text-gray-800">
-                    {update.text}
-                    {isLatest && (
-                      <motion.span
-                        className="pointer-events-none absolute inset-0 opacity-80 mix-blend-screen"
-                        style={shimmerStyle}
-                        animate={{ backgroundPosition: ['-40% 50%', '140% 50%', '-40% 50%'] }}
-                        transition={{ duration: 1.6, repeat: Infinity, ease: 'linear', repeatDelay: 0.25 }}
-                      />
-                    )}
-                  </span>
-                </motion.li>
-              )
-            })}
-          </motion.ul>
-        )}
-      </AnimatePresence>
-    </div>
-  )
-}
-
 // Main component
 export function AgenticChatPanel({
   appId,
@@ -411,11 +280,69 @@ export function AgenticChatPanel({
   const [accumulatedFiles, setAccumulatedFiles] = useState<FileChange[]>([])
   const [hasLoadedState, setHasLoadedState] = useState(false)
   const [isScrolling, setIsScrolling] = useState(false)
-  const progressMilestonesRef = useRef<Set<number>>(new Set())
-  const progressUpdateCountRef = useRef(0)
-  const progressLastPctRef = useRef(-1)
-  const progressFinalEmittedRef = useRef(false)
-  const progressThresholdIndexRef = useRef(0)
+  const { data: chatSessions, refetch: refetchChatSessions, isLoading: sessionsLoading } = useChatSessions(appId)
+  const { mutateAsync: createChatSession, isPending: creatingSession } = useCreateChatSession()
+  const { data: sessionMessages, isFetching: messagesFetching } = useChatMessages(sessionId)
+  const [hydratedSessionId, setHydratedSessionId] = useState<string | null>(null)
+  const [hasHydratedMessages, setHasHydratedMessages] = useState(false)
+  const [minLoaderElapsed, setMinLoaderElapsed] = useState(false)
+  const loaderHoldRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const mapApiMessageToLocal = useCallback((msg: ApiChatMessage): LocalMessage => {
+    const gf = msg.generated_files
+    let files: FileChange[] | undefined
+    let tasks: PlanStep[] | undefined
+
+    if (gf && typeof gf === 'object' && !Array.isArray(gf)) {
+      if (Array.isArray((gf as any).files)) {
+        files = (gf as any).files.map((f: any) => ({
+          path: f.path,
+          content: f.content,
+          action: (f.action as FileChange['action']) || 'create',
+          language: (f.language as FileChange['language']) || 'tsx',
+        }))
+      } else {
+        files = Object.entries(gf).map(([path, content]) => ({
+          path,
+          content: typeof content === 'string' ? content : JSON.stringify(content, null, 2),
+          action: 'create' as const,
+          language: path.endsWith('.css')
+            ? 'css'
+            : path.endsWith('.json')
+              ? 'json'
+              : path.endsWith('.ts')
+                ? 'ts'
+                : 'tsx',
+        }))
+      }
+
+      // Do not hydrate tasks or live progress from history; keep live view only
+      tasks = undefined
+    } else if (gf) {
+      files = Object.entries(gf).map(([path, content]) => ({
+        path,
+        content: typeof content === 'string' ? content : JSON.stringify(content, null, 2),
+        action: 'create' as const,
+        language: path.endsWith('.css')
+          ? 'css'
+          : path.endsWith('.json')
+            ? 'json'
+            : path.endsWith('.ts')
+              ? 'ts'
+              : 'tsx',
+      }))
+    }
+
+    return {
+      id: msg.id,
+      role: msg.role,
+      content: msg.content,
+      status: msg.status,
+      createdAt: msg.created_at,
+      files,
+      tasks,
+      error: msg.error_message || undefined,
+    }
+  }, [])
 
   // Agent state using reducer
   const [agentState, dispatchAgentEvent] = useReducer(
@@ -426,47 +353,6 @@ export function AgenticChatPanel({
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const appendProgressUpdate = useCallback(
-    (
-      text: string,
-      variant: ProgressVariant = 'info',
-      opts?: { dedupeWindowMs?: number }
-    ) => {
-      const timestamp = new Date().toISOString()
-      setMessages((prev) => {
-        if (!prev.length) return prev
-        const updated = [...prev]
-        const lastMsg = updated[updated.length - 1]
-        if (lastMsg?.role === 'assistant') {
-          const existing = lastMsg.progressUpdates || []
-
-          const dedupeWindow = opts?.dedupeWindowMs ?? 4000
-          const last = existing[existing.length - 1]
-          const withinDedupeWindow =
-            last &&
-            Math.abs(new Date(timestamp).getTime() - new Date(last.timestamp).getTime()) <
-              dedupeWindow
-          if (last && last.text === text && last.variant === variant && withinDedupeWindow) {
-            return updated // skip noisy duplicate
-          }
-
-          const next = [
-            ...existing,
-            {
-              id: `${timestamp}-${existing.length}`,
-              text,
-              timestamp,
-              variant,
-            },
-          ]
-          lastMsg.progressUpdates = next // append only; don't rewrite prior rows
-        }
-        return updated
-      })
-    },
-    []
-  )
 
   // Load existing generation state on mount
   useEffect(() => {
@@ -550,6 +436,54 @@ export function AgenticChatPanel({
     loadExistingState()
   }, [appId, hasLoadedState, onFilesGenerated, onVersionCreated])
 
+  // Auto-select latest session for this app
+  useEffect(() => {
+    if (sessionId || !chatSessions || chatSessions.length === 0) return
+    onSessionChange(chatSessions[0].id)
+  }, [chatSessions, onSessionChange, sessionId])
+
+  // Load persisted chat history for the active session
+  useEffect(() => {
+    if (!sessionId || !sessionMessages) return
+    if (hydratedSessionId === sessionId) return
+    // Avoid overwriting live streaming content; only hydrate when idle
+    if (messages.length > 0 && messages[messages.length - 1]?.status === 'streaming') return
+    const restored = sessionMessages.map(mapApiMessageToLocal)
+    setMessages(restored)
+    setHydratedSessionId(sessionId)
+  }, [hydratedSessionId, mapApiMessageToLocal, messages, sessionId, sessionMessages])
+
+  // Auto-create a session if none exists for this app
+  useEffect(() => {
+    // Wait for the initial session fetch before deciding to create one
+    if (!chatSessions) return
+
+    // Always pick the latest session; if none, create one.
+    if (chatSessions && chatSessions.length > 0) {
+      const latest = chatSessions[0]
+      if (!sessionId || !chatSessions.some(s => s.id === sessionId)) {
+        onSessionChange(latest.id)
+      }
+      return
+    }
+    if (sessionId || creatingSession) return
+    let cancelled = false
+    const ensureSession = async () => {
+      try {
+        const session = await createChatSession({ appId })
+        if (!cancelled) {
+          onSessionChange(session.id)
+        }
+      } catch (error) {
+        console.error('Failed to auto-create chat session', error)
+      }
+    }
+    ensureSession()
+    return () => {
+      cancelled = true
+    }
+  }, [appId, chatSessions, createChatSession, creatingSession, onSessionChange, sessionId])
+
   // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -565,44 +499,18 @@ export function AgenticChatPanel({
         case 'session_created':
           // Handle both session_id and sessionId for compatibility
           onSessionChange(data.sessionId || data.session_id)
+          refetchChatSessions()
           break
 
         case 'agent_start':
           setThinkingStartTime(Date.now())
           setAccumulatedFiles([]) // Reset files for new generation
-          progressMilestonesRef.current = new Set()
-          progressUpdateCountRef.current = 0
-          progressLastPctRef.current = -1
-          progressFinalEmittedRef.current = false
-          progressThresholdIndexRef.current = 0
-          appendProgressUpdate('Starting agentic build: setting up session and tools', 'phase')
           break
 
         case 'phase_change':
-          const phase = (data.phase as AgentState['phase']) || 'working'
-          const phaseDescriptions: Record<AgentState['phase'] | 'working', string> = {
-            researching: 'reviewing code and context',
-            planning: 'drafting an execution plan',
-            executing: 'writing and wiring code',
-            validating: 'running checks and validations',
-            complete: 'wrapping up',
-            error: 'encountered an issue',
-            idle: 'waiting',
-            working: 'working',
-          }
-          appendProgressUpdate(
-            `Now ${phase}: ${phaseDescriptions[phase] || 'working'}`,
-            'phase',
-            { dedupeWindowMs: 4000 }
-          )
           break
 
         case 'thinking':
-          if (data.content) {
-            appendProgressUpdate(`Thinking: ${data.content}`, 'thinking', {
-              dedupeWindowMs: 6000,
-            })
-          }
           break
 
         case 'plan_created':
@@ -623,11 +531,6 @@ export function AgenticChatPanel({
             }
             return updated
           })
-          appendProgressUpdate(
-            `Plan ready (${(data.steps || data.plan?.steps || []).length || 0} steps): moving to execution`,
-            'step',
-            { dedupeWindowMs: 4000 }
-          )
           setThinkingStartTime(null)
           break
 
@@ -638,12 +541,6 @@ export function AgenticChatPanel({
             data.title ||
             data.stepTitle ||
             (typeof data.stepIndex === 'number' ? `Step ${data.stepIndex + 1}` : 'Step started')
-          const stepHint = data.step?.description || ''
-          appendProgressUpdate(
-            `Starting ${stepTitle}${stepHint ? `: ${stepHint}` : ''}`,
-            'step',
-            { dedupeWindowMs: 2000 }
-          )
           // Update task status in the message (alias to existing handler)
           setMessages((prev) => {
             const updated = [...prev]
@@ -674,61 +571,19 @@ export function AgenticChatPanel({
             }
             return updated
           })
-          appendProgressUpdate('Step completed: output captured', 'step', { dedupeWindowMs: 2000 })
           break
 
         case 'step_progress': {
-          const pct = typeof data.progress === 'number' ? data.progress : null
-          if (pct === null) break
-          // Emit only when crossing ordered thresholds (real progress), with slight display jitter
-          const thresholds = [6, 21, 53, 72, 100]
-          const idx = progressThresholdIndexRef.current
-          if (idx >= thresholds.length) break
-
-          const target = thresholds[idx]
-          const reached = pct >= target
-
-          // Always allow final even if prior ones were skipped
-          if (!reached && !(idx === thresholds.length - 1 && pct >= 99.5)) break
-
-          // Display the backend percent with a light ±3 jitter for a less "clean" feel
-          const jitteredPct = Math.max(
-            0,
-            Math.min(100, pct + (Math.floor(Math.random() * 7) - 5)) // ±5 jitter
-          )
-          const progressText = data.message || 'Working...'
-          const pctLabel = ` (${jitteredPct}%)`
-          appendProgressUpdate(`Progress${pctLabel}: ${progressText}`, 'step', {
-            dedupeWindowMs: 4000,
-          })
-
-          if (idx === thresholds.length - 1) {
-            progressFinalEmittedRef.current = true
-          } else {
-            progressThresholdIndexRef.current = idx + 1
-          }
-          progressUpdateCountRef.current += 1
-          progressLastPctRef.current = pct
           break
         }
 
         case 'step_complete': {
-          const duration = data.duration ? ` in ${(data.duration / 1000).toFixed(1)}s` : ''
-          const stepTitle =
-            data.step?.title ||
-            data.title ||
-            data.stepTitle ||
-            (typeof data.stepIndex === 'number' ? `Step ${data.stepIndex + 1}` : 'Step')
-          appendProgressUpdate(`Finished ${stepTitle}${duration}`, 'step')
           break
         }
 
         case 'file_generated': {
           // Add file to accumulated files and notify parent
           const newFile = data.file
-          appendProgressUpdate(`Generated ${newFile?.path || 'a file'}`, 'file', {
-            dedupeWindowMs: 1500,
-          })
           setAccumulatedFiles((prev) => {
             const updated = upsertFileChange(prev, newFile)
             onFilesGenerated?.(updated)
@@ -752,23 +607,11 @@ export function AgenticChatPanel({
         }
 
         case 'validation_result': {
-          const label = data.passed
-            ? 'Validation passed'
-            : `Validation failed: ${(data.errors || []).slice(0, 2).join('; ')}`
-          appendProgressUpdate(
-            data.passed ? `${label}: ready for preview` : `${label}: needs attention`,
-            data.passed ? 'preview' : 'error'
-          )
           break
         }
 
         case 'preview_ready': {
           onVersionCreated(data.versionId || data.version_id, data.versionNumber || data.version_number)
-          appendProgressUpdate(
-            `Preview ready${data.versionNumber ? ` (v${data.versionNumber})` : ''}`,
-            'preview',
-            { dedupeWindowMs: 4000 }
-          )
           const finalFiles =
             (Array.isArray(data.files)
               ? data.files.reduce(
@@ -789,14 +632,11 @@ export function AgenticChatPanel({
           if (accumulatedFiles.length > 0) {
             onFilesGenerated?.(accumulatedFiles)
           }
-          const duration = data.duration ? ` in ${(data.duration / 1000).toFixed(1)}s` : ''
-          appendProgressUpdate(`Run finished${duration}`, 'preview', { dedupeWindowMs: 4000 })
           break
         }
 
         case 'version_created':
           onVersionCreated(data.versionId, data.versionNumber)
-          appendProgressUpdate(`Saved version ${data.versionNumber}`, 'preview', { dedupeWindowMs: 4000 })
           break
 
         case 'agent_complete':
@@ -809,7 +649,6 @@ export function AgenticChatPanel({
             }
             return updated
           })
-          appendProgressUpdate('Generation complete: summarizing results', 'preview')
           setThinkingStartTime(null)
           break
 
@@ -823,13 +662,11 @@ export function AgenticChatPanel({
             }
             return updated
           })
-          appendProgressUpdate(`Error: ${data.message}`, 'error')
           setThinkingStartTime(null)
           break
       }
     },
     [
-      appendProgressUpdate,
       onSessionChange,
       onVersionCreated,
       onFilesGenerated,
@@ -876,7 +713,6 @@ export function AgenticChatPanel({
         isAgentic: true,
         tasks: [],
         files: [],
-        progressUpdates: [],
         createdAt: new Date().toISOString(),
       },
     ])
@@ -941,6 +777,16 @@ export function AgenticChatPanel({
     }
   }
 
+  const waitingOnSessionData =
+    sessionsLoading ||
+    creatingSession ||
+    !chatSessions ||
+    chatSessions.length === 0 ||
+    !sessionId
+
+  const waitingOnMessages = !hasHydratedMessages
+  const showLoadingOverlay = waitingOnSessionData || waitingOnMessages || !minLoaderElapsed
+
   const handleMessagesScroll = useCallback(() => {
     if (!isScrolling) {
       setIsScrolling(true)
@@ -964,125 +810,212 @@ export function AgenticChatPanel({
     }
   }, [])
 
+  // Track message hydration so we don't flash empty state before data arrives
+  useEffect(() => {
+    setHasHydratedMessages(false)
+    setMinLoaderElapsed(false)
+    if (loaderHoldRef.current) {
+      clearTimeout(loaderHoldRef.current)
+      loaderHoldRef.current = null
+    }
+  }, [sessionId])
+
+  useEffect(() => {
+    if (!sessionId) return
+    // Consider messages hydrated only after we've loaded the current session's
+    // history (even if empty) and our hydrate effect has run.
+    if (
+      !messagesFetching &&
+      sessionMessages &&
+      (hydratedSessionId === sessionId || sessionMessages.length === 0)
+    ) {
+      setHasHydratedMessages(true)
+    }
+  }, [sessionId, sessionMessages, messagesFetching, hydratedSessionId])
+
+  // Add a small minimum loader duration to avoid flicker
+  useEffect(() => {
+    if (waitingOnSessionData || waitingOnMessages) {
+      setMinLoaderElapsed(false)
+      if (loaderHoldRef.current) {
+        clearTimeout(loaderHoldRef.current)
+        loaderHoldRef.current = null
+      }
+      return
+    }
+    loaderHoldRef.current = setTimeout(() => setMinLoaderElapsed(true), 300)
+    return () => {
+      if (loaderHoldRef.current) {
+        clearTimeout(loaderHoldRef.current)
+        loaderHoldRef.current = null
+      }
+    }
+  }, [waitingOnSessionData, waitingOnMessages])
+
   return (
-    <div className={cn('flex flex-col h-full bg-white', className)}>
+    <div className={cn('relative flex flex-col h-full bg-white', className)}>
+      <AnimatePresence initial={false} mode="wait">
+        {showLoadingOverlay && (
+          <motion.div
+            key="chat-loading"
+            className="absolute inset-0 z-10 flex items-center justify-center bg-white"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <div className="flex items-center gap-3 text-sm text-gray-600">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>Preparing chat…</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Messages */}
       <div
         className={cn(
-          'flex-1 overflow-y-auto scrollbar-auto-hide',
+          'flex-1 overflow-y-auto scrollbar-auto-hide relative',
           isScrolling && 'scrolling'
         )}
         onScroll={handleMessagesScroll}
       >
         <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
-          {messages.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <div className="h-16 w-16 rounded-xl bg-gray-100 border border-gray-200 
-                             flex items-center justify-center mb-6">
-                <Sparkles className="h-8 w-8 text-gray-400" />
-              </div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">
-                What would you like to build?
-              </h3>
-              <p className="text-sm text-gray-600 max-w-sm mb-8">
-                Describe your app and I'll research, plan, and generate the code step by step.
-              </p>
-              <div className="flex flex-wrap gap-2 justify-center max-w-md">
-                {[
-                  'Build a dashboard with user stats',
-                  'Create an order management table',
-                  'Design a settings page',
-                ].map((suggestion) => (
-                  <button
-                    key={suggestion}
-                    onClick={() => setInput(suggestion)}
-                    className="px-3 py-2 text-sm text-gray-700 bg-white border border-gray-200 
-                             rounded-lg hover:border-gray-300 hover:bg-gray-50 transition-all"
-                  >
-                    {suggestion}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
+          <AnimatePresence initial={false}>
+            {waitingOnMessages && (
+              <motion.div
+                key="messages-loading"
+                className="flex items-center gap-2 text-xs text-gray-500"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              >
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>Loading chat history…</span>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-          {messages.map((message) => (
-            <div key={message.id} className="space-y-3">
-              {message.role === 'user' ? (
-                // User message - simple right-aligned bubble
-                <div className="flex justify-end">
-                  <div className="max-w-[80%] bg-gray-900 text-white rounded-2xl px-4 py-3">
-                    <p className="text-sm">{message.content}</p>
+          <AnimatePresence initial={false}>
+            {messages.length === 0 && !waitingOnMessages && !waitingOnSessionData && (
+              <motion.div
+                key="empty-state"
+                className="flex flex-col items-center justify-center py-16 text-center"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              >
+                <div className="h-16 w-16 rounded-xl bg-gray-100 border border-gray-200 
+                               flex items-center justify-center mb-6">
+                  <Sparkles className="h-8 w-8 text-gray-400" />
+                </div>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">
+                  What would you like to build?
+                </h3>
+                <p className="text-sm text-gray-600 max-w-sm mb-8">
+                  Describe your app and I'll research, plan, and generate the code step by step.
+                </p>
+                <div className="flex flex-wrap gap-2 justify-center max-w-md">
+                  {[
+                    'Build a dashboard with user stats',
+                    'Create an order management table',
+                    'Design a settings page',
+                  ].map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      onClick={() => setInput(suggestion)}
+                      className="px-3 py-2 text-sm text-gray-700 bg-white border border-gray-200 
+                               rounded-lg hover:border-gray-300 hover:bg-gray-50 transition-all"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <AnimatePresence initial={false}>
+            {messages.map((message) => (
+              <motion.div
+                key={message.id}
+                className="space-y-3"
+                layout={false}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2, ease: 'easeOut' }}
+              >
+                {message.role === 'user' ? (
+                  // User message - simple right-aligned bubble
+                  <div className="flex justify-end">
+                    <div className="max-w-[80%] bg-gray-900 text-white rounded-2xl px-4 py-3">
+                      <p className="text-sm">{message.content}</p>
+                    </div>
                   </div>
-                </div>
-              ) : (
-                // Assistant message with inline agentic content
-                <div className="space-y-3">
-                  {/* Thinking indicator */}
-                  {message.status === 'streaming' && thinkingStartTime && !message.tasks?.length && (
-                    <ThinkingIndicator startTime={thinkingStartTime} />
-                  )}
+                ) : (
+                  // Assistant message with inline agentic content
+                  <div className="space-y-3">
+                    {/* Thinking indicator */}
+                    {message.status === 'streaming' && thinkingStartTime && !message.tasks?.length && (
+                      <ThinkingIndicator startTime={thinkingStartTime} />
+                    )}
 
-                  {/* Thought duration badge (after thinking completes) */}
-                  {message.thinkingDuration && message.thinkingDuration > 0 && (
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
-                      <Lightbulb className="h-4 w-4 text-gray-400" />
-                      <span>Thought for {message.thinkingDuration}s</span>
-                    </div>
-                  )}
+                    {/* Thought duration badge (after thinking completes) */}
+                    {message.thinkingDuration && message.thinkingDuration > 0 && (
+                      <div className="flex items-center gap-2 text-sm text-gray-600">
+                        <Lightbulb className="h-4 w-4 text-gray-400" />
+                        <span>Thought for {message.thinkingDuration}s</span>
+                      </div>
+                    )}
 
-                  {/* Explored info */}
-                  {message.exploredInfo && (
-                    <ExploredBadge info={message.exploredInfo} />
-                  )}
+                    {/* Explored info */}
+                    {message.exploredInfo && (
+                      <ExploredBadge info={message.exploredInfo} />
+                    )}
 
-                  {/* Task list */}
-                  {message.tasks && message.tasks.length > 0 && (
-                    <TaskList 
-                      tasks={message.tasks} 
-                    />
-                  )}
+                    {/* Task list */}
+                    {message.tasks && message.tasks.length > 0 && (
+                      <TaskList 
+                        tasks={message.tasks} 
+                      />
+                    )}
 
-                  {/* Live progress feed */}
-                  {message.progressUpdates && message.progressUpdates.length > 0 && (
-                    <ProgressFeed updates={message.progressUpdates} isStreaming={isLoading} />
-                  )}
+                    {/* Summary text content */}
+                    {message.content && (
+                      <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
+                        {message.content}
+                      </div>
+                    )}
 
-                  {/* Summary text content */}
-                  {message.content && message.status === 'complete' && (
-                    <div className="text-sm text-gray-700 leading-relaxed">
-                      {message.content}
-                    </div>
-                  )}
+                    {/* Generated files */}
+                    {message.files && message.files.length > 0 && (
+                      <div className="space-y-2 pt-2">
+                        {message.files.map((file, i) => (
+                          <FilePreview key={file.path} file={file} index={i} />
+                        ))}
+                      </div>
+                    )}
 
-                  {/* Generated files */}
-                  {message.files && message.files.length > 0 && (
-                    <div className="space-y-2 pt-2">
-                      {message.files.map((file, i) => (
-                        <FilePreview key={file.path} file={file} index={i} />
-                      ))}
-                    </div>
-                  )}
+                    {/* Completion badge */}
+                    {message.status === 'complete' && message.files && message.files.length > 0 && (
+                      <div className="flex items-center gap-2 pt-3 text-sm text-green-700">
+                        <CheckCircle className="h-4 w-4" />
+                        <span>Generated {message.files.length} files</span>
+                      </div>
+                    )}
 
-                  {/* Completion badge */}
-                  {message.status === 'complete' && message.files && message.files.length > 0 && (
-                    <div className="flex items-center gap-2 pt-3 text-sm text-green-700">
-                      <CheckCircle className="h-4 w-4" />
-                      <span>Generated {message.files.length} files</span>
-                    </div>
-                  )}
-
-                  {/* Error display */}
-                  {message.error && (
-                    <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
-                      <XCircle className="h-4 w-4 text-red-600 flex-shrink-0 mt-0.5" />
-                      <p className="text-sm text-red-700">{message.error}</p>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
+                    {/* Error display */}
+                    {message.error && (
+                      <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+                        <XCircle className="h-4 w-4 text-red-600 flex-shrink-0 mt-0.5" />
+                        <p className="text-sm text-red-700">{message.error}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </motion.div>
+            ))}
+          </AnimatePresence>
 
           <div ref={messagesEndRef} />
         </div>

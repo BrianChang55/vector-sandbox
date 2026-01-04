@@ -189,7 +189,7 @@ export function ResourcesPage() {
     <div className="flex h-full">
       {/* Left panel: Backend connections */}
       <div className="w-72 border-r border-gray-200 bg-white flex flex-col">
-        <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+        <div className="px-4 py-4 min-h-[75px] border-b border-gray-200 flex items-center justify-between">
           <h2 className="font-semibold text-sm text-gray-900">Backends</h2>
           <Button size="sm" variant="ghost" onClick={() => setShowConnectionDialog(true)}>
             <Plus className="h-4 w-4" />
@@ -245,7 +245,7 @@ export function ResourcesPage() {
           </div>
         ) : (
           <div className="h-full flex flex-col">
-            <div className="p-4 bg-white border-b border-gray-200 flex items-center justify-between">
+            <div className="p-4 bg-white border-b border-gray-200 flex items-center justify-between min-h-[75px]">
               <div>
                 <h2 className="font-semibold text-gray-900">
                   {backends?.find((b) => b.id === selectedBackendId)?.display_name}

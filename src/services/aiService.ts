@@ -37,7 +37,9 @@ export interface ChatSession {
   title: string
   model_id: string
   created_at: string
+  created_by?: string | null
   message_count: number
+  last_message_at?: string | null
 }
 
 export interface ChatMessage {
@@ -47,6 +49,8 @@ export interface ChatMessage {
   status: 'pending' | 'streaming' | 'complete' | 'error'
   model_id?: string
   created_at: string
+  duration_ms?: number | null
+  generated_files?: Record<string, string>
   generated_spec_json?: any
   version_created?: string
   error_message?: string
