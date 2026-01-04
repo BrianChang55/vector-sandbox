@@ -15,10 +15,9 @@ class VersionFileSerializer(serializers.ModelSerializer):
             'app_version',
             'path',
             'content',
-            'content_hash',
             'created_at',
         ]
-        read_only_fields = ['id', 'content_hash', 'created_at']
+        read_only_fields = ['id', 'created_at']
 
 
 class AppVersionSerializer(serializers.ModelSerializer):

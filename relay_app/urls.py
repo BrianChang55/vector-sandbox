@@ -83,6 +83,7 @@ urlpatterns = [
     path('apps/<uuid:pk>/', internal_app_views.InternalAppViewSet.as_view({'get': 'retrieve', 'patch': 'partial_update'}), name='app-detail'),
     path('versions/<uuid:pk>/', version_views.AppVersionViewSet.as_view({'get': 'retrieve'}), name='version-detail'),
     path('versions/<uuid:pk>/rollback/', version_views.AppVersionViewSet.as_view({'post': 'rollback'}), name='version-rollback'),
+    path('versions/<uuid:pk>/save-files/', version_views.AppVersionViewSet.as_view({'post': 'save_files'}), name='version-save-files'),
     path('resources/<uuid:pk>/', resource_registry_views.ResourceRegistryEntryViewSet.as_view({'get': 'retrieve', 'patch': 'partial_update'}), name='resource-detail'),
     
     # AI/Code Generation endpoints
@@ -91,5 +92,8 @@ urlpatterns = [
     path('chat-sessions/<uuid:session_id>/messages/', streaming_views.ChatMessagesView.as_view(), name='chat-messages'),
     path('apps/<uuid:app_id>/generate/', streaming_views.NonStreamingGenerateView.as_view(), name='generate'),
     path('apps/<uuid:app_id>/generate/stream/', streaming_views.StreamingGenerateView.as_view(), name='generate-stream'),
+    path('apps/<uuid:app_id>/generate/agentic/', streaming_views.AgenticGenerateView.as_view(), name='generate-agentic'),
+    path('apps/<uuid:app_id>/latest-generation/', streaming_views.LatestGenerationView.as_view(), name='latest-generation'),
+    path('versions/<uuid:version_id>/generation-state/', streaming_views.GenerationStateView.as_view(), name='generation-state'),
     path('messages/<uuid:message_id>/apply/', streaming_views.ApplyGeneratedCodeView.as_view(), name='apply-generated'),
 ]

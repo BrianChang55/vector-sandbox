@@ -180,6 +180,51 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
             status=status.HTTP_201_CREATED
         )
     
+    @action(detail=True, methods=['post'], url_path='save-files')
+    def save_files(self, request, pk=None, internal_app_pk=None):
+        """Save edited files to an existing version."""
+        version = get_object_or_404(AppVersion, pk=pk)
+        app = version.internal_app
+        
+        # Verify access
+        if not request.user.user_organizations.filter(organization=app.organization).exists():
+            return Response(
+                {'error': 'Access denied'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        files = request.data.get('files', [])
+        if not files:
+            return Response(
+                {'error': 'No files provided'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        with transaction.atomic():
+            for file_data in files:
+                path = file_data.get('path', '')
+                content = file_data.get('content', '')
+                
+                if not path:
+                    continue
+                
+                # Normalize path - remove leading slash if present
+                if path.startswith('/'):
+                    path = path[1:]
+                
+                # Update or create the file
+                VersionFile.objects.update_or_create(
+                    app_version=version,
+                    path=path,
+                    defaults={'content': content}
+                )
+        
+        return Response({
+            'success': True,
+            'message': f'Saved {len(files)} files',
+            'version_id': str(version.id),
+        })
+    
     @action(detail=True, methods=['post'])
     def rollback(self, request, pk=None):
         """Rollback to a previous version."""

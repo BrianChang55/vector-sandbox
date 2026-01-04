@@ -230,6 +230,19 @@ class AppVersion(BaseModel):
         (SOURCE_PUBLISH, 'Publish'),
     ]
     
+    # Generation status for agentic workflow
+    GEN_STATUS_PENDING = 'pending'
+    GEN_STATUS_GENERATING = 'generating'
+    GEN_STATUS_COMPLETE = 'complete'
+    GEN_STATUS_ERROR = 'error'
+    
+    GEN_STATUS_CHOICES = [
+        (GEN_STATUS_PENDING, 'Pending'),
+        (GEN_STATUS_GENERATING, 'Generating'),
+        (GEN_STATUS_COMPLETE, 'Complete'),
+        (GEN_STATUS_ERROR, 'Error'),
+    ]
+    
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     internal_app = models.ForeignKey(InternalApp, on_delete=models.CASCADE, related_name='versions')
     version_number = models.PositiveIntegerField()
@@ -237,6 +250,28 @@ class AppVersion(BaseModel):
     scope_snapshot_json = models.JSONField(null=True, blank=True, help_text='Snapshot of resource registry scope for published versions')
     source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default=SOURCE_AI)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    
+    # Agentic generation tracking
+    generation_status = models.CharField(
+        max_length=20,
+        choices=GEN_STATUS_CHOICES,
+        default=GEN_STATUS_COMPLETE,
+        help_text='Status of agentic code generation'
+    )
+    generation_plan_json = models.JSONField(
+        null=True,
+        blank=True,
+        help_text='Current plan for agentic generation'
+    )
+    generation_current_step = models.IntegerField(
+        default=0,
+        help_text='Current step index in generation plan'
+    )
+    generation_error = models.TextField(
+        null=True,
+        blank=True,
+        help_text='Error message if generation failed'
+    )
     
     class Meta:
         unique_together = ['internal_app', 'version_number']
