@@ -53,11 +53,7 @@ class AppPreviewView(View):
                 if fallback_version:
                     version = fallback_version
                 else:
-                    response = HttpResponse(
-                        self._render_empty_preview(app),
-                        content_type='text/html'
-                    )
-                    return self._allow_iframe(response)
+                    return self._empty_response(app)
             
             response = HttpResponse(
                 self._render_preview(app, version),
@@ -68,7 +64,14 @@ class AppPreviewView(View):
         except InternalApp.DoesNotExist:
             raise Http404("App not found")
         except AppVersion.DoesNotExist:
-            raise Http404("Version not found")
+            # If a version was requested but doesn't exist (or has been deleted),
+            # fall back to the empty preview rather than surfacing a hard 404.
+            # This keeps the first-load experience clean when no versions exist yet.
+            try:
+                app = InternalApp.objects.get(pk=app_id)
+                return self._empty_response(app)
+            except InternalApp.DoesNotExist:
+                raise Http404("App not found")
     
     def _allow_iframe(self, response: HttpResponse) -> HttpResponse:
         """
@@ -78,6 +81,14 @@ class AppPreviewView(View):
         response['X-Frame-Options'] = 'ALLOWALL'
         response['Content-Security-Policy'] = 'frame-ancestors *'
         return response
+
+    def _empty_response(self, app: InternalApp) -> HttpResponse:
+        """Return the empty preview HTML wrapped with iframe allowances."""
+        response = HttpResponse(
+            self._render_empty_preview(app),
+            content_type='text/html'
+        )
+        return self._allow_iframe(response)
 
     def _has_pages(self, version: AppVersion) -> bool:
         """Return True when the version has at least one page in its spec."""

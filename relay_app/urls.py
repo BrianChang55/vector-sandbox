@@ -80,7 +80,15 @@ urlpatterns = [
     path('runtime/action/', runtime_views.RuntimeActionView.as_view(), name='runtime-action'),
     
     # Direct access endpoints (without org prefix)
-    path('apps/<uuid:pk>/', internal_app_views.InternalAppViewSet.as_view({'get': 'retrieve', 'patch': 'partial_update'}), name='app-detail'),
+    path(
+        'apps/<uuid:pk>/',
+        internal_app_views.InternalAppViewSet.as_view({
+            'get': 'retrieve',
+            'patch': 'partial_update',
+            'delete': 'destroy',
+        }),
+        name='app-detail'
+    ),
     path('versions/<uuid:pk>/', version_views.AppVersionViewSet.as_view({'get': 'retrieve'}), name='version-detail'),
     path('versions/<uuid:pk>/rollback/', version_views.AppVersionViewSet.as_view({'post': 'rollback'}), name='version-rollback'),
     path('versions/<uuid:pk>/save-files/', version_views.AppVersionViewSet.as_view({'post': 'save_files'}), name='version-save-files'),

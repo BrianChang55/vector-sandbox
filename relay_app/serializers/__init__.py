@@ -5,7 +5,13 @@ from .organization import OrganizationSerializer, OrganizationCreateSerializer, 
 from .backend_connection import BackendConnectionSerializer, BackendConnectionCreateSerializer, BackendConnectionTestSerializer
 from .resource_registry import ResourceRegistryEntrySerializer
 from .internal_app import InternalAppSerializer, InternalAppCreateSerializer
-from .version import AppVersionSerializer, VersionFileSerializer, AppVersionCreateSerializer, CodeEditSerializer
+from .version import (
+    AppVersionSerializer,
+    AppVersionListSerializer,
+    AppVersionCreateSerializer,
+    VersionFileSerializer,
+    CodeEditSerializer,
+)
 from .action_log import ActionExecutionLogSerializer
 from .auth_serializers import UserSerializer, SignUpSerializer, LoginSerializer, MagicLinkRequestSerializer, MagicLinkVerifySerializer
 
@@ -20,6 +26,7 @@ __all__ = [
     'InternalAppSerializer',
     'InternalAppCreateSerializer',
     'AppVersionSerializer',
+    'AppVersionListSerializer',
     'AppVersionCreateSerializer',
     'VersionFileSerializer',
     'CodeEditSerializer',

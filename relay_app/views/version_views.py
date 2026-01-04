@@ -12,6 +12,7 @@ from django.db import transaction
 from ..models import InternalApp, AppVersion, VersionFile, Organization
 from ..serializers import (
     AppVersionSerializer,
+    AppVersionListSerializer,
     AppVersionCreateSerializer,
     VersionFileSerializer,
     CodeEditSerializer,
@@ -39,6 +40,21 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
         """Filter versions to app."""
         app_id = self.kwargs.get('internal_app_pk')
         return AppVersion.objects.filter(internal_app_id=app_id).select_related('created_by')
+    
+    def get_serializer_class(self):
+        """
+        Use lightweight serializer for list to avoid shipping full file blobs.
+        
+        The detail endpoint still returns the complete payload (including files)
+        for callers that need code content (e.g., builder autosave).
+        """
+        if self.action == 'list':
+            include_files = False
+            if self.request:
+                flag = self.request.query_params.get('include_files')
+                include_files = str(flag).lower() in ('1', 'true', 'yes')
+            return AppVersionSerializer if include_files else AppVersionListSerializer
+        return super().get_serializer_class()
     
     @action(detail=False, methods=['post'], url_path='ai-edit')
     def ai_edit(self, request, internal_app_pk=None):

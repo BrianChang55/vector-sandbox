@@ -44,6 +44,33 @@ class AppVersionSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'version_number', 'created_by', 'created_at']
 
 
+class AppVersionListSerializer(serializers.ModelSerializer):
+    """
+    Lightweight serializer for listing versions without file blobs.
+    
+    This keeps the list endpoint fast for read-only consumers (e.g., preview page)
+    while the detail endpoint still returns full file contents when needed.
+    """
+    source_display = serializers.CharField(source='get_source_display', read_only=True)
+    created_by_email = serializers.EmailField(source='created_by.email', read_only=True)
+    
+    class Meta:
+        model = AppVersion
+        fields = [
+            'id',
+            'internal_app',
+            'version_number',
+            'source',
+            'source_display',
+            'spec_json',
+            'scope_snapshot_json',
+            'created_by',
+            'created_by_email',
+            'created_at',
+        ]
+        read_only_fields = ['id', 'version_number', 'created_by', 'created_at']
+
+
 class AppVersionCreateSerializer(serializers.Serializer):
     """Serializer for creating app versions (used by ai-edit, code-edit)."""
     intent_message = serializers.CharField(required=False, allow_blank=True)

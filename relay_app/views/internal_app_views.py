@@ -6,6 +6,7 @@ from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
+from rest_framework.exceptions import PermissionDenied
 
 from ..models import InternalApp, Organization
 from ..serializers import InternalAppSerializer, InternalAppCreateSerializer
@@ -73,4 +74,15 @@ class InternalAppViewSet(viewsets.ModelViewSet):
         
         headers = self.get_success_headers(read_serializer.data)
         return Response(read_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
+    def destroy(self, request, *args, **kwargs):
+        """Delete an app after verifying the user is a member of its organization."""
+        app = self.get_object()
+
+        # Verify membership in the app's organization
+        if not request.user.user_organizations.filter(organization=app.organization).exists():
+            raise PermissionDenied('You are not a member of this organization')
+
+        app.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
