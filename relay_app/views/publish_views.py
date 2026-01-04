@@ -35,6 +35,12 @@ def publish_app(request, pk=None):
             status=status.HTTP_400_BAD_REQUEST
         )
     
+    if latest_version.generation_status != AppVersion.GEN_STATUS_COMPLETE:
+        return Response(
+            {'error': 'Latest version is still generating. Please wait until it completes.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
     # Create scope snapshot (registry state)
     registry_entries = ResourceRegistryEntry.objects.filter(
         backend_connection=app.backend_connection,
@@ -60,6 +66,7 @@ def publish_app(request, pk=None):
             version_number=next_version_number,
             parent_version=latest_version,
             source=AppVersion.SOURCE_PUBLISH,
+            intent_message=latest_version.intent_message,
             spec_json=latest_version.spec_json,
             scope_snapshot_json=scope_snapshot,
             created_by=request.user,
@@ -72,7 +79,7 @@ def publish_app(request, pk=None):
                 app_version=publish_version,
                 path=source_file.path,
                 content=source_file.content,
-                content_hash=source_file.content_hash,
+                content_hash=source_file.content_hash or VersionFile.compute_hash(source_file.content),
             )
         
         # Update app status to published

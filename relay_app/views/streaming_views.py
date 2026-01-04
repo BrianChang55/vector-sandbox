@@ -78,7 +78,7 @@ class ChatSessionViewSet(APIView):
                     status=http_status.HTTP_403_FORBIDDEN
                 )
             
-            sessions = app.chat_sessions.filter(is_active=True).order_by('-created_at')
+            sessions = app.chat_sessions.order_by('-created_at')
             
             return Response({
                 "sessions": [
@@ -87,7 +87,12 @@ class ChatSessionViewSet(APIView):
                         "title": s.title,
                         "model_id": s.model_id,
                         "created_at": s.created_at.isoformat(),
+                        "created_by": str(s.created_by_id) if s.created_by_id else None,
                         "message_count": s.messages.count(),
+                        "last_message_at": (
+                            s.messages.order_by('-created_at').first().created_at.isoformat()
+                            if s.messages.exists() else None
+                        ),
                     }
                     for s in sessions
                 ]
@@ -121,6 +126,8 @@ class ChatSessionViewSet(APIView):
                 "title": session.title,
                 "model_id": session.model_id,
                 "created_at": session.created_at.isoformat(),
+                "created_by": str(session.created_by_id) if session.created_by_id else None,
+                "message_count": 0,
             }, status=http_status.HTTP_201_CREATED)
             
         except InternalApp.DoesNotExist:
@@ -160,6 +167,8 @@ class ChatMessagesView(APIView):
                         "status": m.status,
                         "model_id": m.model_id,
                         "created_at": m.created_at.isoformat(),
+                        "duration_ms": m.duration_ms,
+                        "generated_files": m.generated_files,
                         "generated_spec_json": m.generated_spec_json,
                         "version_created": str(m.version_created.id) if m.version_created else None,
                         "error_message": m.error_message,
@@ -242,6 +251,12 @@ class StreamingGenerateView(View):
         except InternalApp.DoesNotExist:
             return JsonResponse({"error": "App not found"}, status=404)
         
+        if not user.user_organizations.filter(organization=app.organization).exists():
+            return JsonResponse(
+                {"error": "Access denied"},
+                status=http_status.HTTP_403_FORBIDDEN
+            )
+        
         # Create streaming response
         response = StreamingHttpResponse(
             self._generate_stream(
@@ -279,7 +294,12 @@ class StreamingGenerateView(View):
         # Get or create session
         try:
             if session_id:
-                session = ChatSession.objects.get(pk=session_id)
+                session = ChatSession.objects.select_related("internal_app").get(
+                    pk=session_id,
+                )
+                if session.internal_app_id != app.id:
+                    yield sse_event("error", {"message": "Session does not belong to this app"})
+                    return
             else:
                 session = ChatSession.objects.create(
                     internal_app=app,
@@ -301,6 +321,9 @@ class StreamingGenerateView(View):
             content=message,
             status=ChatMessage.STATUS_COMPLETE,
         )
+        if not session.title or session.title.strip() == "" or session.title == "New Chat":
+            session.title = message[:50] + "..." if len(message) > 50 else message
+            session.save(update_fields=["title", "updated_at"])
         yield sse_event("user_message", {
             "id": str(user_message.id),
             "content": message,
@@ -533,14 +556,27 @@ class NonStreamingGenerateView(APIView):
                 )
             
             # Get or create session
-            if session_id:
-                session = ChatSession.objects.get(pk=session_id)
-            else:
-                session = ChatSession.objects.create(
-                    internal_app=app,
-                    title=message[:50],
-                    model_id=model,
-                    created_by=request.user,
+            try:
+                if session_id:
+                    session = ChatSession.objects.select_related("internal_app").get(
+                        pk=session_id,
+                    )
+                    if session.internal_app_id != app.id:
+                        return Response(
+                            {"error": "Session does not belong to this app"},
+                            status=http_status.HTTP_400_BAD_REQUEST,
+                        )
+                else:
+                    session = ChatSession.objects.create(
+                        internal_app=app,
+                        title=message[:50],
+                        model_id=model,
+                        created_by=request.user,
+                    )
+            except ChatSession.DoesNotExist:
+                return Response(
+                    {"error": "Session not found"},
+                    status=http_status.HTTP_404_NOT_FOUND,
                 )
             
             # Save user message
@@ -549,6 +585,9 @@ class NonStreamingGenerateView(APIView):
                 role=ChatMessage.ROLE_USER,
                 content=message,
             )
+            if not session.title or session.title.strip() == "" or session.title == "New Chat":
+                session.title = message[:50] + "..." if len(message) > 50 else message
+                session.save(update_fields=["title", "updated_at"])
             
             # Get context
             current_spec = None
@@ -713,6 +752,9 @@ class AgenticGenerateView(View):
         except InternalApp.DoesNotExist:
             return JsonResponse({"error": "App not found"}, status=404)
         
+        if not user.user_organizations.filter(organization=app.organization).exists():
+            return JsonResponse({"error": "Access denied"}, status=403)
+        
         # Create streaming response
         response = StreamingHttpResponse(
             self._generate_agentic_stream(
@@ -741,7 +783,16 @@ class AgenticGenerateView(View):
         # Get or create session
         try:
             if session_id:
-                session = ChatSession.objects.get(pk=session_id)
+                session = ChatSession.objects.select_related("internal_app").get(
+                    pk=session_id,
+                )
+                if session.internal_app_id != app.id:
+                    yield sse_event("agent_error", {
+                        "message": "Session does not belong to this app",
+                        "phase": "error",
+                        "recoverable": False,
+                    })
+                    return
             else:
                 session = ChatSession.objects.create(
                     internal_app=app,
@@ -767,6 +818,9 @@ class AgenticGenerateView(View):
             content=message,
             status=ChatMessage.STATUS_COMPLETE,
         )
+        if not session.title or session.title.strip() == "" or session.title == "New Chat":
+            session.title = message[:50] + "..." if len(message) > 50 else message
+            session.save(update_fields=["title", "updated_at"])
         yield sse_event("user_message", {
             "id": str(user_message.id),
             "content": message,
@@ -819,6 +873,7 @@ class AgenticGenerateView(View):
         accumulated_content = ""
         version = None
         current_step_index = 0
+        plan_steps = []
         
         try:
             # Create draft version at the start with 'generating' status
@@ -864,6 +919,7 @@ class AgenticGenerateView(View):
                     plan_data = event.data.get("plan", {})
                     version.generation_plan_json = plan_data
                     version.save(update_fields=['generation_plan_json', 'updated_at'])
+                    plan_steps = plan_data.get("steps", []) or []
                 
                 # Track step progress
                 if event.type == "step_start":
@@ -885,10 +941,6 @@ class AgenticGenerateView(View):
                     )
                     logger.info(f"Saved file incrementally: {path}")
                 
-                # Track thinking for message content
-                if event.type == "thinking":
-                    accumulated_content += f"💭 {event.data.get('content', '')}\n\n"
-            
             # Generation complete - update version status
             duration_ms = int((time.time() - start_time) * 1000)
             
@@ -898,12 +950,11 @@ class AgenticGenerateView(View):
             
             # Update assistant message
             assistant_message.status = ChatMessage.STATUS_COMPLETE
-            assistant_message.content = accumulated_content
+            # Do not persist streamed/thinking text; keep assistant content empty
+            assistant_message.content = ""
             assistant_message.duration_ms = duration_ms
-            assistant_message.save()
             
-            # Get final file list
-            final_files = [
+            final_files_payload = [
                 {
                     "path": f.path,
                     "content": f.content,
@@ -912,12 +963,17 @@ class AgenticGenerateView(View):
                 }
                 for f in version.files.all()
             ]
+            assistant_message.generated_files = {
+                "files": final_files_payload,
+            }
+            assistant_message.save()
             
+            # Get final file list
             yield sse_event("preview_ready", {
                 "version_id": str(version.id),
                 "version_number": version.version_number,
                 "preview_url": f"/preview/apps/{app.id}?version={version.id}",
-                "files": final_files,
+                "files": final_files_payload,
             })
             
             yield sse_event("version_created", {

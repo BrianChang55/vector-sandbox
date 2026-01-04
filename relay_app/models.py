@@ -5,6 +5,7 @@ This module contains all Django models for the Relay Internal Apps platform.
 """
 import uuid
 import json
+import hashlib
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.core.exceptions import ValidationError
@@ -220,14 +221,21 @@ class AppVersion(BaseModel):
     """
     Version of an internal app (immutable snapshot).
     """
+    SOURCE_AI_EDIT = 'ai_edit'
+    SOURCE_CODE_EDIT = 'code_edit'
+    SOURCE_ROLLBACK = 'rollback'
+    SOURCE_PUBLISH = 'publish'
+    # Legacy aliases (kept for compatibility with existing data/choices)
     SOURCE_AI = 'ai'
     SOURCE_CODE = 'code'
-    SOURCE_PUBLISH = 'publish'
     
     SOURCE_CHOICES = [
-        (SOURCE_AI, 'AI'),
-        (SOURCE_CODE, 'Code'),
+        (SOURCE_AI_EDIT, 'AI Edit'),
+        (SOURCE_CODE_EDIT, 'Code Edit'),
+        (SOURCE_ROLLBACK, 'Rollback'),
         (SOURCE_PUBLISH, 'Publish'),
+        (SOURCE_AI, 'AI (legacy)'),
+        (SOURCE_CODE, 'Code (legacy)'),
     ]
     
     # Generation status for agentic workflow
@@ -246,9 +254,18 @@ class AppVersion(BaseModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     internal_app = models.ForeignKey(InternalApp, on_delete=models.CASCADE, related_name='versions')
     version_number = models.PositiveIntegerField()
+    parent_version = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='child_versions',
+        help_text='Parent version used as the base for this version'
+    )
     spec_json = models.JSONField(help_text='AppSpec JSON for this version')
     scope_snapshot_json = models.JSONField(null=True, blank=True, help_text='Snapshot of resource registry scope for published versions')
-    source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default=SOURCE_AI)
+    intent_message = models.TextField(null=True, blank=True, help_text='User intent that generated this version (AI edits)')
+    source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default=SOURCE_AI_EDIT)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
     
     # Agentic generation tracking
@@ -292,12 +309,29 @@ class VersionFile(BaseModel):
     app_version = models.ForeignKey(AppVersion, on_delete=models.CASCADE, related_name='files')
     path = models.CharField(max_length=500)
     content = models.TextField()
+    content_hash = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        help_text='Deterministic hash of the file content for integrity checks'
+    )
     
     class Meta:
         unique_together = ['app_version', 'path']
         indexes = [
             models.Index(fields=['app_version', 'path']),
         ]
+    
+    @staticmethod
+    def compute_hash(content: str) -> str:
+        """Compute a stable hash for file content."""
+        return hashlib.md5((content or '').encode('utf-8')).hexdigest()
+    
+    def save(self, *args, **kwargs):
+        """Ensure content_hash is always populated before save."""
+        if not self.content_hash:
+            self.content_hash = self.compute_hash(self.content)
+        super().save(*args, **kwargs)
     
     def __str__(self):
         return f"{self.app_version} - {self.path}"
@@ -307,22 +341,60 @@ class ActionExecutionLog(BaseModel):
     """
     Log of action executions for audit and debugging.
     """
+    STATUS_SUCCESS = 'success'
+    STATUS_ERROR = 'error'
+    
+    STATUS_CHOICES = [
+        (STATUS_SUCCESS, 'Success'),
+        (STATUS_ERROR, 'Error'),
+    ]
+    
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    app_version = models.ForeignKey(AppVersion, on_delete=models.CASCADE, related_name='action_logs')
+    internal_app = models.ForeignKey(
+        InternalApp,
+        on_delete=models.CASCADE,
+        related_name='action_logs',
+        null=True,
+        blank=True,
+    )
+    app_version = models.ForeignKey(
+        AppVersion,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='action_logs'
+    )
+    backend_connection = models.ForeignKey(
+        BackendConnection,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='action_logs'
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='action_logs'
+    )
     action_id = models.CharField(max_length=255)
-    input_json = models.JSONField(default=dict)
-    output_json = models.JSONField(null=True, blank=True)
+    resource_id = models.CharField(max_length=255, default='', blank=True)
+    args_json = models.JSONField(default=dict, help_text='Input arguments payload')
+    result_json = models.JSONField(null=True, blank=True, help_text='Adapter execution result')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_SUCCESS)
     error_message = models.TextField(null=True, blank=True)
-    executed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
     
     class Meta:
         ordering = ['-created_at']
         indexes = [
+            models.Index(fields=['internal_app', '-created_at']),
             models.Index(fields=['app_version', '-created_at']),
+            models.Index(fields=['backend_connection', '-created_at']),
         ]
     
     def __str__(self):
-        return f"{self.action_id} - {self.created_at}"
+        return f"{self.action_id} - {self.status}"
 
 
 # ============================================================================

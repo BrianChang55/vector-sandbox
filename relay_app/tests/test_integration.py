@@ -1,7 +1,6 @@
 """
 End-to-end integration tests
 """
-import pytest
 from django.test import TestCase, Client
 from django.contrib.auth import get_user_model
 from django.urls import reverse
@@ -18,7 +17,6 @@ from relay_app.models import (
 User = get_user_model()
 
 
-@pytest.mark.django_db
 class IntegrationTestCase(TestCase):
     """End-to-end integration tests."""
     

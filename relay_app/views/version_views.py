@@ -123,7 +123,9 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
             version = AppVersion.objects.create(
                 internal_app=app,
                 version_number=next_version_number,
-                source=AppVersion.SOURCE_AI,
+                parent_version=latest_version,
+                source=AppVersion.SOURCE_AI_EDIT,
+                intent_message=intent_message,
                 spec_json=spec_json,
                 created_by=request.user,
             )
@@ -172,7 +174,8 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
             version = AppVersion.objects.create(
                 internal_app=app,
                 version_number=next_version_number,
-                source=AppVersion.SOURCE_CODE,
+                parent_version=latest_version,
+                source=AppVersion.SOURCE_CODE_EDIT,
                 spec_json=latest_version.spec_json,
                 created_by=request.user,
             )
@@ -183,12 +186,13 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
                     app_version=version,
                     path=parent_file.path,
                     content=parent_file.content,
-                    content_hash=parent_file.content_hash,
+                    content_hash=parent_file.content_hash or VersionFile.compute_hash(parent_file.content),
                 )
             
             # Update edited file
             edited_file = version.files.get(path=file_path)
             edited_file.content = request.data.get('content', '')
+            edited_file.content_hash = VersionFile.compute_hash(edited_file.content)
             edited_file.save()
         
         return Response(
@@ -232,7 +236,10 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
                 VersionFile.objects.update_or_create(
                     app_version=version,
                     path=path,
-                    defaults={'content': content}
+                    defaults={
+                        'content': content,
+                        'content_hash': VersionFile.compute_hash(content),
+                    }
                 )
         
         return Response({
@@ -263,7 +270,8 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
             rollback_version = AppVersion.objects.create(
                 internal_app=app,
                 version_number=next_version_number,
-                source=AppVersion.SOURCE_PUBLISH,  # Using publish as rollback indicator
+                parent_version=version,
+                source=AppVersion.SOURCE_ROLLBACK,
                 spec_json=version.spec_json,
                 created_by=request.user,
             )
@@ -274,7 +282,7 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
                     app_version=rollback_version,
                     path=source_file.path,
                     content=source_file.content,
-                    content_hash=source_file.content_hash,
+                    content_hash=source_file.content_hash or VersionFile.compute_hash(source_file.content),
                 )
         
         return Response(

@@ -321,6 +321,7 @@ class RuntimeActionView(APIView):
                 action_id=action_id,
                 resource_id=action_def.get('resource_id', ''),
                 args_json=args,
+                result_json=result,
                 status=ActionExecutionLog.STATUS_SUCCESS,
             )
             
