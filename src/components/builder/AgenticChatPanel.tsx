@@ -268,6 +268,7 @@ export function AgenticChatPanel({
   const [thinkingStartTime, setThinkingStartTime] = useState<number | null>(null)
   const [accumulatedFiles, setAccumulatedFiles] = useState<FileChange[]>([])
   const [hasLoadedState, setHasLoadedState] = useState(false)
+  const [isScrolling, setIsScrolling] = useState(false)
 
   // Agent state using reducer
   const [agentState, dispatchAgentEvent] = useReducer(
@@ -277,6 +278,7 @@ export function AgenticChatPanel({
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Load existing generation state on mount
   useEffect(() => {
@@ -586,6 +588,29 @@ export function AgenticChatPanel({
     }
   }
 
+  const handleMessagesScroll = useCallback(() => {
+    if (!isScrolling) {
+      setIsScrolling(true)
+    }
+
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current)
+    }
+
+    scrollTimeoutRef.current = setTimeout(() => {
+      setIsScrolling(false)
+    }, 600)
+  }, [isScrolling])
+
+  // Clear any pending scroll timers on unmount
+  useEffect(() => {
+    return () => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current)
+      }
+    }
+  }, [])
+
   return (
     <div className={cn('flex flex-col h-full bg-white', className)}>
       {/* Header */}
@@ -603,7 +628,13 @@ export function AgenticChatPanel({
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto">
+      <div
+        className={cn(
+          'flex-1 overflow-y-auto scrollbar-auto-hide',
+          isScrolling && 'scrolling'
+        )}
+        onScroll={handleMessagesScroll}
+      >
         <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -761,10 +792,6 @@ export function AgenticChatPanel({
               )}
             </div>
           </div>
-
-          <p className="mt-2 text-[10px] text-gray-400 text-center">
-            Enter to send · Shift+Enter for new line
-          </p>
         </div>
       </div>
     </div>

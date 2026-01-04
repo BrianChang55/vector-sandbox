@@ -63,6 +63,35 @@
     @apply bg-zinc-900/50 backdrop-blur-xl border border-zinc-800/50;
   }
 
+  /* Hide scrollbars until the user is actively scrolling */
+  .scrollbar-auto-hide {
+    scrollbar-width: none;
+  }
+
+  .scrollbar-auto-hide::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+
+  .scrollbar-auto-hide.scrolling {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(148 163 184 / 0.6) transparent;
+  }
+
+  .scrollbar-auto-hide.scrolling::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .scrollbar-auto-hide.scrolling::-webkit-scrollbar-thumb {
+    background: rgb(148 163 184 / 0.6);
+    border-radius: 4px;
+  }
+
+  .scrollbar-auto-hide.scrolling::-webkit-scrollbar-thumb:hover {
+    background: rgb(100 116 139 / 0.8);
+  }
+
   /* Sandpack full-height fix:
      Sandpack's internal wrappers often default to intrinsic heights, so flexbox alone
      won't make the editor/preview fill the available space. Scope this to our preview. */

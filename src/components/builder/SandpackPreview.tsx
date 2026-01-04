@@ -354,6 +354,19 @@ function AutoRunOnEdit() {
   return null
 }
 
+function AutoRunOnTab({ viewMode }: { viewMode: ViewMode }) {
+  const { sandpack } = useSandpack()
+
+  useEffect(() => {
+    if (viewMode === 'code' || viewMode === 'split' || viewMode === 'preview') {
+      sandpack.runSandpack()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode])
+
+  return null
+}
+
 // Refresh button that uses Sandpack context
 function RefreshButton() {
   const { sandpack } = useSandpack()
@@ -499,6 +512,7 @@ export function SandpackPreview({
       >
         <AutoRunPreview filesKey={filesKey} />
         <AutoRunOnEdit />
+        <AutoRunOnTab viewMode={viewMode} />
         {/* Flex container - uses absolute positioning to ensure footer stays pinned */}
         <div className="relative flex flex-col h-full min-h-0">
         {/* Header - fixed at top */}
