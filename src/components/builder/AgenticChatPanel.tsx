@@ -9,7 +9,7 @@
 import { useState, useRef, useEffect, useCallback, useReducer } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Send,
+  ArrowUp,
   Loader2,
   Sparkles,
   CheckCircle,
@@ -620,16 +620,6 @@ export function AgenticChatPanel({
 
   return (
     <div className={cn('flex flex-col h-full bg-white', className)}>
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-        <div className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-lg bg-gray-900 flex items-center justify-center">
-            <Sparkles className="h-4 w-4 text-white" />
-          </div>
-          <span className="text-sm font-semibold text-gray-900">Agent</span>
-        </div>
-      </div>
-
       {/* Messages */}
       <div
         className={cn(
@@ -771,23 +761,25 @@ export function AgenticChatPanel({
               />
             </div>
 
-            <div className="mt-3 flex items-center justify-between gap-3 border-t border-gray-100 px-4 py-3 bg-white rounded-b-2xl">
+            <div className="mt-3 flex items-center justify-between gap-3 px-4 py-3 bg-white rounded-b-2xl">
               <ModelSelector
                 selectedModel={selectedModel}
                 onModelChange={setSelectedModel}
-                className="min-w-[220px]"
+                className="min-w-[180px]"
+                size="sm"
+                placement="up"
               />
               <button
                 onClick={handleSendClick}
                 disabled={!isLoading && !input.trim()}
-                className="inline-flex items-center justify-center h-10 w-10 rounded-full bg-gray-900 text-white
+                className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-gray-900 text-white
                            hover:bg-gray-800 disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-sm"
                 title={isLoading ? 'Stop generation' : 'Send message'}
               >
                 {isLoading ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <Send className="h-4 w-4" />
+                  <ArrowUp className="h-4 w-4" />
                 )}
               </button>
             </div>

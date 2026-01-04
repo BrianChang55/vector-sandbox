@@ -438,6 +438,8 @@ function AutoSave({ versionId, resetKey }: { versionId: string; resetKey?: strin
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastSavedHashRef = useRef<string>('')
+  const hasUserEditRef = useRef(false)
+  const hydratedRef = useRef(false)
 
   const currentHash = useMemo(
     () => hashSandpackRuntimeFiles(sandpack.files as Record<string, unknown>),
@@ -449,6 +451,8 @@ function AutoSave({ versionId, resetKey }: { versionId: string; resetKey?: strin
     lastSavedHashRef.current = hashSandpackRuntimeFiles(
       sandpack.files as Record<string, unknown>
     )
+    hasUserEditRef.current = false
+    hydratedRef.current = false
     setStatus('idle')
     setErrorMessage(null)
     if (saveTimeoutRef.current) {
@@ -457,9 +461,39 @@ function AutoSave({ versionId, resetKey }: { versionId: string; resetKey?: strin
     }
   }, [versionId, resetKey])
 
+  // Track explicit user edits from Sandpack events so we only save when the user types
+  useEffect(() => {
+    const sp = sandpack as unknown as { listen?: (fn: (message: { type?: string }) => void) => (() => void) | void }
+    const unsubscribe = sp.listen?.((message: { type?: string }) => {
+      if (message.type === 'file/change') {
+        hasUserEditRef.current = true
+      }
+    })
+
+    return () => {
+      if (typeof unsubscribe === 'function') {
+        unsubscribe()
+      }
+    }
+  }, [sandpack])
+
+  // Catch hash changes after initial hydration to handle edits when Sandpack doesn't emit file/change.
+  useEffect(() => {
+    if (!versionId) return
+    if (!hydratedRef.current) {
+      // First hash after reset: treat as hydration, not a user edit.
+      hydratedRef.current = true
+      return
+    }
+    if (currentHash !== lastSavedHashRef.current) {
+      hasUserEditRef.current = true
+    }
+  }, [currentHash, versionId])
+
   useEffect(() => {
     if (!versionId) return
     if (currentHash === lastSavedHashRef.current) return
+    if (!hasUserEditRef.current) return
 
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current)
@@ -470,12 +504,20 @@ function AutoSave({ versionId, resetKey }: { versionId: string; resetKey?: strin
     saveTimeoutRef.current = setTimeout(async () => {
       setStatus('saving')
       try {
+        // If the hash changed while we were waiting, skip this run and let the next effect handle it
+        const liveHash = hashSandpackRuntimeFiles(sandpack.files as Record<string, unknown>)
+        if (liveHash !== currentHash) {
+          setStatus('idle')
+          return
+        }
+
         const backendFiles = toBackendFiles(
           sandpack.files as Record<string, { code: string }>
         )
 
         if (backendFiles.length === 0) {
           lastSavedHashRef.current = currentHash
+          hasUserEditRef.current = false
           setStatus('saved')
           setTimeout(() => setStatus('idle'), 1200)
           return
@@ -483,6 +525,7 @@ function AutoSave({ versionId, resetKey }: { versionId: string; resetKey?: strin
 
         await api.post(`/versions/${versionId}/save-files/`, { files: backendFiles })
         lastSavedHashRef.current = currentHash
+        hasUserEditRef.current = false
         setStatus('saved')
         setErrorMessage(null)
         setTimeout(() => setStatus('idle'), 1200)
