@@ -730,6 +730,8 @@ export function SandpackPreview({
   // Only reset when file count changes (new generation) or versionId changes
   const [sandpackKey, setSandpackKey] = useState(() => `${versionId}-${files.length}`)
   const [initializedFiles, setInitializedFiles] = useState<Record<string, string>>({})
+  // Persist saved files without forcing Sandpack to remount (which clears tabs)
+  const persistedFilesRef = useRef<Record<string, string>>({})
   
   // Convert files to Sandpack format - but only update when we want to reset
   const sandpackFiles = useMemo(() => {
@@ -744,6 +746,8 @@ export function SandpackPreview({
     if (newKey !== sandpackKey) {
       setSandpackKey(newKey)
       setInitializedFiles(sandpackFiles)
+      // Reset persisted snapshot when the generation baseline changes
+      persistedFilesRef.current = {}
     }
   }, [versionId, files.length, sandpackFiles, sandpackKey])
 
@@ -754,7 +758,8 @@ export function SandpackPreview({
       Object.entries(filesRecord).forEach(([path, file]) => {
         flattened[path] = file.code || ''
       })
-      setInitializedFiles(flattened)
+      // Store the snapshot without triggering a Sandpack remount; remounting clears open tabs/active file.
+      persistedFilesRef.current = flattened
     },
     []
   )

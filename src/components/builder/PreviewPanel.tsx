@@ -31,6 +31,7 @@ interface PreviewPanelProps {
   versionFiles?: VersionFile[]
   previousVersionFiles?: VersionFile[]
   className?: string
+  previewOnly?: boolean
 }
 
 type ViewMode = 'preview' | 'code'
@@ -40,7 +41,8 @@ export function PreviewPanel({
   versionId, 
   versionFiles = [],
   previousVersionFiles,
-  className = '' 
+  className = '',
+  previewOnly = false,
 }: PreviewPanelProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('preview')
   const [isLoading, setIsLoading] = useState(false)
@@ -81,32 +83,41 @@ export function PreviewPanel({
     }
   }, [versionId, autoRefresh])
 
+  // Force preview mode when previewOnly is enabled
+  useEffect(() => {
+    if (previewOnly && viewMode !== 'preview') {
+      setViewMode('preview')
+    }
+  }, [previewOnly, viewMode])
+
   return (
     <div ref={containerRef} className={`flex flex-col h-full bg-gray-100 ${className}`}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-white">
         <div className="flex items-center gap-3">
-          {/* Preview/Code Toggle */}
-          <div className="flex items-center gap-1 bg-gray-100 rounded-md p-1">
-            {[
-              { key: 'preview' as ViewMode, icon: Eye, label: 'Preview' },
-              { key: 'code' as ViewMode, icon: Code2, label: 'Code' },
-            ].map(({ key, icon: Icon, label }) => (
-              <button
-                key={key}
-                onClick={() => setViewMode(key)}
-                className={cn(
-                  'flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium transition-colors',
-                  viewMode === key
-                    ? 'bg-white shadow-sm text-gray-900'
-                    : 'text-gray-500 hover:text-gray-700'
-                )}
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {label}
-              </button>
-            ))}
-          </div>
+          {/* Preview/Code Toggle (hidden in preview-only mode) */}
+          {!previewOnly && (
+            <div className="flex items-center gap-1 bg-gray-100 rounded-md p-1">
+              {[
+                { key: 'preview' as ViewMode, icon: Eye, label: 'Preview' },
+                { key: 'code' as ViewMode, icon: Code2, label: 'Code' },
+              ].map(({ key, icon: Icon, label }) => (
+                <button
+                  key={key}
+                  onClick={() => setViewMode(key)}
+                  className={cn(
+                    'flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium transition-colors',
+                    viewMode === key
+                      ? 'bg-white shadow-sm text-gray-900'
+                      : 'text-gray-500 hover:text-gray-700'
+                  )}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-1">
