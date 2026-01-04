@@ -4,7 +4,7 @@
  * Live React app runtime using CodeSandbox's Sandpack bundler.
  * Renders generated React code in a sandboxed iframe with hot reloading.
  */
-import { useMemo, useState, useEffect, useRef } from 'react'
+import { useMemo, useState, useEffect, useRef, useCallback } from 'react'
 import {
   SandpackProvider,
   SandpackPreview as SandpackPreviewPane,
@@ -432,7 +432,17 @@ function toBackendFiles(
 }
 
 // Autosave edits to backend with debounce
-function AutoSave({ versionId, resetKey }: { versionId: string; resetKey?: string }) {
+function AutoSave({
+  versionId,
+  resetKey,
+  viewMode,
+  onPersistLocalFiles,
+}: {
+  versionId: string
+  resetKey?: string
+  viewMode: ViewMode
+  onPersistLocalFiles: (files: Record<string, { code: string }>) => void
+}) {
   const { sandpack } = useSandpack()
   const [status, setStatus] = useState<'idle' | 'pending' | 'saving' | 'saved' | 'error'>('idle')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -440,6 +450,9 @@ function AutoSave({ versionId, resetKey }: { versionId: string; resetKey?: strin
   const lastSavedHashRef = useRef<string>('')
   const hasUserEditRef = useRef(false)
   const hydratedRef = useRef(false)
+  const allowHashMarkRef = useRef(false)
+  const lastModeChangeRef = useRef<number>(Date.now())
+  const TAB_SWITCH_COOLDOWN_MS = 800
 
   const currentHash = useMemo(
     () => hashSandpackRuntimeFiles(sandpack.files as Record<string, unknown>),
@@ -453,6 +466,8 @@ function AutoSave({ versionId, resetKey }: { versionId: string; resetKey?: strin
     )
     hasUserEditRef.current = false
     hydratedRef.current = false
+    allowHashMarkRef.current = viewMode === 'code' || viewMode === 'split'
+    lastModeChangeRef.current = Date.now()
     setStatus('idle')
     setErrorMessage(null)
     if (saveTimeoutRef.current) {
@@ -467,6 +482,7 @@ function AutoSave({ versionId, resetKey }: { versionId: string; resetKey?: strin
     const unsubscribe = sp.listen?.((message: { type?: string }) => {
       if (message.type === 'file/change') {
         hasUserEditRef.current = true
+        allowHashMarkRef.current = true
       }
     })
 
@@ -477,18 +493,32 @@ function AutoSave({ versionId, resetKey }: { versionId: string; resetKey?: strin
     }
   }, [sandpack])
 
-  // Catch hash changes after initial hydration to handle edits when Sandpack doesn't emit file/change.
+  // Treat first hash after reset as hydration only; afterwards rely on explicit file/change events.
   useEffect(() => {
     if (!versionId) return
     if (!hydratedRef.current) {
-      // First hash after reset: treat as hydration, not a user edit.
       hydratedRef.current = true
-      return
     }
+  }, [currentHash, versionId])
+
+  // Enable hash-based detection when entering an editing view (code/split); disable in preview.
+  useEffect(() => {
+    allowHashMarkRef.current = viewMode === 'code' || viewMode === 'split'
+    lastModeChangeRef.current = Date.now()
+  }, [viewMode])
+
+  // Fallback: if hash diverges while in an editing view, mark as user edit.
+  useEffect(() => {
+    if (!versionId) return
+    if (!hydratedRef.current) return
+    if (viewMode === 'preview') return
+    if (!allowHashMarkRef.current) return
+    const sinceModeChange = Date.now() - lastModeChangeRef.current
+    if (sinceModeChange < TAB_SWITCH_COOLDOWN_MS) return // ignore hash churn right after switching tabs
     if (currentHash !== lastSavedHashRef.current) {
       hasUserEditRef.current = true
     }
-  }, [currentHash, versionId])
+  }, [currentHash, viewMode, versionId, lastSavedHashRef.current])
 
   useEffect(() => {
     if (!versionId) return
@@ -524,6 +554,8 @@ function AutoSave({ versionId, resetKey }: { versionId: string; resetKey?: strin
         }
 
         await api.post(`/versions/${versionId}/save-files/`, { files: backendFiles })
+        // Persist the current sandpack files locally so rehydration uses the saved snapshot
+        onPersistLocalFiles(sandpack.files as Record<string, { code: string }>)
         lastSavedHashRef.current = currentHash
         hasUserEditRef.current = false
         setStatus('saved')
@@ -610,6 +642,18 @@ export function SandpackPreview({
       setInitializedFiles(sandpackFiles)
     }
   }, [versionId, files.length, sandpackFiles, sandpackKey])
+
+  // Keep initializedFiles in sync after a successful autosave so rehydration uses the just-saved snapshot
+  const handlePersistLocalFiles = useCallback(
+    (filesRecord: Record<string, { code: string }>) => {
+      const flattened: Record<string, string> = {}
+      Object.entries(filesRecord).forEach(([path, file]) => {
+        flattened[path] = file.code || ''
+      })
+      setInitializedFiles(flattened)
+    },
+    []
+  )
   
   // Use initializedFiles if set, otherwise use sandpackFiles
   const filesToUse = Object.keys(initializedFiles).length > 0 ? initializedFiles : sandpackFiles
@@ -673,7 +717,12 @@ export function SandpackPreview({
           </div>
 
           <div className="flex items-center gap-3">
-            <AutoSave versionId={versionId} resetKey={filesKey} />
+            <AutoSave
+              versionId={versionId}
+              resetKey={filesKey}
+              viewMode={viewMode}
+              onPersistLocalFiles={handlePersistLocalFiles}
+            />
             <div className="flex items-center gap-1">
             <button
               onClick={() => setShowConsole(!showConsole)}
