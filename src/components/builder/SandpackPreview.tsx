@@ -19,6 +19,8 @@ import {
   Code2,
   Terminal,
   Eye,
+  FileText,
+  X,
   AlertCircle,
   CheckCircle2,
   Loader2,
@@ -394,6 +396,95 @@ function AutoRunOnTab({ viewMode }: { viewMode: ViewMode }) {
   return null
 }
 
+function FileListPanel() {
+  const { sandpack } = useSandpack()
+  const files = useMemo(() => Object.keys(sandpack.files || {}).sort(), [sandpack.files])
+  const activeFile = sandpack.activeFile
+  const openFiles = sandpack.visibleFiles || []
+
+  return (
+    <div className="w-56 border-r border-gray-200 bg-white flex-shrink-0 overflow-auto">
+      <div className="px-3 py-2 text-[11px] font-semibold text-gray-700 uppercase tracking-wide border-b border-gray-200">
+        Files
+      </div>
+      <div className="py-1">
+        {files.map((path) => {
+          const label = path.startsWith('/') ? path.slice(1) : path
+          const isActive = activeFile === path
+          return (
+            <button
+              key={path}
+              onClick={() => {
+                if (!openFiles.includes(path) && sandpack.openFile) {
+                  sandpack.openFile(path)
+                }
+                sandpack.setActiveFile(path)
+              }}
+              className={cn(
+                'w-full flex items-center gap-2 px-3 py-2 text-xs text-left transition-colors',
+                isActive
+                  ? 'bg-gray-100 text-gray-900 border-l-2 border-gray-900'
+                  : 'text-gray-700 hover:bg-gray-50'
+              )}
+              title={label}
+            >
+              <FileText className="h-3.5 w-3.5 text-gray-400" />
+              <span className="truncate">{label}</span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function EditorTabs() {
+  const { sandpack } = useSandpack()
+  const openFiles = sandpack.visibleFiles || Object.keys(sandpack.files || {})
+  const activeFile = sandpack.activeFile
+  const closeFile = sandpack.closeFile as ((path: string) => void) | undefined
+
+  return (
+    <div className="flex flex-wrap items-center gap-1 px-3 py-2 border-b border-gray-200 bg-white min-h-[38px]">
+      {openFiles.map((path) => {
+        const label = path.startsWith('/') ? path.slice(1) : path
+        const isActive = activeFile === path
+        return (
+          <div
+            key={path}
+            className={cn(
+              'inline-flex items-center gap-1.5 px-2.5 h-7 rounded-md text-[11px] border transition-colors max-w-[180px]',
+              isActive
+                ? 'border-gray-300 bg-white text-gray-900 shadow-sm'
+                : 'border-transparent bg-gray-100 text-gray-600 hover:bg-gray-50'
+            )}
+          >
+            <button
+              onClick={() => sandpack.setActiveFile(path)}
+              className="flex items-center gap-1.5"
+              title={label}
+            >
+              <span className="truncate max-w-[140px]">{label}</span>
+            </button>
+            {openFiles.length > 1 && closeFile && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  closeFile(path)
+                }}
+                className="text-gray-400 hover:text-gray-700 transition-colors"
+                title="Close file"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // Refresh button that uses Sandpack context
 function RefreshButton() {
   const { sandpack } = useSandpack()
@@ -657,6 +748,11 @@ export function SandpackPreview({
   
   // Use initializedFiles if set, otherwise use sandpackFiles
   const filesToUse = Object.keys(initializedFiles).length > 0 ? initializedFiles : sandpackFiles
+  const defaultEntryFile = useMemo(() => {
+    if (filesToUse['/App.tsx']) return '/App.tsx'
+    const keys = Object.keys(filesToUse)
+    return keys[0] || '/App.tsx'
+  }, [filesToUse])
 
   return (
     <div
@@ -679,6 +775,8 @@ export function SandpackPreview({
           externalResources: ['https://cdn.tailwindcss.com'],
           recompileMode: 'immediate',
           recompileDelay: 0,
+          visibleFiles: [defaultEntryFile],
+          activeFile: defaultEntryFile,
         }}
         theme="light"
       >
@@ -765,30 +863,42 @@ export function SandpackPreview({
           )}
 
           {viewMode === 'code' && (
-            <div className="h-full min-h-0 overflow-auto">
-              <SandpackCodeEditor
-                className="h-full"
-                showTabs
-                showLineNumbers
-                showInlineErrors
-                wrapContent={false}
-                style={{ height: '100%', minHeight: '100%', width: '100%' }}
-              />
+            <div className="flex h-full min-h-0">
+              <FileListPanel />
+              <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                <EditorTabs />
+                <div className="flex-1 min-h-0 overflow-auto">
+                  <SandpackCodeEditor
+                    className="h-full"
+                    showTabs={false}
+                    showLineNumbers
+                    showInlineErrors
+                    wrapContent={false}
+                    style={{ height: '100%', minHeight: '100%', width: '100%' }}
+                  />
+                </div>
+              </div>
             </div>
           )}
 
           {viewMode === 'split' && (
             <div className="flex h-full w-full min-h-0">
               <div className="w-1/2 h-full min-h-0 border-r border-gray-200 flex flex-col overflow-hidden">
-                <div className="flex-1 min-h-0 overflow-auto">
-                  <SandpackCodeEditor
-                    className="h-full"
-                    showTabs
-                    showLineNumbers
-                    showInlineErrors
-                    wrapContent={false}
-                    style={{ height: '100%', minHeight: '100%', width: '100%' }}
-                  />
+                <div className="flex-1 min-h-0 overflow-hidden flex">
+                  <FileListPanel />
+                  <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                    <EditorTabs />
+                    <div className="flex-1 min-h-0 overflow-auto">
+                      <SandpackCodeEditor
+                        className="h-full"
+                        showTabs={false}
+                        showLineNumbers
+                        showInlineErrors
+                        wrapContent={false}
+                        style={{ height: '100%', minHeight: '100%', width: '100%' }}
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
               <div className="w-1/2 h-full min-h-0 flex flex-col overflow-hidden">

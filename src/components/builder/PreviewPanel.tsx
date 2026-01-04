@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { CodeEditor } from './CodeEditor'
 import { cn } from '../../lib/utils'
+import { buildPreviewUrl } from '../../lib/preview'
 
 interface VersionFile {
   id: string
@@ -47,9 +48,7 @@ export function PreviewPanel({
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  const previewUrl = versionId 
-    ? `/preview/apps/${appId}?version=${versionId}`
-    : null
+  const previewUrl = versionId ? buildPreviewUrl(appId, versionId) : null
 
   const handleRefresh = () => {
     if (iframeRef.current && previewUrl) {

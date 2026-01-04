@@ -23,8 +23,6 @@ import {
   Rocket,
   Loader2,
   CheckCircle,
-  Zap,
-  Sparkles,
 } from 'lucide-react'
 
 import { useApp, useAppVersions, usePublishApp } from '../hooks/useApps'
@@ -52,7 +50,6 @@ export function AppBuilderPage() {
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [isPublishing, setIsPublishing] = useState(false)
   const [generatedFiles, setGeneratedFiles] = useState<FileChange[]>([])
-  const [useAgentic, setUseAgentic] = useState(true) // Default to agentic mode
 
   // Select latest version by default
   useEffect(() => {
@@ -173,24 +170,6 @@ export function AppBuilderPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Agentic mode toggle */}
-          <button
-            onClick={() => setUseAgentic(!useAgentic)}
-            className={cn(
-              'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-all',
-              useAgentic
-                ? 'bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white shadow-lg shadow-violet-500/25'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            )}
-          >
-            {useAgentic ? (
-              <Zap className="h-3.5 w-3.5" />
-            ) : (
-              <Sparkles className="h-3.5 w-3.5" />
-            )}
-            {useAgentic ? 'Agentic' : 'Simple'}
-          </button>
-
           {/* Run/Preview button */}
           <Button
             variant="outline"
