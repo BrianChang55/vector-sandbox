@@ -38,6 +38,8 @@ export interface FileChange {
   language: 'tsx' | 'ts' | 'css' | 'json' | 'html'
   content?: string
   diff?: string
+  addedLines?: number
+  removedLines?: number
 }
 
 // Agent plan structure

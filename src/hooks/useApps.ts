@@ -58,6 +58,21 @@ export function useUpdateApp() {
   })
 }
 
+export function useDeleteApp() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ appId }: { appId: string }) => {
+      await api.delete(`/apps/${appId}/`)
+      return appId
+    },
+    onSuccess: (appId) => {
+      queryClient.invalidateQueries({ queryKey: ['app', appId] })
+      queryClient.invalidateQueries({ queryKey: ['apps'] })
+    },
+  })
+}
+
 export function useAppVersions(appId: string | null) {
   return useQuery({
     queryKey: ['versions', appId],

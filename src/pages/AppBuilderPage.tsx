@@ -35,6 +35,7 @@ import { SandpackPreview } from '../components/builder/SandpackPreview'
 import { Button } from '../components/ui/button'
 import { cn } from '../lib/utils'
 import type { FileChange } from '../types/agent'
+import { upsertFileChange } from '../services/agentService'
 
 export function AppBuilderPage() {
   const { appId } = useParams<{ appId: string }>()
@@ -65,8 +66,8 @@ export function AppBuilderPage() {
   useEffect(() => {
     if (selectedVersion?.files && selectedVersion.files.length > 0) {
       // Convert version files to FileChange format for SandpackPreview
-      const filesForPreview: FileChange[] = selectedVersion.files.map(
-        (f: { path: string; content: string }) => {
+      const filesForPreview: FileChange[] = selectedVersion.files.reduce(
+        (acc: FileChange[], f: { path: string; content: string }) => {
           const ext = f.path.split('.').pop()?.toLowerCase()
           const language: FileChange['language'] =
             ext === 'css'
@@ -79,13 +80,14 @@ export function AppBuilderPage() {
                     ? 'ts'
                     : 'tsx'
 
-          return {
+          return upsertFileChange(acc, {
             path: f.path,
             content: f.content,
             action: 'create',
             language,
-          }
-        }
+          })
+        },
+        []
       )
       setGeneratedFiles(filesForPreview)
     }

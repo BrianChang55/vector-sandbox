@@ -348,17 +348,20 @@ function GeneratedFiles({ files }: { files: FileChange[] }) {
                   transition={{ delay: i * 0.05 }}
                   className="flex items-center gap-2 text-xs"
                 >
-                  <span className="text-green-600 font-medium">
-                    {file.action === 'create' && '+'}
-                    {file.action === 'modify' && '~'}
-                    {file.action === 'delete' && '-'}
-                  </span>
-                  <span className="text-gray-800 font-mono text-[10px] truncate">
+                  <span className="text-gray-800 font-mono text-[10px] truncate flex-1">
                     {file.path}
                   </span>
-                  <span className="text-[9px] text-gray-500 ml-auto">
-                    {file.language}
-                  </span>
+                  <div className="flex items-center gap-1 text-[10px]">
+                    <span className="text-green-700 font-semibold">
+                      +{file.addedLines ?? 0}
+                    </span>
+                    {file.removedLines ? (
+                      <span className="text-red-600 font-semibold">
+                        -{file.removedLines}
+                      </span>
+                    ) : null}
+                    <span className="text-[9px] text-gray-500">{file.language}</span>
+                  </div>
                 </motion.div>
               ))}
             </div>
@@ -505,3 +508,4 @@ export function AgentPanel({ state, className = '' }: AgentPanelProps) {
     </div>
   )
 }
+

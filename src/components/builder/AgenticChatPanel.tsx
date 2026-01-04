@@ -28,6 +28,7 @@ import {
   startAgenticGeneration,
   agentStateReducer,
   fetchLatestGeneration,
+  upsertFileChange,
 } from '../../services/agentService'
 import type { AgentEvent, PlanStep, FileChange, AgentState } from '../../types/agent'
 import { initialAgentState } from '../../types/agent'
@@ -197,8 +198,10 @@ function TaskList({ tasks }: { tasks: PlanStep[] }) {
 function FilePreview({ file, index }: { file: FileChange; index: number }) {
   const [isExpanded, setIsExpanded] = useState(false)
   const fileName = file.path.split('/').pop() || file.path
-  const isNew = file.action === 'create'
   const lineCount = file.content?.split('\n').length || 0
+  const added = file.addedLines ?? (file.action === 'create' ? lineCount : undefined)
+  const removed = file.removedLines ?? 0
+  const displayAdded = added ?? lineCount
 
   return (
     <motion.div
@@ -209,22 +212,27 @@ function FilePreview({ file, index }: { file: FileChange; index: number }) {
     >
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-gray-50 transition-colors text-left"
+        className="w-full flex items-center gap-2 px-2.5 py-1.5 hover:bg-gray-50 transition-colors text-left"
       >
-        <FileCode2 className="h-4 w-4 text-gray-500" />
-        <span className="text-sm font-medium text-gray-800 flex-1 font-mono">
+        <FileCode2 className="h-3.5 w-3.5 text-gray-500" />
+        <span className="text-xs font-medium text-gray-800 flex-1 font-mono">
           {fileName}
         </span>
-        <span className={cn(
-          'text-[10px] px-1.5 py-0.5 rounded font-medium',
-          isNew ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-blue-50 text-blue-700 border border-blue-200'
-        )}>
-          {isNew ? `+${lineCount}` : `~${lineCount}`}
+        <span className="text-[9px] px-1.5 py-0.5 rounded font-medium flex items-center gap-1 bg-green-50 text-green-700 border border-green-200">
+          <span className="text-green-700 font-semibold">
+            +{displayAdded}
+          </span>
+          {removed > 0 && (
+            <span className="text-red-600 font-semibold">
+              -{removed}
+            </span>
+          )}
+          {added === undefined && removed === 0 && `~${lineCount}`}
         </span>
         {isExpanded ? (
-          <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
+          <ChevronDown className="h-3 w-3 text-gray-400" />
         ) : (
-          <ChevronRight className="h-3.5 w-3.5 text-gray-400" />
+          <ChevronRight className="h-3 w-3 text-gray-400" />
         )}
       </button>
 
@@ -236,7 +244,7 @@ function FilePreview({ file, index }: { file: FileChange; index: number }) {
             exit={{ height: 0 }}
             className="overflow-hidden border-t border-gray-200"
           >
-            <pre className="p-3 text-xs font-mono text-gray-700 bg-gray-50 overflow-x-auto max-h-64 overflow-y-auto">
+            <pre className="p-2.5 text-[11px] font-mono text-gray-700 bg-gray-50 overflow-x-auto max-h-56 overflow-y-auto">
               <code>{file.content}</code>
             </pre>
           </motion.div>
@@ -273,7 +281,13 @@ function formatTimeLabel(timestamp: string) {
   }
 }
 
-function ProgressFeed({ updates }: { updates: ProgressUpdate[] }) {
+function ProgressFeed({
+  updates,
+  isStreaming,
+}: {
+  updates: ProgressUpdate[]
+  isStreaming: boolean
+}) {
   const [isOpen, setIsOpen] = useState(false)
   if (!updates.length) return null
 
@@ -301,8 +315,16 @@ function ProgressFeed({ updates }: { updates: ProgressUpdate[] }) {
           <motion.span
             className="pointer-events-none absolute inset-0 rounded-sm opacity-80 mix-blend-screen"
             style={shimmerStyle}
-            animate={{ backgroundPosition: ['-40% 50%', '140% 50%', '-40% 50%'] }}
-            transition={{ duration: 1.6, repeat: Infinity, ease: 'linear', repeatDelay: 0.25 }}
+            animate={
+              isStreaming
+                ? { backgroundPosition: ['-40% 50%', '140% 50%', '-40% 50%'] }
+                : { backgroundPosition: '-40% 50%' }
+            }
+            transition={
+              isStreaming
+                ? { duration: 1.6, repeat: Infinity, ease: 'linear', repeatDelay: 0.25 }
+                : undefined
+            }
           />
         </span>
       </button>
@@ -313,8 +335,16 @@ function ProgressFeed({ updates }: { updates: ProgressUpdate[] }) {
           <motion.span
             className="pointer-events-none absolute inset-0 opacity-80 mix-blend-screen"
             style={shimmerStyle}
-            animate={{ backgroundPosition: ['-40% 50%', '140% 50%', '-40% 50%'] }}
-            transition={{ duration: 1.6, repeat: Infinity, ease: 'linear', repeatDelay: 0.25 }}
+            animate={
+              isStreaming
+                ? { backgroundPosition: ['-40% 50%', '140% 50%', '-40% 50%'] }
+                : { backgroundPosition: '-40% 50%' }
+            }
+            transition={
+              isStreaming
+                ? { duration: 1.6, repeat: Infinity, ease: 'linear', repeatDelay: 0.25 }
+                : undefined
+            }
           />
         </div>
       )}
@@ -651,7 +681,7 @@ export function AgenticChatPanel({
           const pct = typeof data.progress === 'number' ? data.progress : null
           if (pct === null) break
           // Emit only when crossing ordered thresholds (real progress), with slight display jitter
-          const thresholds = [5, 25, 50, 75, 100]
+          const thresholds = [6, 21, 53, 72, 100]
           const idx = progressThresholdIndexRef.current
           if (idx >= thresholds.length) break
 
@@ -664,7 +694,7 @@ export function AgenticChatPanel({
           // Display the backend percent with a light ±3 jitter for a less "clean" feel
           const jitteredPct = Math.max(
             0,
-            Math.min(100, pct + (Math.floor(Math.random() * 7) - 3)) // ±3 jitter
+            Math.min(100, pct + (Math.floor(Math.random() * 7) - 5)) // ±5 jitter
           )
           const progressText = data.message || 'Working...'
           const pctLabel = ` (${jitteredPct}%)`
@@ -700,8 +730,7 @@ export function AgenticChatPanel({
             dedupeWindowMs: 1500,
           })
           setAccumulatedFiles((prev) => {
-            const updated = [...prev, newFile]
-            // Notify parent with accumulated files
+            const updated = upsertFileChange(prev, newFile)
             onFilesGenerated?.(updated)
             return updated
           })
@@ -710,7 +739,7 @@ export function AgenticChatPanel({
             const updated = [...prev]
             const lastMsg = updated[updated.length - 1]
             if (lastMsg?.role === 'assistant') {
-              lastMsg.files = [...(lastMsg.files || []), newFile]
+              lastMsg.files = upsertFileChange(lastMsg.files || [], newFile)
             }
             return updated
           })
@@ -740,8 +769,15 @@ export function AgenticChatPanel({
             'preview',
             { dedupeWindowMs: 4000 }
           )
-          // Use the files from the event, or the accumulated files
-          const finalFiles = data.files || accumulatedFiles
+          const finalFiles =
+            (Array.isArray(data.files)
+              ? data.files.reduce(
+                  (list: FileChange[], file: FileChange) =>
+                    upsertFileChange(list, file),
+                  accumulatedFiles
+                )
+              : accumulatedFiles)
+          setAccumulatedFiles(finalFiles)
           if (finalFiles.length > 0) {
             onFilesGenerated?.(finalFiles)
           }
@@ -1009,7 +1045,7 @@ export function AgenticChatPanel({
 
                   {/* Live progress feed */}
                   {message.progressUpdates && message.progressUpdates.length > 0 && (
-                    <ProgressFeed updates={message.progressUpdates} />
+                    <ProgressFeed updates={message.progressUpdates} isStreaming={isLoading} />
                   )}
 
                   {/* Summary text content */}

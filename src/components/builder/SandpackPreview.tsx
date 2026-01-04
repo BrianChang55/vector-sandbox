@@ -36,6 +36,7 @@ interface SandpackPreviewProps {
   versionId?: string
   appName?: string
   className?: string
+  hideToolbar?: boolean
 }
 
 type ViewMode = 'preview' | 'code' | 'split'
@@ -720,6 +721,7 @@ export function SandpackPreview({
   versionId = '',
   appName = 'App',
   className = '',
+  hideToolbar = false,
 }: SandpackPreviewProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('preview')
   const [showConsole, setShowConsole] = useState(false)
@@ -809,68 +811,70 @@ export function SandpackPreview({
         <AutoRunOnTab viewMode={viewMode} />
         {/* Flex container - uses absolute positioning to ensure footer stays pinned */}
         <div className="relative flex flex-col h-full min-h-0">
-        {/* Header - fixed at top */}
-        <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-white">
-          <div className="flex items-center gap-3">
-            {/* View mode toggle */}
-            <div className="flex items-center gap-1 bg-gray-100 rounded-md p-1">
-              {[
-                { key: 'preview' as ViewMode, icon: Eye, label: 'Preview' },
-                { key: 'code' as ViewMode, icon: Code2, label: 'Code' },
-                { key: 'split' as ViewMode, icon: Monitor, label: 'Split' },
-              ].map(({ key, icon: Icon, label }) => (
-                <button
-                  key={key}
-                  onClick={() => setViewMode(key)}
-                  className={cn(
-                    'flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium transition-colors',
-                    viewMode === key
-                      ? 'bg-white shadow-sm text-gray-900'
-                      : 'text-gray-500 hover:text-gray-700'
-                  )}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  {label}
-                </button>
-              ))}
+        {/* Header - fixed at top (optional) */}
+        {!hideToolbar && (
+          <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-white">
+            <div className="flex items-center gap-3">
+              {/* View mode toggle */}
+              <div className="flex items-center gap-1 bg-gray-100 rounded-md p-1">
+                {[
+                  { key: 'preview' as ViewMode, icon: Eye, label: 'Preview' },
+                  { key: 'code' as ViewMode, icon: Code2, label: 'Code' },
+                  { key: 'split' as ViewMode, icon: Monitor, label: 'Split' },
+                ].map(({ key, icon: Icon, label }) => (
+                  <button
+                    key={key}
+                    onClick={() => setViewMode(key)}
+                    className={cn(
+                      'flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium transition-colors',
+                      viewMode === key
+                        ? 'bg-white shadow-sm text-gray-900'
+                        : 'text-gray-500 hover:text-gray-700'
+                    )}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              <PreviewStatus />
             </div>
 
-            <PreviewStatus />
-          </div>
+            <div className="flex items-center gap-3">
+              <AutoSave
+                versionId={versionId}
+                resetKey={filesKey}
+                viewMode={viewMode}
+                onPersistLocalFiles={handlePersistLocalFiles}
+              />
+              <div className="flex items-center gap-1">
+              <button
+                onClick={() => setShowConsole(!showConsole)}
+                className={cn(
+                  'p-1.5 rounded-md transition-colors',
+                  showConsole
+                    ? 'bg-gray-100 text-gray-900'
+                    : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
+                )}
+                title="Toggle console"
+              >
+                <Terminal className="h-4 w-4" />
+              </button>
 
-          <div className="flex items-center gap-3">
-            <AutoSave
-              versionId={versionId}
-              resetKey={filesKey}
-              viewMode={viewMode}
-              onPersistLocalFiles={handlePersistLocalFiles}
-            />
-            <div className="flex items-center gap-1">
-            <button
-              onClick={() => setShowConsole(!showConsole)}
-              className={cn(
-                'p-1.5 rounded-md transition-colors',
-                showConsole
-                  ? 'bg-gray-100 text-gray-900'
-                  : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
-              )}
-              title="Toggle console"
-            >
-              <Terminal className="h-4 w-4" />
-            </button>
+              <RefreshButton />
 
-            <RefreshButton />
-
-            <button
-              className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 
-                       rounded-md transition-colors"
-              title="Open in new tab"
-            >
-              <ExternalLink className="h-4 w-4" />
-            </button>
+              <button
+                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 
+                         rounded-md transition-colors"
+                title="Open in new tab"
+              >
+                <ExternalLink className="h-4 w-4" />
+              </button>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Content - fills remaining space (Sandpack editor needs explicit full-height wrappers) */}
         <div className="flex-1 min-h-0 overflow-hidden">

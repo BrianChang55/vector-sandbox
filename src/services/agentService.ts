@@ -10,11 +10,68 @@ import type {
   AgentEvent,
   AgentEventType,
   AgentState,
+  FileChange,
 } from '../types/agent'
 
 // Helper type for accessing event data with any properties
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type EventData = Record<string, any>
+
+function lcsLength(a: string[], b: string[]): number {
+  const n = b.length
+  const dp = new Array(n + 1).fill(0)
+
+  for (let i = 1; i <= a.length; i++) {
+    let prev = 0
+    for (let j = 1; j <= n; j++) {
+      const temp = dp[j]
+      dp[j] = a[i - 1] === b[j - 1] ? prev + 1 : Math.max(dp[j], dp[j - 1])
+      prev = temp
+    }
+  }
+
+  return dp[n]
+}
+
+function calculateLineDelta(prevContent?: string, nextContent?: string) {
+  const toLines = (value?: string) =>
+    value === undefined || value === '' ? [] : value.split('\n')
+
+  const prevLines = toLines(prevContent)
+  const nextLines = toLines(nextContent)
+  const common = lcsLength(prevLines, nextLines)
+
+  return {
+    addedLines: Math.max(0, nextLines.length - common),
+    removedLines: Math.max(0, prevLines.length - common),
+  }
+}
+
+export function upsertFileChange(
+  existing: FileChange[],
+  change: FileChange
+): FileChange[] {
+  const index = existing.findIndex((f) => f.path === change.path)
+  const previous = index >= 0 ? existing[index] : undefined
+  const { addedLines, removedLines } = calculateLineDelta(
+    previous?.content,
+    change.content
+  )
+
+  const merged: FileChange = {
+    ...previous,
+    ...change,
+    action: previous ? 'modify' : change.action || 'create',
+    addedLines,
+    removedLines,
+  }
+
+  if (index >= 0) {
+    return existing.map((file, i) => (i === index ? merged : file))
+  }
+
+  return [...existing, merged]
+}
 
 export type AgentEventCallback = (event: AgentEvent) => void
 
@@ -268,7 +325,7 @@ export function agentStateReducer(
     case 'file_generated': {
       return {
         ...state,
-        generatedFiles: [...state.generatedFiles, data.file],
+        generatedFiles: upsertFileChange(state.generatedFiles, data.file),
       }
     }
 

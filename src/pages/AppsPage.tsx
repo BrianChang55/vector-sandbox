@@ -1,15 +1,17 @@
 /**
  * Apps list page
- * 
+ *
  * Clean, light-themed enterprise dashboard showing all internal apps.
  * Follows the established design system: white backgrounds, gray borders,
  * subtle shadows, and minimal design.
  */
-import { Link } from 'react-router-dom'
+import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAppSelector } from '../store/hooks'
-import { useApps, useCreateApp } from '../hooks/useApps'
+import { useApps, useCreateApp, useUpdateApp, useDeleteApp } from '../hooks/useApps'
 import { Button } from '../components/ui/button'
 import { useDialog } from '../components/ui/dialog-provider'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/dropdown-menu'
 import { 
   Plus, 
   Layers, 
@@ -17,7 +19,12 @@ import {
   Clock,
   CheckCircle,
   Code2,
-  FolderOpen
+  FolderOpen,
+  MoreVertical,
+  PencilLine,
+  AlignLeft,
+  Trash2,
+  Loader2,
 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 
@@ -25,7 +32,17 @@ export function AppsPage() {
   const selectedOrgId = useAppSelector((state) => state.ui.selectedOrgId)
   const { data: apps, isLoading } = useApps(selectedOrgId || null)
   const createApp = useCreateApp()
-  const { prompt } = useDialog()
+  const updateApp = useUpdateApp()
+  const deleteApp = useDeleteApp()
+  const { prompt, confirm } = useDialog()
+  const navigate = useNavigate()
+
+  const [editingAppId, setEditingAppId] = useState<string | null>(null)
+  const [editingField, setEditingField] = useState<'name' | 'description' | null>(null)
+  const [draftName, setDraftName] = useState('')
+  const [draftDescription, setDraftDescription] = useState('')
+  const [savingAppId, setSavingAppId] = useState<string | null>(null)
+  const [deletingAppId, setDeletingAppId] = useState<string | null>(null)
 
   const handleCreateApp = async () => {
     const name = await prompt({
@@ -41,6 +58,63 @@ export function AppsPage() {
         orgId: selectedOrgId!,
         data: { name, description: '', backend_connection: null },
       })
+    }
+  }
+
+  const startEditing = (appId: string, field: 'name' | 'description', currentName: string, currentDescription: string) => {
+    setEditingAppId(appId)
+    setEditingField(field)
+    setDraftName(currentName)
+    setDraftDescription(currentDescription)
+  }
+
+  const cancelEditing = () => {
+    setEditingAppId(null)
+    setEditingField(null)
+  }
+
+  const handleSaveEdit = async (appId: string, field: 'name' | 'description', originalValue: string) => {
+    const value = field === 'name' ? draftName : draftDescription
+    const cleanedValue = value.trim()
+
+    if (field === 'name' && !cleanedValue) {
+      cancelEditing()
+      return
+    }
+
+    if (cleanedValue === originalValue) {
+      cancelEditing()
+      return
+    }
+
+    setSavingAppId(appId)
+    try {
+      await updateApp.mutateAsync({ appId, data: { [field]: cleanedValue } })
+    } catch (error) {
+      console.error('Failed to update app', error)
+    } finally {
+      setSavingAppId(null)
+      cancelEditing()
+    }
+  }
+
+  const handleDeleteApp = async (appId: string, appName: string) => {
+    const confirmed = await confirm({
+      title: 'Delete app?',
+      description: `This will permanently delete "${appName || 'this app'}".`,
+      variant: 'destructive',
+      confirmText: 'Delete',
+    })
+
+    if (!confirmed) return
+
+    setDeletingAppId(appId)
+    try {
+      await deleteApp.mutateAsync({ appId })
+    } catch (error) {
+      console.error('Failed to delete app', error)
+    } finally {
+      setDeletingAppId(null)
     }
   }
 
@@ -88,26 +162,149 @@ export function AppsPage() {
         {apps && apps.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {apps.map((app) => (
-              <Link
+              <div
                 key={app.id}
-                to={`/apps/${app.id}`}
                 className="group block bg-white rounded-lg border border-gray-200 p-5 
                          hover:border-gray-300 hover:shadow-sm transition-all"
+                role="button"
+                tabIndex={0}
+                onClick={() => navigate(`/apps/${app.id}`)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    navigate(`/apps/${app.id}`)
+                  }
+                }}
               >
                 <div className="flex items-start justify-between mb-3">
                   <div className="h-10 w-10 rounded-lg bg-gray-100 flex items-center justify-center">
                     <Layers className="h-5 w-5 text-gray-500" />
                   </div>
-                  <ArrowRight className="h-4 w-4 text-gray-300 group-hover:text-gray-500 
-                                        group-hover:translate-x-0.5 transition-all" />
+                  <div className="flex items-center gap-1" onClick={(event) => event.stopPropagation()}>
+                    {savingAppId === app.id && (
+                      <Loader2 className="h-4 w-4 text-gray-400 animate-spin" />
+                    )}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                          aria-label="App actions"
+                        >
+                          <MoreVertical className="h-4 w-4" />
+                        </button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" sideOffset={6}>
+                        <DropdownMenuItem
+                          onSelect={(event) => {
+                            event.preventDefault()
+                            startEditing(app.id, 'name', app.name, app.description || '')
+                          }}
+                          className="gap-2"
+                        >
+                          <PencilLine className="h-4 w-4 text-gray-500" />
+                          Rename
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onSelect={(event) => {
+                            event.preventDefault()
+                            startEditing(app.id, 'description', app.name, app.description || '')
+                          }}
+                          className="gap-2"
+                        >
+                          <AlignLeft className="h-4 w-4 text-gray-500" />
+                          Edit description
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onSelect={(event) => {
+                            event.preventDefault()
+                            handleDeleteApp(app.id, app.name)
+                          }}
+                          className="gap-2 text-red-600 focus:bg-red-50"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Delete app
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                    <ArrowRight className="h-4 w-4 text-gray-300 group-hover:text-gray-500 
+                                          group-hover:translate-x-0.5 transition-all" />
+                  </div>
                 </div>
 
-                <h3 className="font-medium text-gray-900 mb-1 group-hover:text-gray-700">
-                  {app.name}
-                </h3>
-                <p className="text-sm text-gray-500 mb-4 line-clamp-2">
-                  {app.description || 'No description'}
-                </p>
+                <div className="mb-1">
+                  {editingAppId === app.id && editingField === 'name' ? (
+                    <input
+                      autoFocus
+                      value={draftName}
+                      onChange={(event) => setDraftName(event.target.value)}
+                      onClick={(event) => event.stopPropagation()}
+                      onBlur={() => handleSaveEdit(app.id, 'name', app.name)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault()
+                          handleSaveEdit(app.id, 'name', app.name)
+                        }
+                        if (event.key === 'Escape') {
+                          event.preventDefault()
+                          cancelEditing()
+                        }
+                      }}
+                      className="w-full bg-transparent border border-transparent p-0 m-0 text-base font-medium text-gray-900 outline-none focus:ring-0 focus:border-transparent"
+                    />
+                  ) : (
+                    <div
+                      className="group/name inline-flex items-center gap-1.5 -mx-1 px-1 rounded cursor-text transition-colors hover:bg-gray-50"
+                      onClick={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        startEditing(app.id, 'name', app.name, app.description || '')
+                      }}
+                    >
+                      <span className="font-medium text-gray-900 group-hover/name:text-gray-700 truncate">
+                        {app.name || 'Untitled app'}
+                      </span>
+                      <PencilLine className="h-3.5 w-3.5 text-gray-300 opacity-0 group-hover/name:opacity-100 transition-opacity" aria-hidden />
+                    </div>
+                  )}
+                </div>
+                <div className="mb-4">
+                  {editingAppId === app.id && editingField === 'description' ? (
+                    <textarea
+                      autoFocus
+                      value={draftDescription}
+                      onChange={(event) => setDraftDescription(event.target.value)}
+                      onClick={(event) => event.stopPropagation()}
+                      onBlur={() => handleSaveEdit(app.id, 'description', app.description || '')}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' && !event.shiftKey) {
+                          event.preventDefault()
+                          handleSaveEdit(app.id, 'description', app.description || '')
+                        }
+                        if (event.key === 'Escape') {
+                          event.preventDefault()
+                          cancelEditing()
+                        }
+                      }}
+                      rows={2}
+                      className="w-full resize-none border border-transparent bg-transparent px-0 py-0 text-sm text-gray-600 leading-snug focus:border-gray-300 focus:ring-0"
+                    />
+                  ) : (
+                    <div
+                      className="group/description relative -mx-1 px-1 py-0.5 rounded cursor-text transition-colors hover:bg-gray-50"
+                      onClick={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        startEditing(app.id, 'description', app.name, app.description || '')
+                      }}
+                    >
+                      <p className="text-sm text-gray-500 line-clamp-2 transition-colors group-hover/description:text-gray-600">
+                        {app.description || 'No description'}
+                      </p>
+                      <PencilLine className="absolute right-1 top-1 h-3.5 w-3.5 text-gray-300 opacity-0 group-hover/description:opacity-100 transition-opacity" aria-hidden />
+                    </div>
+                  )}
+                </div>
 
                 <div className="flex items-center gap-3">
                   <span
@@ -130,7 +327,10 @@ export function AppsPage() {
                     {formatDistanceToNow(new Date(app.updated_at), { addSuffix: true })}
                   </span>
                 </div>
-              </Link>
+                {deletingAppId === app.id && (
+                  <p className="mt-2 text-xs text-red-500">Deleting…</p>
+                )}
+              </div>
             ))}
           </div>
         ) : (
