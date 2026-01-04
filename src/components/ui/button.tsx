@@ -35,13 +35,25 @@ export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean
+  /**
+   * Removes focus ring styling for cases where a subtle focus state is desired.
+   */
+  disableFocusRing?: boolean
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, ...props }, ref) => {
+  ({ className, variant, size, disableFocusRing = false, style, ...props }, ref) => {
+    const buttonStyle = disableFocusRing
+      ? { ...(style || {}), boxShadow: 'none' }
+      : style
+
     return (
       <button
-        className={cn(buttonVariants({ variant, size, className }))}
+        className={cn(
+          buttonVariants({ variant, size, className }),
+          disableFocusRing && 'focus-visible:ring-0 focus-visible:ring-offset-0'
+        )}
+        style={buttonStyle}
         ref={ref}
         {...props}
       />

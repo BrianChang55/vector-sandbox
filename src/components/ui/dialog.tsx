@@ -339,6 +339,7 @@ function ConfirmDialog({
               variant="outline"
               className="flex-1"
               disabled={showLoading}
+              disableFocusRing
             >
               {cancelText}
             </Button>

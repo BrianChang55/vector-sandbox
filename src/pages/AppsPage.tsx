@@ -11,18 +11,15 @@ import { useAppSelector } from '../store/hooks'
 import { useApps, useCreateApp, useUpdateApp, useDeleteApp } from '../hooks/useApps'
 import { Button } from '../components/ui/button'
 import { useDialog } from '../components/ui/dialog-provider'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/dropdown-menu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../components/ui/dropdown-menu'
 import { 
   Plus, 
   Layers, 
-  ArrowRight, 
   Clock,
   CheckCircle,
   Code2,
   FolderOpen,
   MoreVertical,
-  PencilLine,
-  AlignLeft,
   Trash2,
   Loader2,
 } from 'lucide-react'
@@ -197,27 +194,6 @@ export function AppsPage() {
                         <DropdownMenuItem
                           onSelect={(event) => {
                             event.preventDefault()
-                            startEditing(app.id, 'name', app.name, app.description || '')
-                          }}
-                          className="gap-2"
-                        >
-                          <PencilLine className="h-4 w-4 text-gray-500" />
-                          Rename
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onSelect={(event) => {
-                            event.preventDefault()
-                            startEditing(app.id, 'description', app.name, app.description || '')
-                          }}
-                          className="gap-2"
-                        >
-                          <AlignLeft className="h-4 w-4 text-gray-500" />
-                          Edit description
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onSelect={(event) => {
-                            event.preventDefault()
                             handleDeleteApp(app.id, app.name)
                           }}
                           className="gap-2 text-red-600 focus:bg-red-50"
@@ -227,8 +203,6 @@ export function AppsPage() {
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
-                    <ArrowRight className="h-4 w-4 text-gray-300 group-hover:text-gray-500 
-                                          group-hover:translate-x-0.5 transition-all" />
                   </div>
                 </div>
 
@@ -239,6 +213,7 @@ export function AppsPage() {
                       value={draftName}
                       onChange={(event) => setDraftName(event.target.value)}
                       onClick={(event) => event.stopPropagation()}
+                      onMouseDown={(event) => event.stopPropagation()}
                       onBlur={() => handleSaveEdit(app.id, 'name', app.name)}
                       onKeyDown={(event) => {
                         if (event.key === 'Enter') {
@@ -254,30 +229,33 @@ export function AppsPage() {
                     />
                   ) : (
                     <div
-                      className="group/name inline-flex items-center gap-1.5 -mx-1 px-1 rounded cursor-text transition-colors hover:bg-gray-50"
+                      className="inline-block -mx-1 px-[1px] py-[1px] rounded-sm cursor-text transition-colors hover:bg-gray-50"
                       onClick={(event) => {
                         event.preventDefault()
                         event.stopPropagation()
                         startEditing(app.id, 'name', app.name, app.description || '')
                       }}
+                      onMouseDown={(event) => event.stopPropagation()}
                     >
-                      <span className="font-medium text-gray-900 group-hover/name:text-gray-700 truncate">
+                      <span className="font-medium text-gray-900 hover:text-gray-700 truncate">
                         {app.name || 'Untitled app'}
                       </span>
-                      <PencilLine className="h-3.5 w-3.5 text-gray-300 opacity-0 group-hover/name:opacity-100 transition-opacity" aria-hidden />
                     </div>
                   )}
                 </div>
                 <div className="mb-4">
                   {editingAppId === app.id && editingField === 'description' ? (
-                    <textarea
+                    <input
                       autoFocus
+                      type="text"
+                      maxLength={60}
                       value={draftDescription}
-                      onChange={(event) => setDraftDescription(event.target.value)}
+                      onChange={(event) => setDraftDescription(event.target.value.slice(0, 60))}
                       onClick={(event) => event.stopPropagation()}
+                      onMouseDown={(event) => event.stopPropagation()}
                       onBlur={() => handleSaveEdit(app.id, 'description', app.description || '')}
                       onKeyDown={(event) => {
-                        if (event.key === 'Enter' && !event.shiftKey) {
+                        if (event.key === 'Enter') {
                           event.preventDefault()
                           handleSaveEdit(app.id, 'description', app.description || '')
                         }
@@ -286,22 +264,21 @@ export function AppsPage() {
                           cancelEditing()
                         }
                       }}
-                      rows={2}
-                      className="w-full resize-none border border-transparent bg-transparent px-0 py-0 text-sm text-gray-600 leading-snug focus:border-gray-300 focus:ring-0"
+                      className="w-full bg-transparent border border-transparent px-0 py-0 text-sm text-gray-600 leading-snug outline-none focus:ring-0 focus:border-transparent"
                     />
                   ) : (
                     <div
-                      className="group/description relative -mx-1 px-1 py-0.5 rounded cursor-text transition-colors hover:bg-gray-50"
+                      className="relative -mx-1 px-[1px] py-[1px] rounded-sm cursor-text transition-colors hover:bg-gray-50"
                       onClick={(event) => {
                         event.preventDefault()
                         event.stopPropagation()
                         startEditing(app.id, 'description', app.name, app.description || '')
                       }}
+                      onMouseDown={(event) => event.stopPropagation()}
                     >
-                      <p className="text-sm text-gray-500 line-clamp-2 transition-colors group-hover/description:text-gray-600">
-                        {app.description || 'No description'}
+                      <p className="text-sm text-gray-500 truncate transition-colors hover:text-gray-600">
+                        {(app.description || 'No description').slice(0, 60)}
                       </p>
-                      <PencilLine className="absolute right-1 top-1 h-3.5 w-3.5 text-gray-300 opacity-0 group-hover/description:opacity-100 transition-opacity" aria-hidden />
                     </div>
                   )}
                 </div>
