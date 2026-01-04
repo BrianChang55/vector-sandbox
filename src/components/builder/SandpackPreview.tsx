@@ -57,6 +57,15 @@ function hashFiles(files: FileChange[]): string {
   return hashString(parts)
 }
 
+function hashSandpackRuntimeFiles(sandpackFiles: Record<string, unknown>): string {
+  // Hash the live editor state so we can trigger runs on any code edit.
+  const parts = Object.entries(sandpackFiles)
+    .map(([path, file]) => `${path}\n${(file as { code?: string }).code || ''}`)
+    .sort()
+    .join('\n---\n')
+  return hashString(parts)
+}
+
 // Default files for a React app
 const DEFAULT_FILES = {
   '/public/index.html': `<!DOCTYPE html>
@@ -330,6 +339,21 @@ function AutoRunPreview({ filesKey }: { filesKey: string }) {
   return null
 }
 
+function AutoRunOnEdit() {
+  const { sandpack } = useSandpack()
+  const editKey = useMemo(
+    () => hashSandpackRuntimeFiles(sandpack.files as Record<string, unknown>),
+    [sandpack.files]
+  )
+
+  useEffect(() => {
+    sandpack.runSandpack()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editKey])
+
+  return null
+}
+
 // Refresh button that uses Sandpack context
 function RefreshButton() {
   const { sandpack } = useSandpack()
@@ -474,6 +498,7 @@ export function SandpackPreview({
         theme="light"
       >
         <AutoRunPreview filesKey={filesKey} />
+        <AutoRunOnEdit />
         {/* Flex container - uses absolute positioning to ensure footer stays pinned */}
         <div className="relative flex flex-col h-full min-h-0">
         {/* Header - fixed at top */}
