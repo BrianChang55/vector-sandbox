@@ -11,7 +11,8 @@ import { useAppSelector } from '../store/hooks'
 import { useApps, useCreateApp, useUpdateApp, useDeleteApp } from '../hooks/useApps'
 import { Button } from '../components/ui/button'
 import { useDialog } from '../components/ui/dialog-provider'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../components/ui/dropdown-menu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/dropdown-menu'
+import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../components/ui/dialog'
 import { 
   Plus, 
   Layers, 
@@ -20,6 +21,7 @@ import {
   Code2,
   FolderOpen,
   MoreVertical,
+  PencilLine,
   Trash2,
   Loader2,
 } from 'lucide-react'
@@ -31,67 +33,78 @@ export function AppsPage() {
   const createApp = useCreateApp()
   const updateApp = useUpdateApp()
   const deleteApp = useDeleteApp()
-  const { prompt, confirm } = useDialog()
+  const { confirm } = useDialog()
   const navigate = useNavigate()
 
-  const [editingAppId, setEditingAppId] = useState<string | null>(null)
-  const [editingField, setEditingField] = useState<'name' | 'description' | null>(null)
-  const [draftName, setDraftName] = useState('')
-  const [draftDescription, setDraftDescription] = useState('')
   const [savingAppId, setSavingAppId] = useState<string | null>(null)
   const [deletingAppId, setDeletingAppId] = useState<string | null>(null)
+  const [formDialogOpen, setFormDialogOpen] = useState(false)
+  const [formMode, setFormMode] = useState<'create' | 'edit'>('create')
+  const [formAppId, setFormAppId] = useState<string | null>(null)
+  const [formName, setFormName] = useState('')
+  const [formDescription, setFormDescription] = useState('')
+  const [formSaving, setFormSaving] = useState(false)
 
-  const handleCreateApp = async () => {
-    const name = await prompt({
-      title: 'Create New App',
-      description: 'Enter a name for your new internal application.',
-      placeholder: 'e.g., Customer Dashboard, Order Manager',
-      confirmText: 'Create App',
-      required: true,
-    })
-    
-    if (name) {
-      createApp.mutate({
-        orgId: selectedOrgId!,
-        data: { name, description: '', backend_connection: null },
-      })
-    }
+  const resetFormDialog = () => {
+    setFormAppId(null)
+    setFormName('')
+    setFormDescription('')
+    setFormMode('create')
   }
 
-  const startEditing = (appId: string, field: 'name' | 'description', currentName: string, currentDescription: string) => {
-    setEditingAppId(appId)
-    setEditingField(field)
-    setDraftName(currentName)
-    setDraftDescription(currentDescription)
+  const openCreateDialog = () => {
+    resetFormDialog()
+    setFormMode('create')
+    setFormDialogOpen(true)
   }
 
-  const cancelEditing = () => {
-    setEditingAppId(null)
-    setEditingField(null)
+  const openEditDialog = (app: { id: string; name: string; description?: string | null }) => {
+    setFormMode('edit')
+    setFormAppId(app.id)
+    setFormName(app.name || '')
+    setFormDescription((app.description || '').slice(0, 60))
+    setFormDialogOpen(true)
   }
 
-  const handleSaveEdit = async (appId: string, field: 'name' | 'description', originalValue: string) => {
-    const value = field === 'name' ? draftName : draftDescription
-    const cleanedValue = value.trim()
+  const handleFormSubmit = async () => {
+    const cleanedName = formName.trim()
+    const cleanedDescription = formDescription.trim().slice(0, 60)
 
-    if (field === 'name' && !cleanedValue) {
-      cancelEditing()
-      return
-    }
+    if (!cleanedName) return
 
-    if (cleanedValue === originalValue) {
-      cancelEditing()
-      return
-    }
+    if (formMode === 'create' && !selectedOrgId) return
 
-    setSavingAppId(appId)
+    setFormSaving(true)
+
     try {
-      await updateApp.mutateAsync({ appId, data: { [field]: cleanedValue } })
+      if (formMode === 'create') {
+        await createApp.mutateAsync({
+          orgId: selectedOrgId!,
+          data: { name: cleanedName, description: cleanedDescription, backend_connection: null },
+        })
+      } else if (formMode === 'edit' && formAppId) {
+        setSavingAppId(formAppId)
+        await updateApp.mutateAsync({
+          appId: formAppId,
+          data: { name: cleanedName, description: cleanedDescription },
+        })
+      }
+      setFormDialogOpen(false)
+      resetFormDialog()
     } catch (error) {
-      console.error('Failed to update app', error)
+      console.error('Failed to save app', error)
     } finally {
+      setFormSaving(false)
       setSavingAppId(null)
-      cancelEditing()
+    }
+  }
+
+  const handleFormOpenChange = (open: boolean) => {
+    if (!open && !formSaving) {
+      setFormDialogOpen(false)
+      resetFormDialog()
+    } else {
+      setFormDialogOpen(open)
     }
   }
 
@@ -134,8 +147,16 @@ export function AppsPage() {
     )
   }
 
+  const dialogTitle = formMode === 'create' ? 'Create New App' : 'Edit App'
+  const dialogSubtitle =
+    formMode === 'create'
+      ? 'Add a title and short description for your new internal app.'
+      : 'Update the title and description.'
+  const dialogPrimaryText = formMode === 'create' ? 'Create App' : 'Save Changes'
+
   return (
-    <div className="min-h-full bg-gray-50">
+    <>
+      <div className="min-h-full bg-gray-50">
       {/* Header */}
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-6xl mx-auto px-6 py-6">
@@ -146,7 +167,7 @@ export function AppsPage() {
                 Build and manage your internal applications
               </p>
             </div>
-            <Button onClick={handleCreateApp}>
+            <Button onClick={openCreateDialog}>
               <Plus className="h-4 w-4 mr-2" />
               New App
             </Button>
@@ -194,6 +215,17 @@ export function AppsPage() {
                         <DropdownMenuItem
                           onSelect={(event) => {
                             event.preventDefault()
+                            openEditDialog(app)
+                          }}
+                          className="gap-2"
+                        >
+                          <PencilLine className="h-4 w-4 text-gray-500" />
+                          Edit
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onSelect={(event) => {
+                            event.preventDefault()
                             handleDeleteApp(app.id, app.name)
                           }}
                           className="gap-2 text-red-600 focus:bg-red-50"
@@ -207,80 +239,34 @@ export function AppsPage() {
                 </div>
 
                 <div className="mb-1">
-                  {editingAppId === app.id && editingField === 'name' ? (
-                    <input
-                      autoFocus
-                      value={draftName}
-                      onChange={(event) => setDraftName(event.target.value)}
-                      onClick={(event) => event.stopPropagation()}
-                      onMouseDown={(event) => event.stopPropagation()}
-                      onBlur={() => handleSaveEdit(app.id, 'name', app.name)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') {
-                          event.preventDefault()
-                          handleSaveEdit(app.id, 'name', app.name)
-                        }
-                        if (event.key === 'Escape') {
-                          event.preventDefault()
-                          cancelEditing()
-                        }
-                      }}
-                      className="w-full bg-transparent border border-transparent p-0 m-0 text-base font-medium text-gray-900 outline-none focus:ring-0 focus:border-transparent"
-                    />
-                  ) : (
-                    <div
-                      className="inline-block -mx-1 px-[1px] py-[1px] rounded-sm cursor-text transition-colors hover:bg-gray-50"
-                      onClick={(event) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        startEditing(app.id, 'name', app.name, app.description || '')
-                      }}
-                      onMouseDown={(event) => event.stopPropagation()}
-                    >
-                      <span className="font-medium text-gray-900 hover:text-gray-700 truncate">
-                        {app.name || 'Untitled app'}
-                      </span>
-                    </div>
-                  )}
+                  <div
+                    className="inline-block -mx-2 px-2 py-1 rounded-[4px] cursor-text transition-colors hover:bg-gray-50"
+                    onClick={(event) => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      openEditDialog(app)
+                    }}
+                    onMouseDown={(event) => event.stopPropagation()}
+                  >
+                    <span className="font-medium text-gray-900 hover:text-gray-700 truncate">
+                      {app.name || 'Untitled app'}
+                    </span>
+                  </div>
                 </div>
                 <div className="mb-4">
-                  {editingAppId === app.id && editingField === 'description' ? (
-                    <input
-                      autoFocus
-                      type="text"
-                      maxLength={60}
-                      value={draftDescription}
-                      onChange={(event) => setDraftDescription(event.target.value.slice(0, 60))}
-                      onClick={(event) => event.stopPropagation()}
-                      onMouseDown={(event) => event.stopPropagation()}
-                      onBlur={() => handleSaveEdit(app.id, 'description', app.description || '')}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') {
-                          event.preventDefault()
-                          handleSaveEdit(app.id, 'description', app.description || '')
-                        }
-                        if (event.key === 'Escape') {
-                          event.preventDefault()
-                          cancelEditing()
-                        }
-                      }}
-                      className="w-full bg-transparent border border-transparent px-0 py-0 text-sm text-gray-600 leading-snug outline-none focus:ring-0 focus:border-transparent"
-                    />
-                  ) : (
-                    <div
-                      className="relative -mx-1 px-[1px] py-[1px] rounded-sm cursor-text transition-colors hover:bg-gray-50"
-                      onClick={(event) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        startEditing(app.id, 'description', app.name, app.description || '')
-                      }}
-                      onMouseDown={(event) => event.stopPropagation()}
-                    >
-                      <p className="text-sm text-gray-500 truncate transition-colors hover:text-gray-600">
-                        {(app.description || 'No description').slice(0, 60)}
-                      </p>
-                    </div>
-                  )}
+                  <div
+                    className="relative -mx-2 px-2 py-1 rounded-[4px] cursor-text transition-colors hover:bg-gray-50"
+                    onClick={(event) => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      openEditDialog(app)
+                    }}
+                    onMouseDown={(event) => event.stopPropagation()}
+                  >
+                    <p className="text-sm text-gray-500 truncate transition-colors hover:text-gray-600">
+                      {(app.description || 'No description').slice(0, 60)}
+                    </p>
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-3">
@@ -321,13 +307,86 @@ export function AppsPage() {
             <p className="text-sm text-gray-500 mb-6 max-w-sm text-center">
               Create your first internal application to get started with building powerful tools.
             </p>
-            <Button onClick={handleCreateApp}>
+            <Button onClick={openCreateDialog}>
               <Plus className="h-4 w-4 mr-2" />
               Create Your First App
             </Button>
           </div>
         )}
       </div>
+
+      {/* Create/Edit dialog */}
+      <Dialog open={formDialogOpen} onOpenChange={handleFormOpenChange}>
+        <DialogContent showCloseButton className="max-w-md">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault()
+              handleFormSubmit()
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>{dialogTitle}</DialogTitle>
+              <DialogDescription>{dialogSubtitle}</DialogDescription>
+            </DialogHeader>
+            <DialogBody>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-900 mb-1">
+                    App title
+                  </label>
+                  <input
+                    value={formName}
+                    onChange={(event) => setFormName(event.target.value)}
+                    placeholder="e.g., Customer Dashboard"
+                    disabled={formSaving}
+                    className="w-full h-10 px-3 rounded-md text-sm border border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed transition-shadow"
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-900 mb-1">
+                    Description
+                  </label>
+                  <input
+                    value={formDescription}
+                    onChange={(event) => setFormDescription(event.target.value.slice(0, 60))}
+                    maxLength={60}
+                    placeholder="Short description (max 60 characters)"
+                    disabled={formSaving}
+                    className="w-full h-10 px-3 rounded-md text-sm border border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed transition-shadow"
+                  />
+                  <div className="mt-1 text-xs text-gray-400 text-right">
+                    {formDescription.length}/60
+                  </div>
+                </div>
+              </div>
+            </DialogBody>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  if (!formSaving) {
+                    setFormDialogOpen(false)
+                    resetFormDialog()
+                  }
+                }}
+                disabled={formSaving}
+                disableFocusRing
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={formSaving || !formName.trim()}
+              >
+                {formSaving ? 'Saving…' : dialogPrimaryText}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
+  </>
   )
 }

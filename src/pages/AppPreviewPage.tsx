@@ -1,58 +1,60 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { Check, Link2, Loader2 } from 'lucide-react'
-import { SandpackPreview } from '../components/builder/SandpackPreview'
-import { useApp, useAppVersion, useAppVersions } from '../hooks/useApps'
-import type { FileChange } from '../types/agent'
+import { useParams, useSearchParams } from 'react-router-dom'
+import { Check, Link2, Loader2, ExternalLink } from 'lucide-react'
+import { SandpackPreview, SimplePreview } from '../components/builder/SandpackPreview'
+import { useApp, useAppVersions } from '../hooks/useApps'
+import { buildPreviewUrl } from '../lib/preview'
 import { Button } from '../components/ui/button'
+import type { FileChange } from '../types/agent'
+import { upsertFileChange } from '../services/agentService'
 
 export function AppPreviewPage() {
   const { appId } = useParams<{ appId: string }>()
-  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const queryVersionId = searchParams.get('version')
 
   const { data: app, isLoading: appLoading } = useApp(appId || null)
-  const { data: versions, isLoading: versionsLoading } = useAppVersions(appId || null)
+  // Include files so we can render Sandpack with the exact version like the builder
+  const { data: versions, isLoading: versionsLoading } = useAppVersions(appId || null, { includeFiles: true })
+  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(queryVersionId)
 
-  const latestVersionId = versions && versions.length > 0 ? versions[0].id : null
+  const sortedVersions = useMemo(
+    () =>
+      (versions || []).slice().sort((a, b) => (b.version_number || 0) - (a.version_number || 0)),
+    [versions]
+  )
 
-  // Keep URL in sync with a real version ID so sharing works and we never land on "no versions"
+  // Keep URL and local state aligned to a real version ID so sharing works and we never land on "no versions"
   useEffect(() => {
-    if (!versions || versions.length === 0) return
+    if (!sortedVersions || sortedVersions.length === 0) return
 
-    const hasQueryVersion = queryVersionId && versions.some((v) => v.id === queryVersionId)
-    const fallbackId = queryVersionId && !hasQueryVersion ? latestVersionId : null
+    const hasQueryVersion = queryVersionId && sortedVersions.some((v) => v.id === queryVersionId)
+    const nextVersionId = hasQueryVersion ? queryVersionId! : sortedVersions[0].id
 
-    // If no version provided or the provided one is invalid, force the latest
-    if (!queryVersionId || fallbackId) {
-      const targetVersionId = hasQueryVersion ? queryVersionId! : latestVersionId!
+    setSelectedVersionId(nextVersionId)
+
+    const currentQueryVersion = searchParams.get('version')
+    if (currentQueryVersion !== nextVersionId) {
       const next = new URLSearchParams(searchParams)
-      next.set('version', targetVersionId)
+      next.set('version', nextVersionId)
       setSearchParams(next, { replace: true })
     }
-  }, [versions, queryVersionId, latestVersionId, searchParams, setSearchParams])
-
-  const effectiveVersionId = useMemo(() => {
-    if (!versions || versions.length === 0) return null
-    const hasQuery = queryVersionId && versions.some((v) => v.id === queryVersionId)
-    return hasQuery ? queryVersionId : latestVersionId
-  }, [versions, queryVersionId, latestVersionId])
-
-  // Fetch detail as a fallback, but we prefer the versions list (it already includes files like the builder uses)
-  const { data: versionData, isLoading: versionLoading } = useAppVersion(effectiveVersionId || null)
+  }, [sortedVersions, queryVersionId, searchParams, setSearchParams])
 
   const selectedVersion = useMemo(() => {
-    const fromList =
-      versions?.find((v) => v.id === effectiveVersionId) ||
-      versions?.[0] ||
-      null
-    return fromList || versionData || null
-  }, [versions, effectiveVersionId, versionData])
+    if (!sortedVersions || sortedVersions.length === 0) return null
+    if (selectedVersionId) {
+      const match = sortedVersions.find((v) => v.id === selectedVersionId)
+      if (match) return match
+    }
+    return sortedVersions[0]
+  }, [sortedVersions, selectedVersionId])
+
+  const effectiveVersionId = selectedVersion?.id || null
 
   const filesForPreview = useMemo<FileChange[]>(() => {
     if (!selectedVersion?.files) return []
-    return selectedVersion.files.map((f) => {
+    return selectedVersion.files.reduce((acc: FileChange[], f: { path: string; content: string }) => {
       const ext = f.path.split('.').pop()?.toLowerCase()
       const language: FileChange['language'] =
         ext === 'css'
@@ -65,13 +67,13 @@ export function AppPreviewPage() {
                 ? 'ts'
                 : 'tsx'
 
-      return {
+      return upsertFileChange(acc, {
         path: f.path,
         content: f.content,
         action: 'create',
         language,
-      }
-    })
+      })
+    }, [])
   }, [selectedVersion])
 
   const lastUpdatedText = useMemo(() => {
@@ -101,6 +103,11 @@ export function AppPreviewPage() {
     }
   }
 
+  const previewUrl = useMemo(() => {
+    if (!appId || !effectiveVersionId) return ''
+    return buildPreviewUrl(appId, effectiveVersionId)
+  }, [appId, effectiveVersionId])
+
   if (!appId) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-50 text-gray-700">
@@ -109,7 +116,7 @@ export function AppPreviewPage() {
     )
   }
 
-  if (appLoading || versionsLoading || versionLoading) {
+  if (appLoading || versionsLoading) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-50">
         <Loader2 className="h-8 w-8 text-gray-400 animate-spin" />
@@ -144,12 +151,12 @@ export function AppPreviewPage() {
           <Button
             variant="outline"
             size="sm"
-            className="gap-1 text-xs"
+            className="p-2"
             onClick={handleCopyLink}
             disabled={!deepLink}
+            title={copied ? 'Link copied' : 'Copy link'}
           >
             {copied ? <Check className="h-3.5 w-3.5" /> : <Link2 className="h-3.5 w-3.5" />}
-            {copied ? 'Copied' : 'Copy link'}
           </Button>
         </div>
       </header>
@@ -164,9 +171,11 @@ export function AppPreviewPage() {
             hideToolbar
             className="h-full"
           />
+        ) : previewUrl ? (
+          <SimplePreview previewUrl={previewUrl} className="h-full" showOpenInNewTab={false} />
         ) : (
           <div className="flex items-center justify-center h-full text-gray-600">
-            No files found for this version.
+            Unable to build preview URL.
           </div>
         )}
       </div>

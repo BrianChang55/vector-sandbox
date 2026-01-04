@@ -43,7 +43,7 @@ export function AppBuilderPage() {
   const dispatch = useAppDispatch()
   
   const { data: app, isLoading: appLoading } = useApp(appId || null)
-  const { data: versions, refetch: refetchVersions } = useAppVersions(appId || null)
+  const { data: versions, refetch: refetchVersions } = useAppVersions(appId || null, { includeFiles: true })
   const publishApp = usePublishApp()
   
   const selectedVersionId = useAppSelector((state) => state.ui.selectedVersionId)

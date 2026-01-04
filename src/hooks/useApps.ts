@@ -73,12 +73,16 @@ export function useDeleteApp() {
   })
 }
 
-export function useAppVersions(appId: string | null) {
+export function useAppVersions(appId: string | null, options?: { includeFiles?: boolean }) {
+  const includeFiles = options?.includeFiles ?? false
+
   return useQuery({
-    queryKey: ['versions', appId],
+    queryKey: ['versions', appId, includeFiles],
     queryFn: async () => {
       if (!appId) return []
-      const response = await api.get<AppVersion[]>(`/apps/${appId}/versions/`)
+      const response = await api.get<AppVersion[]>(
+        `/apps/${appId}/versions/${includeFiles ? '?include_files=true' : ''}`
+      )
       return response.data
     },
     enabled: !!appId,

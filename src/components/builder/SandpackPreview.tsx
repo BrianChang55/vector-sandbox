@@ -993,30 +993,16 @@ export function SandpackPreview({
 export function SimplePreview({
   previewUrl,
   className = '',
+  showOpenInNewTab = true,
 }: {
   previewUrl: string
   className?: string
+  showOpenInNewTab?: boolean
 }) {
   const [isLoading, setIsLoading] = useState(true)
 
   return (
     <div className={cn('flex flex-col h-full bg-gray-100', className)}>
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-white">
-        <div className="flex items-center gap-2">
-          <Eye className="h-4 w-4 text-gray-500" />
-          <span className="text-sm font-medium text-gray-900">Preview</span>
-        </div>
-        <a
-          href={previewUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 
-                   rounded-md transition-colors"
-        >
-          <ExternalLink className="h-4 w-4" />
-        </a>
-      </div>
-
       <div className="flex-1 relative">
         <iframe
           src={previewUrl}
@@ -1024,6 +1010,18 @@ export function SimplePreview({
           onLoad={() => setIsLoading(false)}
           title="App Preview"
         />
+
+        {showOpenInNewTab && (
+          <a
+            href={previewUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="absolute top-3 right-3 z-10 p-2 rounded-md bg-white/90 text-gray-500 hover:text-gray-700 shadow-sm border border-gray-200 transition-colors"
+            title="Open in new tab"
+          >
+            <ExternalLink className="h-4 w-4" />
+          </a>
+        )}
 
         {isLoading && (
           <div className="absolute inset-0 bg-white/80 flex items-center justify-center">
