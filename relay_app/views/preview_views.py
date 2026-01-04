@@ -37,20 +37,53 @@ class AppPreviewView(View):
                 ).order_by('-version_number').first()
                 
                 if not version:
-                    return HttpResponse(
+                    response = HttpResponse(
                         self._render_empty_preview(app),
                         content_type='text/html'
                     )
+                    return self._allow_iframe(response)
+
+            # Fallback: if the selected version has no pages, use the latest version that does
+            if not self._has_pages(version):
+                fallback_version = None
+                for candidate in AppVersion.objects.filter(internal_app=app).order_by('-version_number'):
+                    if self._has_pages(candidate):
+                        fallback_version = candidate
+                        break
+                if fallback_version:
+                    version = fallback_version
+                else:
+                    response = HttpResponse(
+                        self._render_empty_preview(app),
+                        content_type='text/html'
+                    )
+                    return self._allow_iframe(response)
             
-            return HttpResponse(
+            response = HttpResponse(
                 self._render_preview(app, version),
                 content_type='text/html'
             )
+            return self._allow_iframe(response)
             
         except InternalApp.DoesNotExist:
             raise Http404("App not found")
         except AppVersion.DoesNotExist:
             raise Http404("Version not found")
+    
+    def _allow_iframe(self, response: HttpResponse) -> HttpResponse:
+        """
+        Ensure the preview can be embedded in an iframe (used by the web app).
+        XFrameOptionsMiddleware defaults to DENY, so override here.
+        """
+        response['X-Frame-Options'] = 'ALLOWALL'
+        response['Content-Security-Policy'] = 'frame-ancestors *'
+        return response
+
+    def _has_pages(self, version: AppVersion) -> bool:
+        """Return True when the version has at least one page in its spec."""
+        spec = version.spec_json or {}
+        pages = spec.get("pages") if isinstance(spec, dict) else None
+        return bool(pages)
     
     def _render_preview(self, app: InternalApp, version: AppVersion) -> str:
         """Render the preview HTML with embedded React code."""
@@ -382,19 +415,22 @@ class AppPreviewView(View):
     <title>{app.name} - Preview</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-gray-50 min-h-screen flex items-center justify-center">
-    <div class="text-center">
-        <div class="w-20 h-20 mx-auto mb-6 bg-gradient-to-br from-violet-500 to-fuchsia-500 rounded-2xl flex items-center justify-center">
-            <svg class="h-10 w-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+<body class="bg-gray-50 min-h-screen flex items-center justify-center px-4">
+    <div class="bg-white border border-gray-200 rounded-lg shadow-sm max-w-lg w-full p-8 text-center">
+        <div class="w-14 h-14 mx-auto mb-4 rounded-lg bg-gray-100 border border-gray-200 flex items-center justify-center">
+            <svg class="h-8 w-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v12m6-6H6" />
             </svg>
         </div>
-        <h1 class="text-2xl font-bold text-gray-900 mb-2">{app.name}</h1>
-        <p class="text-gray-500 mb-6">No versions yet. Use the AI builder to create your first version.</p>
-        <div class="flex gap-2 justify-center">
-            <div class="px-4 py-2 bg-violet-100 text-violet-700 rounded-lg text-sm font-medium">
+        <h1 class="text-xl font-semibold text-gray-900 mb-2">Create an App</h1>
+        <p class="text-sm text-gray-600 mb-4">No versions found. Create your first version.</p>
+        <div class="flex items-center justify-center gap-2">
+            <span class="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-gray-100 text-gray-600 border border-gray-200">
+                <svg class="h-3.5 w-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v12m6-6H6" />
+                </svg>
                 Draft
-            </div>
+            </span>
         </div>
     </div>
 </body>

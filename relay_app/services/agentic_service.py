@@ -93,12 +93,26 @@ class AgenticService:
     """
     
     OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+    DESIGN_STYLE_PROMPT = """This base style guide (enterprise, light theme, minimal):
+- Backgrounds: bg-gray-50 for canvas, bg-white surfaces; borders: border-gray-200 (hover border-gray-300); subtle shadow-sm only when needed.
+- Typography: text-gray-900 primary, text-gray-700 body, placeholders text-gray-500; system font stack.
+- Spacing: p-4/p-6 sections, gap-2/3/4; clean layouts, clear hierarchy.
+- Buttons: primary bg-gray-900 hover:bg-gray-800, secondary bg-gray-100 hover:bg-gray-200, outline border-gray-200 bg-white hover:bg-gray-50; rounded-md.
+- Corners: cards rounded-md, inputs/buttons rounded-md; minimal accents; avoid dark/gradient themes."""
     
     def __init__(self):
         self.api_key = getattr(settings, 'OPENROUTER_API_KEY', None) or \
                       getattr(settings, 'OPENAI_API_KEY', None)
         self.app_name = getattr(settings, 'OPENROUTER_APP_NAME', 'Internal Apps Builder')
         self.site_url = getattr(settings, 'BASE_URL', 'http://localhost:8001')
+    
+    def _apply_design_style_prompt(self, message: str) -> str:
+        """Append the shared design/style requirements to the user message."""
+        base_message = message.strip()
+        design_prompt = f"------ Design & Style Requirements ------\n\n{self.DESIGN_STYLE_PROMPT}"
+        if not base_message:
+            return design_prompt
+        return f"{base_message}\n\ndesign_prompt"
     
     def _build_headers(self) -> Dict[str, str]:
         """Build API headers."""
@@ -124,11 +138,12 @@ class AgenticService:
         """
         session_id = str(uuid.uuid4())
         start_time = time.time()
+        styled_user_message = self._apply_design_style_prompt(user_message)
         
         # Emit start event
         yield AgentEvent("agent_start", {
             "session_id": session_id,
-            "goal": user_message,
+            "goal": user_message.strip(),
         })
         
         # ===== PHASE 1: RESEARCH =====
@@ -144,7 +159,7 @@ class AgenticService:
         
         # Analyze context
         context_analysis = self._analyze_context(
-            user_message, current_spec, registry_surface, app_name
+            styled_user_message, current_spec, registry_surface, app_name
         )
         
         yield AgentEvent("thinking", {
@@ -164,7 +179,7 @@ class AgenticService:
         })
         
         # Generate plan
-        plan = self._create_plan(user_message, context_analysis, model)
+        plan = self._create_plan(styled_user_message, context_analysis, model)
         
         # Convert plan steps to the format frontend expects
         plan_steps = [
@@ -211,7 +226,7 @@ class AgenticService:
             # Execute the step and stream code
             try:
                 for event in self._execute_step(
-                    step, i, user_message, context_analysis, 
+                    step, i, styled_user_message, context_analysis, 
                     generated_files, registry_surface, model
                 ):
                     yield event
@@ -434,7 +449,7 @@ Keep it concise but comprehensive."""
         )
         
         yield AgentEvent("thinking", {
-            "content": f"Working on: {step.title}",
+            "content": f"{step.title}",
             "type": "decision",
         })
         
@@ -484,7 +499,7 @@ Keep it concise but comprehensive."""
                                         yield AgentEvent("step_progress", {
                                             "step_index": step_index,
                                             "progress": min(90, chunk_count * 2),
-                                            "message": f"Generating code... ({len(full_content)} chars)",
+                                            "message": f"Generating code...",
                                         })
                                         
                             except json.JSONDecodeError:
@@ -566,7 +581,7 @@ If building a table/data display:
     
     def _get_codegen_system_prompt(self, registry_surface: Dict[str, Any]) -> str:
         """Get the system prompt for code generation."""
-        return """You are an expert React/TypeScript developer building internal business applications.
+        base_prompt = """You are an expert React/TypeScript developer building internal business applications.
 
 CRITICAL: For all data operations, you MUST use the Runtime API:
 
@@ -628,7 +643,11 @@ Guidelines:
 6. Use semantic HTML
 7. Add helpful comments
 
+Base design/style requirements (always follow):
+{design_style}
+
 NEVER import from node_modules that aren't available. Use inline implementations."""
+        return base_prompt.replace("{design_style}", self.DESIGN_STYLE_PROMPT)
     
     def _parse_code_response(self, content: str, step: PlanStep) -> List[FileChange]:
         """Parse code blocks from the AI response into FileChange objects."""

@@ -826,11 +826,14 @@ class AgenticGenerateView(View):
                 latest_version.version_number + 1 if latest_version else 1
             )
             
+            # Carry forward the latest known spec so preview has pages/resources
+            draft_spec = current_spec or {"generated": True, "agentic": True}
+            
             version = AppVersion.objects.create(
                 internal_app=app,
                 version_number=next_version_number,
                 source=AppVersion.SOURCE_AI,
-                spec_json={"generated": True, "agentic": True},
+                spec_json=draft_spec,
                 created_by=user if user.is_authenticated else None,
                 generation_status=AppVersion.GEN_STATUS_GENERATING,
             )
