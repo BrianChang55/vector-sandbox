@@ -262,12 +262,28 @@ interface QueryOptions {
   select?: string[];
 }
 
-interface QueryResult {
-  rows: Array<{ id: string; row_index: number; data: Record<string, any>; created_at: string | null; updated_at: string | null }>;
+// IMPORTANT: Row structure - access your fields via row.data.fieldName
+// row.id = row UUID (for update/delete)
+// row.data = { title: '...', email: '...', ... } (your actual data)
+export interface DataRow<T = Record<string, any>> {
+  id: string;
+  row_index: number;
+  data: T;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface QueryResult<T = Record<string, any>> {
+  rows: DataRow<T>[];
   total_count: number;
   limit: number;
   offset: number;
   has_more: boolean;
+}
+
+// Helper: extractData(rows) returns [{_id, ...data}]
+export function extractData<T extends Record<string, any>>(rows: DataRow<T>[]): (T & { _id: string })[] {
+  return rows.map(row => ({ ...row.data, _id: row.id }));
 }
 
 interface InsertResult {
@@ -447,12 +463,47 @@ interface QueryOptions {
   select?: string[];
 }
 
-interface QueryResult {
-  rows: Array<{ id: string; row_index: number; data: Record<string, any>; created_at: string | null; updated_at: string | null }>;
+// ==========================================================================
+// IMPORTANT: Row Data Structure
+// ==========================================================================
+// Each row has this structure:
+// {
+//   id: "row-uuid",           // Use this for update/delete operations
+//   row_index: 1,
+//   created_at: "2024-...",
+//   updated_at: "2024-...",
+//   data: {                   // YOUR FIELDS ARE HERE - access via row.data.fieldName
+//     title: "...",
+//     email: "...",
+//     status: "..."
+//   }
+// }
+// 
+// CORRECT: row.data.title, row.data.email
+// WRONG:   row.title (undefined!)
+// ==========================================================================
+
+export interface DataRow<T = Record<string, any>> {
+  id: string;               // Row ID - use for update/delete
+  row_index: number;
+  data: T;                  // Your table columns live here!
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface QueryResult<T = Record<string, any>> {
+  rows: DataRow<T>[];
   total_count: number;
   limit: number;
   offset: number;
   has_more: boolean;
+}
+
+// Helper to flatten row data - adds _id and flattens data fields
+// Usage: const items = extractData(result.rows);
+// Result: [{_id: 'uuid', title: '...', email: '...', ...}]
+export function extractData<T extends Record<string, any>>(rows: DataRow<T>[]): (T & { _id: string })[] {
+  return rows.map(row => ({ ...row.data, _id: row.id }));
 }
 
 interface InsertResult {
