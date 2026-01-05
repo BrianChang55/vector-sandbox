@@ -47,7 +47,7 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = AppVersionSerializer
     
     def get_queryset(self):
-        """
+g        """
         Filter versions to app, or return all accessible versions for direct access.
         
         When accessed via /apps/{app_id}/versions/ - filter by app
