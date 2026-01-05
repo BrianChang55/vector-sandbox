@@ -976,7 +976,7 @@ export function AgenticChatPanel({
                 {message.role === 'user' ? (
                   // User message - simple right-aligned bubble
                   <div className="flex justify-end">
-                    <div className="max-w-[80%] bg-gray-900 text-white rounded-2xl px-4 py-3">
+                    <div className="max-w-[80%] bg-gray-100 text-gray-700 rounded-2xl px-4 py-3">
                       <p className="text-sm">{message.content}</p>
                     </div>
                   </div>
