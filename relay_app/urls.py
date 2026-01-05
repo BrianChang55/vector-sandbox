@@ -16,6 +16,7 @@ from .views import (
     auth_views,
     streaming_views,
     app_data_views,
+    data_runtime_views,
 )
 
 # Router for viewsets
@@ -79,6 +80,7 @@ urlpatterns = [
     # Runtime proxy
     path('runtime/query/', runtime_views.RuntimeQueryView.as_view(), name='runtime-query'),
     path('runtime/action/', runtime_views.RuntimeActionView.as_view(), name='runtime-action'),
+    path('runtime/data/', data_runtime_views.RuntimeDataProxyView.as_view(), name='runtime-data'),
     
     # Direct access endpoints (without org prefix)
     path(

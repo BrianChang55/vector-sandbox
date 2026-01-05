@@ -1101,3 +1101,132 @@ class AppDataQuery(BaseModel):
     
     def __str__(self):
         return f"{self.name} ({self.internal_app.name})"
+
+
+class AppDataTableSnapshot(BaseModel):
+    """
+    Snapshot of a table's schema at a specific app version.
+    
+    Enables schema versioning and rollback. Each time a table is created,
+    updated, or deleted during app generation, a snapshot is recorded
+    linking the schema state to the AppVersion being created.
+    """
+    
+    OPERATION_CHOICES = [
+        ('create', 'Create'),
+        ('update', 'Update'),
+        ('delete', 'Delete'),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    app_version = models.ForeignKey(
+        AppVersion,
+        on_delete=models.CASCADE,
+        related_name='table_snapshots',
+        help_text='The app version this snapshot belongs to'
+    )
+    
+    table = models.ForeignKey(
+        AppDataTable,
+        on_delete=models.CASCADE,
+        related_name='snapshots',
+        help_text='The table this snapshot is for'
+    )
+    
+    # Frozen schema at this version
+    schema_json = models.JSONField(
+        help_text='Table schema frozen at this version'
+    )
+    
+    # Table metadata frozen at this version
+    table_name = models.CharField(
+        max_length=255,
+        help_text='Table name at this version'
+    )
+    table_slug = models.SlugField(
+        max_length=255,
+        help_text='Table slug at this version'
+    )
+    table_description = models.TextField(
+        blank=True,
+        help_text='Table description at this version'
+    )
+    
+    # What operation created this snapshot
+    operation = models.CharField(
+        max_length=20,
+        choices=OPERATION_CHOICES,
+        help_text='Operation that created this snapshot'
+    )
+    
+    # For tracking changes
+    previous_schema_json = models.JSONField(
+        null=True,
+        blank=True,
+        help_text='Previous schema (for update operations)'
+    )
+    
+    class Meta:
+        indexes = [
+            models.Index(fields=['app_version', 'table']),
+            models.Index(fields=['table', 'created_at']),
+        ]
+        # Only one snapshot per table per version
+        unique_together = ['app_version', 'table']
+    
+    def __str__(self):
+        return f"{self.table_name} @ v{self.app_version.version_number} ({self.operation})"
+    
+    @classmethod
+    def create_snapshot(
+        cls,
+        app_version: 'AppVersion',
+        table: 'AppDataTable',
+        operation: str,
+        previous_schema: dict = None
+    ) -> 'AppDataTableSnapshot':
+        """
+        Create a snapshot of a table's current state.
+        
+        Args:
+            app_version: The version this snapshot is associated with
+            table: The table to snapshot
+            operation: One of 'create', 'update', 'delete'
+            previous_schema: For update operations, the schema before changes
+            
+        Returns:
+            The created snapshot
+        """
+        return cls.objects.create(
+            app_version=app_version,
+            table=table,
+            schema_json=table.schema_json,
+            table_name=table.name,
+            table_slug=table.slug,
+            table_description=table.description or '',
+            operation=operation,
+            previous_schema_json=previous_schema,
+        )
+    
+    def get_column_changes(self) -> dict:
+        """
+        For update operations, compute what columns changed.
+        
+        Returns:
+            Dict with 'added', 'removed', 'modified' column lists
+        """
+        if self.operation != 'update' or not self.previous_schema_json:
+            return {'added': [], 'removed': [], 'modified': []}
+        
+        old_cols = {c['name']: c for c in self.previous_schema_json.get('columns', [])}
+        new_cols = {c['name']: c for c in self.schema_json.get('columns', [])}
+        
+        added = [name for name in new_cols if name not in old_cols]
+        removed = [name for name in old_cols if name not in new_cols]
+        modified = [
+            name for name in new_cols 
+            if name in old_cols and new_cols[name] != old_cols[name]
+        ]
+        
+        return {'added': added, 'removed': removed, 'modified': modified}

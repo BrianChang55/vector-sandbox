@@ -5,7 +5,7 @@ These helpers keep every model call aligned on tone, structure, and required
 runtime constraints so changes can be made in one place.
 """
 
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 # Shared style guide injected into all design-aware prompts.
 DESIGN_STYLE_PROMPT = """This base style guide (enterprise, light theme, minimal):
@@ -177,22 +177,176 @@ FINAL_APP_SYSTEM_PROMPT = (
     "You are an expert React developer. Generate complete, production-ready code. Never use placeholders."
 )
 
+# Data Store prompt template - injected when app has data tables or needs to create them
+DATA_STORE_PROMPT_TEMPLATE = """
+## App Data Store
 
-def apply_design_style_prompt(message: str) -> str:
-    """Append the shared design/style guide to a user message."""
+You can create and use data tables for this app. The data store provides persistent storage for your application data.
+
+{data_store_context}
+
+### Creating New Tables
+
+To create a new data table, include a TABLE_DEFINITION block in your response:
+
+```table:table-slug
+name: Display Name
+description: Optional description
+columns:
+  - name: id, type: uuid, primary_key: true, auto_generate: true
+  - name: title, type: string, nullable: false
+  - name: description, type: text
+  - name: status, type: enum, enum_values: [draft, active, archived]
+  - name: count, type: integer, default: 0
+  - name: price, type: float
+  - name: is_featured, type: boolean, default: false
+  - name: metadata, type: json
+  - name: created_at, type: datetime, auto_now_add: true
+  - name: updated_at, type: datetime, auto_now: true
+```
+
+**Supported Column Types:**
+- `uuid` - UUID identifier (use for primary keys)
+- `string` - Short text (max 255 chars)
+- `text` - Long text (unlimited)
+- `integer` - Whole numbers
+- `float` - Decimal numbers
+- `boolean` - True/false
+- `datetime` - Date and time
+- `date` - Date only
+- `enum` - Fixed values (requires `enum_values`)
+- `json` - Arbitrary JSON data
+
+### Using Tables in Code
+
+Always use the dataStore API - it's available at `./lib/dataStore`:
+
+```typescript
+import {{ dataStore }} from './lib/dataStore';
+
+// Query rows with filtering and sorting
+const result = await dataStore.query('customers', {{
+  filters: [{{ field: 'status', op: 'eq', value: 'active' }}],
+  orderBy: [{{ field: 'name', dir: 'asc' }}],
+  limit: 50
+}});
+// Returns: {{ rows: [...], total_count: number, has_more: boolean }}
+
+// Insert a new row
+const newCustomer = await dataStore.insert('customers', {{
+  name: 'John Doe',
+  email: 'john@example.com',
+  status: 'active'
+}});
+// Returns: {{ id: 'uuid', data: {{...}}, row_index: number }}
+
+// Update an existing row
+await dataStore.update('customers', 'row-uuid', {{
+  status: 'inactive'
+}});
+
+// Delete a row
+await dataStore.delete('customers', 'row-uuid');
+
+// Bulk operations
+await dataStore.bulkInsert('customers', [
+  {{ name: 'User 1', email: 'user1@example.com' }},
+  {{ name: 'User 2', email: 'user2@example.com' }}
+]);
+await dataStore.bulkDelete('customers', ['uuid-1', 'uuid-2']);
+```
+
+**Filter Operators:** `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `not_in`, `contains`, `icontains`, `is_null`
+
+IMPORTANT: When creating apps that need persistent data:
+1. First define the table(s) using TABLE_DEFINITION blocks
+2. Generate the dataStore.ts file in src/lib/
+3. Use the dataStore API in your components - never use hardcoded mock data for the main functionality
+"""
+
+# System prompt for code generation with data store support
+CODEGEN_SYSTEM_PROMPT_WITH_DATASTORE = """You are an expert React/TypeScript developer building internal business applications with persistent data storage.
+
+CRITICAL: For all data operations, you MUST use the Data Store API:
+
+```typescript
+// In src/lib/dataStore.ts - this file should be generated for apps using data
+import {{ dataStore }} from './lib/dataStore';
+
+// Query data
+const {{ rows, total_count }} = await dataStore.query('table-slug', {{
+  filters: [{{ field: 'status', op: 'eq', value: 'active' }}],
+  orderBy: [{{ field: 'created_at', dir: 'desc' }}],
+  limit: 50
+}});
+
+// Insert
+const newRow = await dataStore.insert('table-slug', {{ field: 'value' }});
+
+// Update
+await dataStore.update('table-slug', 'row-id', {{ field: 'new-value' }});
+
+// Delete
+await dataStore.delete('table-slug', 'row-id');
+```
+
+Stack:
+- React 18+ with TypeScript
+- TailwindCSS (utility-first)
+- Lucide React for icons
+- No external state libraries (use React hooks)
+- Data Store API for persistent data
+
+Guidelines:
+1. Generate complete, runnable code
+2. Handle loading and error states elegantly
+3. Use professional, modern UI patterns
+4. Include proper TypeScript types
+5. Make responsive designs
+6. Use semantic HTML
+7. Add helpful comments
+8. Use dataStore API for all data operations - no mock data for main functionality
+
+Base design/style requirements (always follow):
+{design_style}
+
+NEVER import from node_modules that aren't available. Use inline implementations."""
+
+
+def apply_design_style_prompt(message: str, data_store_context: Optional[str] = None) -> str:
+    """Append the shared design/style guide and data store context to a user message."""
     base_message = (message or "").strip()
     design_prompt = f"------ Design & Style Requirements ------\n\n{DESIGN_STYLE_PROMPT}"
-    if not base_message:
-        return design_prompt
-    return f"{base_message}\n\n{design_prompt}"
+    
+    parts = []
+    if base_message:
+        parts.append(base_message)
+    
+    # Add data store context if provided
+    if data_store_context:
+        data_store_prompt = DATA_STORE_PROMPT_TEMPLATE.format(
+            data_store_context=data_store_context
+        )
+        parts.append(data_store_prompt)
+    
+    parts.append(design_prompt)
+    
+    return "\n\n".join(parts)
 
 
 def build_plan_prompt(user_message: str, context: Dict[str, Any]) -> str:
     """Format the planning prompt with user intent and runtime context."""
+    data_store_summary = context.get("data_store_summary", "")
+    available_resources = context.get("available_resources", ["none"])
+    
+    # Include data store tables in available resources if present
+    if data_store_summary:
+        available_resources = list(available_resources) + [f"Data Store: {data_store_summary}"]
+    
     return PLAN_PROMPT_TEMPLATE.format(
         user_message=user_message,
         app_name=context.get("app_name", "App"),
-        available_resources=", ".join(context.get("available_resources", ["none"])),
+        available_resources=", ".join(available_resources) if available_resources else "none",
         has_existing_spec=context.get("has_existing_spec", False),
     )
 
@@ -206,6 +360,7 @@ def build_step_prompt(
     context: Dict[str, Any],
     existing_files: Sequence[Any],
     registry_surface: Dict[str, Any],
+    data_store_context: Optional[str] = None,
 ) -> str:
     """Build the per-step execution prompt for streaming code generation."""
     existing_code = ""
@@ -219,6 +374,13 @@ def build_step_prompt(
     resources_info = ""
     for r in registry_surface.get("resources", []):
         resources_info += f"- {r['resource_id']}: fields={r.get('exposed_fields', [])}\n"
+    
+    # Add data store context to resources info
+    if data_store_context:
+        resources_info += f"\n\n{data_store_context}"
+    
+    if not resources_info.strip():
+        resources_info = "No data resources available - you can create tables using TABLE_DEFINITION blocks"
 
     return STEP_PROMPT_TEMPLATE.format(
         step_number=step_index + 1,
@@ -226,17 +388,20 @@ def build_step_prompt(
         step_description=getattr(step, "description", ""),
         user_message=user_message,
         app_name=context.get("app_name", "App"),
-        resources_info=resources_info.strip()
-        if resources_info
-        else "No resources available - use realistic mock data for demonstration",
+        resources_info=resources_info.strip(),
         existing_code=existing_code.strip(),
     )
 
 
 
 
-def build_codegen_system_prompt(registry_surface: Dict[str, Any]) -> str:
+def build_codegen_system_prompt(
+    registry_surface: Dict[str, Any],
+    has_data_store: bool = False
+) -> str:
     """Return the system prompt for code generation with injected design style."""
+    if has_data_store:
+        return CODEGEN_SYSTEM_PROMPT_WITH_DATASTORE.replace("{design_style}", DESIGN_STYLE_PROMPT)
     return CODEGEN_SYSTEM_PROMPT_TEMPLATE.replace("{design_style}", DESIGN_STYLE_PROMPT)
 
 

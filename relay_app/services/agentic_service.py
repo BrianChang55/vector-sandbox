@@ -6,10 +6,11 @@ for autonomous app generation with visible progress and thinking.
 """
 import logging
 import json
+import re
 import time
 import uuid
-from typing import Dict, Any, List, Optional, Generator
-from dataclasses import dataclass, asdict
+from typing import Dict, Any, List, Optional, Generator, Tuple, TYPE_CHECKING
+from dataclasses import dataclass, asdict, field
 from enum import Enum
 
 from django.conf import settings
@@ -24,6 +25,13 @@ from relay_app.prompts.agentic import (
     build_codegen_system_prompt,
     build_final_app_prompt,
 )
+from relay_app.services.data_store_context import (
+    build_data_store_context,
+    get_table_summary,
+)
+
+if TYPE_CHECKING:
+    from relay_app.models import InternalApp, AppVersion
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +99,15 @@ class AgentEvent:
         return f"event: {self.type}\ndata: {json.dumps(self.data)}\n\n"
 
 
+@dataclass
+class TableDefinition:
+    """A table definition parsed from agent output."""
+    slug: str
+    name: str
+    description: str
+    columns: List[Dict[str, Any]]
+
+
 class AgenticService:
     """
     Agentic code generation service.
@@ -126,15 +143,32 @@ class AgenticService:
         registry_surface: Dict[str, Any],
         app_name: str,
         model: str = "anthropic/claude-sonnet-4",
+        app: Optional['InternalApp'] = None,
+        version: Optional['AppVersion'] = None,
     ) -> Generator[AgentEvent, None, None]:
         """
         Generate an app with the full agentic workflow.
         
         Yields AgentEvent objects for real-time progress updates.
+        
+        Args:
+            user_message: The user's request
+            current_spec: Current app specification if exists
+            registry_surface: Available data resources
+            app_name: Name of the app
+            model: LLM model to use
+            app: Optional InternalApp for data store operations
+            version: Optional AppVersion for versioned table operations
         """
         session_id = str(uuid.uuid4())
         start_time = time.time()
-        styled_user_message = apply_design_style_prompt(user_message)
+        
+        # Build data store context if app is provided
+        data_store_context = None
+        if app:
+            data_store_context = build_data_store_context(app)
+        
+        styled_user_message = apply_design_style_prompt(user_message, data_store_context)
         
         # Emit start event
         yield AgentEvent("agent_start", {
@@ -153,9 +187,9 @@ class AgenticService:
             "type": "observation",
         })
         
-        # Analyze context
+        # Analyze context with data store info
         context_analysis = self._analyze_context(
-            styled_user_message, current_spec, registry_surface, app_name
+            styled_user_message, current_spec, registry_surface, app_name, app
         )
         
         yield AgentEvent("thinking", {
@@ -223,7 +257,8 @@ class AgenticService:
             try:
                 for event in self._execute_step(
                     step, i, styled_user_message, context_analysis, 
-                    generated_files, registry_surface, model
+                    generated_files, registry_surface, model,
+                    app=app, version=version, data_store_context=data_store_context
                 ):
                     yield event
                     if event.type == "file_generated":
@@ -277,7 +312,7 @@ class AgenticService:
             ext = f.path.split('.')[-1] if '.' in f.path else 'unknown'
             file_types[ext] = file_types.get(ext, 0) + 1
         
-        summary_parts = [f"Generated {len(generated_files)} files"]
+        summary_parts = [f"Generated {len(generated_files)} {'file' if len(generated_files) == 1 else 'files'}"]
         if file_types:
             summary_parts.append("(" + ", ".join(f"{c} {t}" for t, c in file_types.items()) + ")")
         summary_parts.append(f"in {total_duration / 1000:.1f}s")
@@ -302,10 +337,16 @@ class AgenticService:
         current_spec: Optional[Dict[str, Any]],
         registry_surface: Dict[str, Any],
         app_name: str,
+        app: Optional['InternalApp'] = None,
     ) -> Dict[str, Any]:
         """Analyze the current context and requirements."""
         
         resources = registry_surface.get("resources", [])
+        
+        # Get data store summary if app is provided
+        data_store_summary = ""
+        if app:
+            data_store_summary = get_table_summary(app)
         
         analysis = {
             "app_name": app_name,
@@ -313,8 +354,13 @@ class AgenticService:
             "available_resources": [r["resource_id"] for r in resources],
             "resource_details": resources,
             "user_intent": user_message,
+            "data_store_summary": data_store_summary,
+            "has_data_store": bool(app),
             "analysis": f"Building '{app_name}' with {len(resources)} available data sources.",
         }
+        
+        if data_store_summary and "No data tables" not in data_store_summary:
+            analysis["analysis"] += f" App has existing data tables."
         
         if current_spec:
             analysis["current_pages"] = len(current_spec.get("pages", []))
@@ -419,14 +465,19 @@ class AgenticService:
         existing_files: List[FileChange],
         registry_surface: Dict[str, Any],
         model: str,
+        app: Optional['InternalApp'] = None,
+        version: Optional['AppVersion'] = None,
+        data_store_context: Optional[str] = None,
     ) -> Generator[AgentEvent, None, None]:
         """Execute a single plan step and yield progress events."""
         
-        # Build prompt for this step
+        # Build prompt for this step with data store context
         prompt = build_step_prompt(
             step, step_index, user_message, context, 
-            existing_files, registry_surface
+            existing_files, registry_surface, data_store_context
         )
+        
+        has_data_store = context.get('has_data_store', False)
         
         yield AgentEvent("thinking", {
             "content": f"{step.title}",
@@ -442,7 +493,7 @@ class AgenticService:
                     json={
                         "model": model,
                         "messages": [
-                            {"role": "system", "content": build_codegen_system_prompt(registry_surface)},
+                            {"role": "system", "content": build_codegen_system_prompt(registry_surface, has_data_store)},
                             {"role": "user", "content": prompt},
                         ],
                         "temperature": 0.3,
@@ -484,6 +535,18 @@ class AgenticService:
                                         
                             except json.JSONDecodeError:
                                 continue
+                    
+                    # Parse and apply table definitions if app and version are provided
+                    if app and version:
+                        table_defs = self._parse_table_definitions(full_content)
+                        if table_defs:
+                            yield AgentEvent("thinking", {
+                                "content": f"Creating {len(table_defs)} data table(s)...",
+                                "type": "decision",
+                            })
+                            # Apply table definitions - this is a generator
+                            for event in self._apply_table_definitions(table_defs, app, version):
+                                yield event
                     
                     # Parse generated files from response
                     files = self._parse_code_response(full_content, step)
@@ -702,6 +765,179 @@ class AgenticService:
                 "content": f"Note: Could not regenerate App.tsx: {str(e)}",
                 "type": "reflection",
             })
+    
+    def _parse_table_definitions(self, content: str) -> List[TableDefinition]:
+        """
+        Parse TABLE_DEFINITION blocks from agent output.
+        
+        Format:
+        ```table:slug-name
+        name: Display Name
+        description: Optional description
+        columns:
+          - name: col_name, type: string, nullable: true
+          - name: id, type: uuid, primary_key: true, auto_generate: true
+        ```
+        """
+        tables = []
+        
+        # Pattern to match table definition blocks
+        pattern = r'```table:([a-z0-9-]+)\n(.*?)```'
+        matches = re.findall(pattern, content, re.DOTALL | re.IGNORECASE)
+        
+        for slug, table_content in matches:
+            try:
+                table_def = self._parse_single_table_definition(slug.strip(), table_content.strip())
+                if table_def:
+                    tables.append(table_def)
+            except Exception as e:
+                logger.warning(f"Failed to parse table definition for {slug}: {e}")
+        
+        return tables
+    
+    def _parse_single_table_definition(self, slug: str, content: str) -> Optional[TableDefinition]:
+        """Parse a single table definition content."""
+        lines = content.strip().split('\n')
+        
+        name = slug.replace('-', ' ').title()
+        description = ''
+        columns = []
+        in_columns = False
+        
+        for line in lines:
+            line = line.strip()
+            
+            if line.startswith('name:'):
+                name = line[5:].strip()
+            elif line.startswith('description:'):
+                description = line[12:].strip()
+            elif line.startswith('columns:'):
+                in_columns = True
+            elif in_columns and line.startswith('- '):
+                col_def = self._parse_column_definition(line[2:].strip())
+                if col_def:
+                    columns.append(col_def)
+        
+        if not columns:
+            return None
+        
+        return TableDefinition(
+            slug=slug,
+            name=name,
+            description=description,
+            columns=columns
+        )
+    
+    def _parse_column_definition(self, line: str) -> Optional[Dict[str, Any]]:
+        """Parse a column definition line."""
+        # Format: name: col_name, type: string, nullable: true, ...
+        col = {}
+        
+        # Split by comma and parse each key-value pair
+        parts = [p.strip() for p in line.split(',')]
+        
+        for part in parts:
+            if ':' in part:
+                key, value = part.split(':', 1)
+                key = key.strip()
+                value = value.strip()
+                
+                # Handle boolean values
+                if value.lower() == 'true':
+                    value = True
+                elif value.lower() == 'false':
+                    value = False
+                # Handle list values like enum_values: [a, b, c]
+                elif value.startswith('[') and value.endswith(']'):
+                    value = [v.strip() for v in value[1:-1].split(',')]
+                # Handle integer values
+                elif value.isdigit():
+                    value = int(value)
+                
+                col[key] = value
+        
+        # Validate required fields
+        if 'name' not in col or 'type' not in col:
+            return None
+        
+        return col
+    
+    def _apply_table_definitions(
+        self,
+        table_defs: List[TableDefinition],
+        app: 'InternalApp',
+        version: 'AppVersion'
+    ) -> Generator[AgentEvent, None, List[Dict[str, Any]]]:
+        """
+        Apply table definitions to the app's data store.
+        
+        Yields events for each table created/updated.
+        Returns list of created/updated table info.
+        """
+        from relay_app.models import AppDataTable
+        from relay_app.services.app_data_service import AppDataService
+        
+        created_tables = []
+        
+        for table_def in table_defs:
+            # Check if table already exists
+            existing_table = AppDataTable.objects.filter(
+                internal_app=app,
+                slug=table_def.slug
+            ).first()
+            
+            schema = {'columns': table_def.columns}
+            
+            if existing_table:
+                # Update existing table
+                table, errors, changes = AppDataService.update_table_schema_versioned(
+                    table=existing_table,
+                    version=version,
+                    schema=schema,
+                    name=table_def.name,
+                    description=table_def.description
+                )
+                
+                if table:
+                    yield AgentEvent("table_updated", {
+                        "slug": table.slug,
+                        "name": table.name,
+                        "changes": changes,
+                    })
+                    created_tables.append({
+                        'slug': table.slug,
+                        'name': table.name,
+                        'operation': 'updated',
+                        'changes': changes,
+                    })
+                else:
+                    logger.warning(f"Failed to update table {table_def.slug}: {errors}")
+            else:
+                # Create new table
+                table, errors = AppDataService.create_table_versioned(
+                    app=app,
+                    version=version,
+                    name=table_def.name,
+                    schema=schema,
+                    description=table_def.description
+                )
+                
+                if table:
+                    yield AgentEvent("table_created", {
+                        "slug": table.slug,
+                        "name": table.name,
+                        "columns": len(table_def.columns),
+                    })
+                    created_tables.append({
+                        'slug': table.slug,
+                        'name': table.name,
+                        'operation': 'created',
+                        'columns': len(table_def.columns),
+                    })
+                else:
+                    logger.warning(f"Failed to create table {table_def.slug}: {errors}")
+        
+        return created_tables
     
     def _validate_code(self, files: List[FileChange]) -> Dict[str, Any]:
         """Validate the generated code."""

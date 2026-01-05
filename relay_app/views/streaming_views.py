@@ -910,6 +910,8 @@ class AgenticGenerateView(View):
                 registry_surface=registry_surface,
                 app_name=app.name,
                 model=model,
+                app=app,
+                version=version,
             ):
                 # Stream the event to client
                 yield event.to_sse()

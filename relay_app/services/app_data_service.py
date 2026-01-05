@@ -605,4 +605,239 @@ class AppDataService:
                             break
         
         return errors
+    
+    # =========================================================================
+    # Versioned Table Operations
+    # =========================================================================
+    
+    @staticmethod
+    def create_table_versioned(
+        app: 'InternalApp',
+        version: 'AppVersion',
+        name: str,
+        schema: dict,
+        description: str = ''
+    ) -> tuple[Optional['AppDataTable'], list[str]]:
+        """
+        Create a new data table with schema validation and version snapshot.
+        
+        Args:
+            app: The InternalApp to create the table in
+            version: The AppVersion to associate the snapshot with
+            name: Display name for the table
+            schema: Table schema with columns and optional indexes
+            description: Optional table description
+            
+        Returns:
+            Tuple of (table, errors). Table is None if validation fails.
+        """
+        from ..models import AppDataTableSnapshot
+        
+        # Create the table using the standard method
+        table, errors = AppDataService.create_table(app, name, schema, description)
+        
+        if table is None:
+            return None, errors
+        
+        # Create version snapshot
+        AppDataTableSnapshot.create_snapshot(
+            app_version=version,
+            table=table,
+            operation='create'
+        )
+        
+        return table, []
+    
+    @staticmethod
+    def update_table_schema_versioned(
+        table: 'AppDataTable',
+        version: 'AppVersion',
+        schema: dict,
+        name: Optional[str] = None,
+        description: Optional[str] = None
+    ) -> tuple[Optional['AppDataTable'], list[str], dict]:
+        """
+        Update a table's schema with version snapshot.
+        
+        Args:
+            table: The table to update
+            version: The AppVersion to associate the snapshot with
+            schema: New schema definition
+            name: Optional new name
+            description: Optional new description
+            
+        Returns:
+            Tuple of (table, errors, changes). Table is None if validation fails.
+            Changes dict contains 'added', 'removed', 'modified' column lists.
+        """
+        from ..models import AppDataTableSnapshot
+        
+        # Store previous schema for comparison
+        previous_schema = table.schema_json.copy()
+        
+        # Update using standard method
+        table, errors = AppDataService.update_table_schema(
+            table, schema, name, description
+        )
+        
+        if table is None:
+            return None, errors, {}
+        
+        # Create version snapshot
+        snapshot = AppDataTableSnapshot.create_snapshot(
+            app_version=version,
+            table=table,
+            operation='update',
+            previous_schema=previous_schema
+        )
+        
+        # Compute changes
+        changes = snapshot.get_column_changes()
+        
+        return table, [], changes
+    
+    @staticmethod
+    def delete_table_versioned(
+        table: 'AppDataTable',
+        version: 'AppVersion',
+        force: bool = False
+    ) -> tuple[bool, Optional[str]]:
+        """
+        Delete a table with version snapshot.
+        
+        Args:
+            table: The table to delete
+            version: The AppVersion to associate the snapshot with
+            force: If True, delete even if table has data
+            
+        Returns:
+            Tuple of (success, error_message)
+        """
+        from ..models import AppDataTableSnapshot
+        
+        # Check if table has data
+        if not force and table.row_count > 0:
+            return False, f'Table "{table.name}" has {table.row_count} rows. Use force=True to delete anyway.'
+        
+        # Create delete snapshot before deletion
+        AppDataTableSnapshot.create_snapshot(
+            app_version=version,
+            table=table,
+            operation='delete'
+        )
+        
+        # Delete the table
+        table.delete()
+        
+        return True, None
+    
+    @staticmethod
+    def get_schema_at_version(
+        table: 'AppDataTable',
+        version: 'AppVersion'
+    ) -> Optional[dict]:
+        """
+        Get a table's schema at a specific app version.
+        
+        Args:
+            table: The table to get schema for
+            version: The AppVersion to get schema from
+            
+        Returns:
+            Schema dict or None if no snapshot exists for that version
+        """
+        from ..models import AppDataTableSnapshot
+        
+        snapshot = AppDataTableSnapshot.objects.filter(
+            table=table,
+            app_version=version
+        ).first()
+        
+        if snapshot:
+            return snapshot.schema_json
+        
+        # Fall back to current schema if no snapshot
+        return table.schema_json
+    
+    @staticmethod
+    def get_tables_at_version(
+        app: 'InternalApp',
+        version: 'AppVersion'
+    ) -> list[dict]:
+        """
+        Get all tables and their schemas at a specific app version.
+        
+        Args:
+            app: The InternalApp
+            version: The AppVersion to get tables from
+            
+        Returns:
+            List of table info dicts with schema at that version
+        """
+        from ..models import AppDataTableSnapshot
+        
+        # Get all snapshots for this version
+        snapshots = AppDataTableSnapshot.objects.filter(
+            app_version=version,
+            table__internal_app=app
+        ).exclude(operation='delete').select_related('table')
+        
+        tables = []
+        for snapshot in snapshots:
+            tables.append({
+                'id': str(snapshot.table.id),
+                'slug': snapshot.table_slug,
+                'name': snapshot.table_name,
+                'description': snapshot.table_description,
+                'schema': snapshot.schema_json,
+                'row_count': snapshot.table.row_count,
+            })
+        
+        return tables
+    
+    @staticmethod
+    def rollback_tables_to_version(
+        app: 'InternalApp',
+        target_version: 'AppVersion'
+    ) -> tuple[bool, list[str]]:
+        """
+        Rollback table schemas to match a specific version.
+        
+        Note: This only affects schemas, not data. Rows are preserved.
+        
+        Args:
+            app: The InternalApp
+            target_version: The AppVersion to rollback to
+            
+        Returns:
+            Tuple of (success, messages) describing what was rolled back
+        """
+        from ..models import AppDataTableSnapshot
+        
+        messages = []
+        
+        # Get snapshots at target version
+        snapshots = AppDataTableSnapshot.objects.filter(
+            app_version=target_version,
+            table__internal_app=app
+        ).select_related('table')
+        
+        with transaction.atomic():
+            for snapshot in snapshots:
+                table = snapshot.table
+                
+                if snapshot.operation == 'delete':
+                    # Table was deleted in this version - we can't easily restore it
+                    messages.append(f'Cannot restore deleted table "{snapshot.table_name}"')
+                    continue
+                
+                # Restore schema from snapshot
+                table.schema_json = snapshot.schema_json
+                table.name = snapshot.table_name
+                table.description = snapshot.table_description
+                table.save()
+                
+                messages.append(f'Restored "{table.name}" schema to version {target_version.version_number}')
+        
+        return True, messages
 
