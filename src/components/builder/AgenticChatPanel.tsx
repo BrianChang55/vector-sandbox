@@ -255,7 +255,7 @@ function ExploredBadge({ info }: { info: { directories: number; files: number; s
       <Search className="h-3 w-3" />
       <span>
         Explored {info.directories} {info.directories === 1 ? 'directory' : 'directories'}{' '}
-        {info.files} {info.files === 1 ? 'file' : 'files'}{' '}, and {' '}
+        {info.files} {info.files === 1 ? 'file' : 'files'}, and {' '}
         {info.searches > 0 && `${info.searches} ${info.searches === 1 ? 'search' : 'searches'}`}
       </span>
     </div>

@@ -54,7 +54,7 @@ export function DataPanel({ appId, className = '' }: DataPanelProps) {
     <div className={`flex h-full bg-gray-50 ${className}`}>
       {/* Left Panel - Table List */}
       <div className="w-64 flex-shrink-0 border-r border-gray-200 bg-white flex flex-col">
-        <div className="p-3 border-b border-gray-200 flex items-center justify-between">
+        <div className="p-3.5 border-b border-gray-200 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Database className="h-4 w-4 text-gray-500" />
             <h2 className="font-medium text-sm text-gray-900">Tables</h2>
