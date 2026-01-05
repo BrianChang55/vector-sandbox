@@ -12,6 +12,8 @@ from enum import Enum
 import httpx
 from django.conf import settings
 
+from relay_app.prompts.openrouter import build_system_prompt, build_user_prompt
+
 logger = logging.getLogger(__name__)
 
 
@@ -197,124 +199,6 @@ class OpenRouterService:
             "X-Title": self.app_name,
         }
     
-    def _build_system_prompt(
-        self,
-        registry_surface: Dict[str, Any],
-        mode: str = "appspec"
-    ) -> str:
-        """Build system prompt based on mode."""
-        
-        resources_text = ""
-        if registry_surface.get('resources'):
-            resources_text = "\n".join([
-                f"- {r['resource_id']}: {r['resource_name']} (fields: {', '.join(r.get('exposed_fields', []))})"
-                for r in registry_surface.get('resources', [])
-            ])
-        
-        if mode == "appspec":
-            return f"""You are an expert internal application builder. You generate AppSpec JSON that describes internal apps.
-
-IMPORTANT: Generated apps must call the Relay Runtime API for all data operations:
-- Use runtimeQuery() for reads
-- Use runtimeAction() for mutations
-- Never call Supabase or any backend directly
-
-Available Resources:
-{resources_text if resources_text else "No resources connected yet - generate a placeholder UI"}
-
-AppSpec JSON Schema:
-{{
-  "appName": "string",
-  "pages": [{{
-    "id": "string",
-    "title": "string", 
-    "layout": "table_detail_drawer" | "tabbed_views" | "dashboard" | "form" | "kanban",
-    "primaryResource": "resource_id",
-    "view": {{
-      "table": {{
-        "columns": [{{"field": "string", "label": "string", "type": "text|number|date|badge|avatar"}}],
-        "filterableFields": ["string"],
-        "searchableFields": ["string"],
-        "sort": {{"field": "string", "dir": "asc"|"desc"}},
-        "pagination": {{"pageSize": number}},
-        "rowActions": [{{"label": "string", "actionId": "string", "confirm": boolean, "variant": "default|destructive"}}],
-        "bulkActions": [{{"label": "string", "actionId": "string", "confirm": boolean}}]
-      }},
-      "detailDrawer": {{
-        "titleField": "string",
-        "sections": [{{
-          "title": "string",
-          "fields": [{{"field": "string", "label": "string", "readOnly": boolean, "type": "text|textarea|select|date"}}]
-        }}],
-        "actions": [{{"label": "string", "actionId": "string", "confirm": boolean}}]
-      }},
-      "stats": [{{
-        "label": "string",
-        "value": "string",
-        "change": "string",
-        "trend": "up|down|neutral"
-      }}]
-    }}
-  }}]
-}}
-
-Rules:
-1. Only reference resources/fields from the available list
-2. Only reference actionIds from allowed_actions
-3. Generate complete, valid JSON
-4. Design modern, professional UIs
-5. Include helpful labels and sensible defaults"""
-
-        elif mode == "code":
-            return f"""You are an expert React/TypeScript developer. You generate production-quality code for internal applications.
-
-Tech Stack:
-- React 18+ with TypeScript
-- TailwindCSS for styling
-- Lucide React for icons
-- Framer Motion for animations
-- React Query for data fetching
-
-Available Resources:
-{resources_text if resources_text else "No resources connected - use placeholder data"}
-
-Runtime API (MUST use for all data operations):
-```typescript
-import {{ runtimeQuery, runtimeAction }} from '../lib/runtimeClient';
-
-// Query data
-const result = await runtimeQuery({{
-  appId: string,
-  versionId: string,
-  resourceId: string,
-  querySpec: {{
-    select: string[],
-    filters: Array<{{ field: string, op: string, value: any }}>,
-    orderBy: Array<{{ field: string, dir: 'asc' | 'desc' }}>,
-    limit: number,
-    offset: number
-  }}
-}});
-
-// Execute action
-const result = await runtimeAction({{
-  appId: string,
-  versionId: string,
-  actionId: string,
-  args: Record<string, any>
-}});
-```
-
-Guidelines:
-1. Generate clean, modular code
-2. Use TypeScript types properly
-3. Handle loading and error states
-4. Make responsive designs
-5. Include helpful comments
-6. Follow React best practices"""
-
-        return "You are a helpful AI coding assistant."
-    
     def generate_app_spec(
         self,
         intent_message: str,
@@ -337,9 +221,9 @@ Guidelines:
         if not self.api_key:
             raise ValueError("OpenRouter/OpenAI API key not configured")
         
-        system_prompt = self._build_system_prompt(registry_surface, mode="appspec")
+        system_prompt = build_system_prompt(registry_surface, mode="appspec")
         
-        user_prompt = self._build_user_prompt(intent_message, current_spec)
+        user_prompt = build_user_prompt(intent_message, current_spec)
         
         try:
             with httpx.Client(timeout=120.0) as client:
@@ -389,7 +273,7 @@ Guidelines:
             yield StreamChunk(type="error", content="API key not configured")
             return
         
-        system_prompt = self._build_system_prompt(registry_surface, mode="appspec")
+        system_prompt = build_system_prompt(registry_surface, mode="appspec")
         
         messages = [{"role": "system", "content": system_prompt}]
         
@@ -402,7 +286,7 @@ Guidelines:
                 })
         
         # Add current request
-        user_prompt = self._build_user_prompt(intent_message, current_spec)
+        user_prompt = build_user_prompt(intent_message, current_spec)
         messages.append({"role": "user", "content": user_prompt})
         
         try:
@@ -487,7 +371,7 @@ Guidelines:
             yield StreamChunk(type="error", content="API key not configured")
             return
         
-        system_prompt = self._build_system_prompt(registry_surface, mode="code")
+        system_prompt = build_system_prompt(registry_surface, mode="code")
         
         messages = [{"role": "system", "content": system_prompt}]
         
@@ -555,24 +439,6 @@ Guidelines:
         except Exception as e:
             logger.error(f"Code generation error: {e}")
             yield StreamChunk(type="error", content=str(e))
-    
-    def _build_user_prompt(
-        self,
-        intent_message: str,
-        current_spec: Optional[Dict[str, Any]]
-    ) -> str:
-        """Build user prompt with context."""
-        if current_spec:
-            return f"""Current AppSpec:
-{json.dumps(current_spec, indent=2)}
-
-User Request: {intent_message}
-
-Generate an updated AppSpec JSON that addresses the request. Return ONLY valid JSON."""
-        else:
-            return f"""User Request: {intent_message}
-
-Generate an AppSpec JSON for a new internal app. Return ONLY valid JSON."""
     
     def _parse_code_blocks(self, content: str) -> Dict[str, str]:
         """Parse code blocks from response into file dict."""
