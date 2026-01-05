@@ -142,14 +142,34 @@ export async function fetchGenerationState(versionId: string): Promise<Generatio
 }
 
 /**
+ * Cancel a generating version when the user aborts
+ */
+export async function cancelGeneration(versionId: string): Promise<void> {
+  try {
+    await api.post(`/versions/${versionId}/cancel/`)
+    console.log('[agentService] Cancelled generation for version:', versionId)
+  } catch (error) {
+    // Log but don't throw - cancellation is best-effort cleanup
+    console.warn('[agentService] Failed to cancel generation:', error)
+  }
+}
+
+/**
  * Start agentic code generation with streaming progress
+ * 
+ * Returns an object with:
+ * - controller: AbortController to cancel the request
+ * - getVersionId: function to get the current version ID (for cancellation)
  */
 export function startAgenticGeneration(
   appId: string,
   message: string,
   options: AgentGenerateOptions
-): AbortController {
+): { controller: AbortController; getVersionId: () => string | null } {
   const controller = new AbortController()
+  
+  // Track the version ID when it's created so we can cancel it
+  let currentVersionId: string | null = null
 
   const params = new URLSearchParams({
     message,
@@ -211,6 +231,12 @@ export function startAgenticGeneration(
             } else if (line === '' && eventType && eventData) {
               try {
                 const data = JSON.parse(eventData)
+                
+                // Track the version ID when a draft version is created
+                if (eventType === 'version_draft' && data.version_id) {
+                  currentVersionId = data.version_id
+                }
+                
                 const event: AgentEvent = {
                   type: eventType as AgentEventType,
                   timestamp: new Date().toISOString(),
@@ -226,8 +252,13 @@ export function startAgenticGeneration(
           }
         }
       })
-      .catch((error) => {
-        if (error.name !== 'AbortError') {
+      .catch(async (error) => {
+        if (error.name === 'AbortError') {
+          // User cancelled - clean up the generating version
+          if (currentVersionId) {
+            await cancelGeneration(currentVersionId)
+          }
+        } else {
           options.onError?.(error)
         }
       })
@@ -235,7 +266,10 @@ export function startAgenticGeneration(
     options.onError?.(new Error('Authentication required'))
   }
 
-  return controller
+  return {
+    controller,
+    getVersionId: () => currentVersionId,
+  }
 }
 
 /**

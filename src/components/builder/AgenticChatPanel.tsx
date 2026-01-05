@@ -29,6 +29,7 @@ import {
   agentStateReducer,
   fetchLatestGeneration,
   upsertFileChange,
+  cancelGeneration,
 } from '../../services/agentService'
 import type { AgentEvent, PlanStep, FileChange } from '../../types/agent'
 import { initialAgentState } from '../../types/agent'
@@ -278,6 +279,8 @@ export function AgenticChatPanel({
   const [abortController, setAbortController] = useState<AbortController | null>(null)
   const [thinkingStartTime, setThinkingStartTime] = useState<number | null>(null)
   const [accumulatedFiles, setAccumulatedFiles] = useState<FileChange[]>([])
+  // Track the generating version ID so we can cancel it properly
+  const [generatingVersionId, setGeneratingVersionId] = useState<string | null>(null)
   const [hasLoadedState, setHasLoadedState] = useState(false)
   const [isScrolling, setIsScrolling] = useState(false)
   const { data: chatSessions, refetch: refetchChatSessions, isLoading: sessionsLoading } = useChatSessions(appId)
@@ -566,10 +569,10 @@ export function AgenticChatPanel({
             const lastMsg = updated[updated.length - 1]
             if (lastMsg?.role === 'assistant') {
               // Add table creation info to the message
-              const tableInfo = `Created table "${data.name}" (${data.slug}) with ${data.columns} columns`
+              const tableInfo = `Created table ${data.name} with ${data.columns} columns`
               lastMsg.content = lastMsg.content 
-                ? `${lastMsg.content}\n\n📊 ${tableInfo}`
-                : `📊 ${tableInfo}`
+                ? `${lastMsg.content}\n\n ${tableInfo}`
+                : `${tableInfo}`
             }
             return updated
           })
@@ -634,8 +637,17 @@ export function AgenticChatPanel({
           break
         }
 
+        case 'version_draft':
+          // Track the generating version ID so we can cancel it if needed
+          if (data.version_id) {
+            setGeneratingVersionId(data.version_id)
+          }
+          break
+
         case 'version_created':
-          onVersionCreated(data.versionId, data.versionNumber)
+          onVersionCreated(data.versionId || data.version_id, data.versionNumber || data.version_number)
+          // Clear the generating version ID since generation is complete
+          setGeneratingVersionId(null)
           break
 
         case 'agent_complete':
@@ -689,6 +701,9 @@ export function AgenticChatPanel({
       data: { sessionId: '', messageId: '', goal: message },
     })
 
+    // Reset the generating version ID for a new generation
+    setGeneratingVersionId(null)
+
     // Add user message
     setMessages((prev) => [
       ...prev,
@@ -716,19 +731,21 @@ export function AgenticChatPanel({
       },
     ])
 
-    const controller = startAgenticGeneration(appId, message, {
+    const { controller } = startAgenticGeneration(appId, message, {
       sessionId: sessionId || undefined,
       model: selectedModel,
       onEvent: handleAgentEvent,
       onComplete: () => {
         setIsLoading(false)
         setAbortController(null)
+        setGeneratingVersionId(null)  // Clear on completion
       },
       onError: (error) => {
         console.error('Agent error:', error)
         setIsLoading(false)
         setAbortController(null)
         setThinkingStartTime(null)
+        setGeneratingVersionId(null)  // Clear on error
         setMessages((prev) => {
           const updated = [...prev]
           const lastMsg = updated[updated.length - 1]
@@ -744,11 +761,23 @@ export function AgenticChatPanel({
     setAbortController(controller)
   }
 
-  const handleCancel = () => {
+  const handleCancel = async () => {
+    // Abort the SSE connection
     abortController?.abort()
     setIsLoading(false)
     setAbortController(null)
     setThinkingStartTime(null)
+
+    // Cancel the generating version on the backend to clean up
+    if (generatingVersionId) {
+      try {
+        await cancelGeneration(generatingVersionId)
+        console.log('[AgenticChatPanel] Cancelled generating version:', generatingVersionId)
+      } catch (error) {
+        console.warn('[AgenticChatPanel] Failed to cancel generating version:', error)
+      }
+      setGeneratingVersionId(null)
+    }
 
     dispatchAgentEvent({
       type: 'agent_error',

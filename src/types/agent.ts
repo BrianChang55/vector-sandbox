@@ -93,6 +93,7 @@ export type AgentEventType =
   | 'code_chunk'
   | 'validation_result'
   | 'preview_ready'
+  | 'version_draft'
   | 'version_created'
   | 'agent_complete'
   | 'agent_error'
@@ -125,6 +126,7 @@ export type AgentEventData =
   | CodeChunkData
   | ValidationResultData
   | PreviewReadyData
+  | VersionDraftData
   | VersionCreatedData
   | AgentCompleteData
   | AgentErrorData
@@ -244,6 +246,12 @@ export interface AgentCompleteData {
   duration?: number
   filesGenerated?: number
   summary?: string
+}
+
+export interface VersionDraftData {
+  version_id: string
+  version_number: number
+  status: string
 }
 
 export interface VersionCreatedData {
