@@ -13,6 +13,7 @@ import {
   RotateCcw, 
   Check,
   ChevronDown,
+  History,
   User
 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
@@ -27,22 +28,31 @@ interface VersionsPanelProps {
   className?: string
 }
 
-const sourceIcons = {
+const sourceIcons: Record<string, typeof Sparkles> = {
   ai: Sparkles,
+  ai_edit: Sparkles,
   code: Code2,
+  code_edit: Code2,
   publish: Upload,
+  rollback: History,
 }
 
-const sourceLabels = {
+const sourceLabels: Record<string, string> = {
   ai: 'AI Generated',
+  ai_edit: 'AI Edit',
   code: 'Code Edit',
+  code_edit: 'Code Edit',
   publish: 'Published',
+  rollback: 'Rollback',
 }
 
-const sourceColors = {
+const sourceColors: Record<string, string> = {
   ai: 'text-gray-600 bg-gray-100',
+  ai_edit: 'text-purple-700 bg-purple-50',
   code: 'text-yellow-700 bg-yellow-50',
+  code_edit: 'text-yellow-700 bg-yellow-50',
   publish: 'text-green-700 bg-green-50',
+  rollback: 'text-blue-700 bg-blue-50',
 }
 
 export function VersionsPanel({

@@ -88,6 +88,8 @@ export type AgentEventType =
   | 'step_complete'
   | 'step_completed'
   | 'file_generated'
+  | 'table_created'
+  | 'table_updated'
   | 'code_chunk'
   | 'validation_result'
   | 'preview_ready'
@@ -118,6 +120,8 @@ export type AgentEventData =
   | StepCompleteData
   | StepCompletedData
   | FileGeneratedData
+  | TableCreatedData
+  | TableUpdatedData
   | CodeChunkData
   | ValidationResultData
   | PreviewReadyData
@@ -197,6 +201,22 @@ export interface StepCompletedData {
 
 export interface FileGeneratedData {
   file: FileChange
+}
+
+export interface TableCreatedData {
+  slug: string
+  name: string
+  columns: number
+}
+
+export interface TableUpdatedData {
+  slug: string
+  name: string
+  changes: {
+    added?: string[]
+    removed?: string[]
+    modified?: string[]
+  }
 }
 
 export interface CodeChunkData {

@@ -882,15 +882,6 @@ export function SandpackPreview({
                 <Terminal className="h-4 w-4" />
               </button>
 
-              <RefreshButton />
-
-              <button
-                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 
-                         rounded-md transition-colors"
-                title="Open in new tab"
-              >
-                <ExternalLink className="h-4 w-4" />
-              </button>
               </div>
             </div>
           </div>

@@ -8,11 +8,12 @@
  * - Research → Plan → Execute → Validate workflow
  * - Real-time thinking and progress visibility
  * - Sandpack-based live React app preview
+ * - App Data Store management (tables, rows, queries)
  * 
  * Light enterprise theme matching the rest of the application.
  */
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { 
   ArrowLeft, 
   Settings, 
@@ -23,6 +24,8 @@ import {
   Loader2,
   CheckCircle,
   Link2,
+  Code2,
+  Database,
 } from 'lucide-react'
 
 import { useApp, useAppVersions, usePublishApp } from '../hooks/useApps'
@@ -32,6 +35,7 @@ import { setSelectedVersion } from '../store/slices/uiSlice'
 import { AgenticChatPanel } from '../components/builder/AgenticChatPanel'
 import { PreviewPanel } from '../components/builder/PreviewPanel'
 import { SandpackPreview } from '../components/builder/SandpackPreview'
+import { DataPanel } from '../components/data'
 import { Button } from '../components/ui/button'
 import { ConfirmDialog } from '../components/ui/dialog'
 import { cn } from '../lib/utils'
@@ -39,8 +43,11 @@ import type { FileChange } from '../types/agent'
 import { upsertFileChange } from '../services/agentService'
 import { buildPreviewUrl } from '../lib/preview'
 
+type AppTab = 'builder' | 'data'
+
 export function AppBuilderPage() {
   const { appId } = useParams<{ appId: string }>()
+  const [searchParams, setSearchParams] = useSearchParams()
   const navigate = useNavigate()
   const dispatch = useAppDispatch()
   
@@ -49,6 +56,12 @@ export function AppBuilderPage() {
   const publishApp = usePublishApp()
   
   const selectedVersionId = useAppSelector((state) => state.ui.selectedVersionId)
+  
+  // Tab state from URL
+  const activeTab = (searchParams.get('tab') as AppTab) || 'builder'
+  const setActiveTab = (tab: AppTab) => {
+    setSearchParams({ tab })
+  }
   
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [isPublishing, setIsPublishing] = useState(false)
@@ -158,36 +171,66 @@ export function AppBuilderPage() {
     <div className="flex flex-col h-screen bg-gray-50 overflow-hidden">
       {/* Top Bar */}
       <header className="flex items-center justify-between px-4 py-2 border-b border-gray-200 bg-white">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => navigate('/apps')}
-            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </button>
-          
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-md bg-gray-100 flex items-center justify-center">
-              <Layers className="h-4 w-4 text-gray-500" />
-            </div>
-            <div>
-              <h1 className="text-sm font-semibold text-gray-900">{app.name}</h1>
-              <div className="flex items-center gap-2">
-                <span className={cn(
-                  'text-[10px] px-1.5 py-0.5 rounded-full font-medium',
-                  app.status === 'published' 
-                    ? 'bg-green-50 text-green-700 border border-green-200'
-                    : 'bg-gray-100 text-gray-600'
-                )}>
-                  {app.status}
-                </span>
-                {selectedVersion && (
-                  <span className="text-[10px] text-gray-600">
-                    v{selectedVersion.version_number}
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate('/apps')}
+              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </button>
+            
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-md bg-gray-100 flex items-center justify-center">
+                <Layers className="h-4 w-4 text-gray-500" />
+              </div>
+              <div>
+                <h1 className="text-sm font-semibold text-gray-900">{app.name}</h1>
+                <div className="flex items-center gap-2">
+                  <span className={cn(
+                    'text-[10px] px-1.5 py-0.5 rounded-full font-medium',
+                    app.status === 'published' 
+                      ? 'bg-green-50 text-green-700 border border-green-200'
+                      : 'bg-gray-100 text-gray-600'
+                  )}>
+                    {app.status}
                   </span>
-                )}
+                  {selectedVersion && (
+                    <span className="text-[10px] text-gray-600">
+                      v{selectedVersion.version_number}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
+          </div>
+
+          {/* Tab Navigation */}
+          <div className="flex items-center h-8 bg-gray-100 rounded-lg p-0.5 ml-2">
+            <button
+              onClick={() => setActiveTab('builder')}
+              className={cn(
+                'flex items-center gap-1.5 px-3 h-7 rounded-md text-xs font-medium transition-colors',
+                activeTab === 'builder'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              )}
+            >
+              <Code2 className="h-3.5 w-3.5" />
+              Builder
+            </button>
+            <button
+              onClick={() => setActiveTab('data')}
+              className={cn(
+                'flex items-center gap-1.5 px-3 h-7 rounded-md text-xs font-medium transition-colors',
+                activeTab === 'data'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              )}
+            >
+              <Database className="h-3.5 w-3.5" />
+              Data
+            </button>
           </div>
         </div>
 
@@ -266,45 +309,52 @@ export function AppBuilderPage() {
         </div>
       </header>
 
-      {/* Main Content - Two Panel Layout */}
+      {/* Main Content */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Left Panel - Chat (Agentic or Simple) */}
-        <div className="w-[420px] flex-shrink-0 border-r border-gray-200 bg-white h-full">
-          <AgenticChatPanel
-            appId={appId!}
-            sessionId={sessionId}
-            onSessionChange={setSessionId}
-            onVersionCreated={handleVersionCreated}
-            onFilesGenerated={handleFilesGenerated}
-            className="h-full"
-          />
-        </div>
+        {activeTab === 'builder' ? (
+          <>
+            {/* Left Panel - Chat (Agentic or Simple) */}
+            <div className="w-[420px] flex-shrink-0 border-r border-gray-200 bg-white h-full">
+              <AgenticChatPanel
+                appId={appId!}
+                sessionId={sessionId}
+                onSessionChange={setSessionId}
+                onVersionCreated={handleVersionCreated}
+                onFilesGenerated={handleFilesGenerated}
+                className="h-full"
+              />
+            </div>
 
-        {/* Right Panel - Preview (Sandpack for generated files, iframe for versions) */}
-        <div className="flex-1 min-w-0 h-full">
-          {generatedFiles.length > 0 ? (
-            <SandpackPreview
-              files={generatedFiles}
-              appId={appId!}
-              versionId={selectedVersionId || undefined}
-              appName={app.name}
-              className="h-full"
-              onFilesChange={(files) => setGeneratedFiles(files)}
-            />
-          ) : (
-            <PreviewPanel
-              appId={appId!}
-              versionId={selectedVersionId}
-              versionFiles={selectedVersion?.files || []}
-              previousVersionFiles={
-                versions && versions.length > 1 && selectedVersion
-                  ? versions.find(v => v.version_number === selectedVersion.version_number - 1)?.files
-                  : undefined
-              }
-              className="h-full"
-            />
-          )}
-        </div>
+            {/* Right Panel - Preview (Sandpack for generated files, iframe for versions) */}
+            <div className="flex-1 min-w-0 h-full">
+              {generatedFiles.length > 0 ? (
+                <SandpackPreview
+                  files={generatedFiles}
+                  appId={appId!}
+                  versionId={selectedVersionId || undefined}
+                  appName={app.name}
+                  className="h-full"
+                  onFilesChange={(files) => setGeneratedFiles(files)}
+                />
+              ) : (
+                <PreviewPanel
+                  appId={appId!}
+                  versionId={selectedVersionId}
+                  versionFiles={selectedVersion?.files || []}
+                  previousVersionFiles={
+                    versions && versions.length > 1 && selectedVersion
+                      ? versions.find(v => v.version_number === selectedVersion.version_number - 1)?.files
+                      : undefined
+                  }
+                  className="h-full"
+                />
+              )}
+            </div>
+          </>
+        ) : (
+          /* Data Tab - Full width data management */
+          <DataPanel appId={appId!} className="flex-1" />
+        )}
       </div>
     </div>
 

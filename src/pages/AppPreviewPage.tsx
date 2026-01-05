@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
-import { Check, Link2, Loader2, ExternalLink } from 'lucide-react'
+import { Check, Link2, Loader2 } from 'lucide-react'
 import { SandpackPreview, SimplePreview } from '../components/builder/SandpackPreview'
 import { useApp, useAppVersions } from '../hooks/useApps'
 import { buildPreviewUrl } from '../lib/preview'

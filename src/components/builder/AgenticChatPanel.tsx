@@ -255,7 +255,7 @@ function ExploredBadge({ info }: { info: { directories: number; files: number; s
       <Search className="h-3 w-3" />
       <span>
         Explored {info.directories} {info.directories === 1 ? 'directory' : 'directories'}{' '}
-        {info.files} {info.files === 1 ? 'file' : 'files'}{' '}
+        {info.files} {info.files === 1 ? 'file' : 'files'}{' '}, and {' '}
         {info.searches > 0 && `${info.searches} ${info.searches === 1 ? 'search' : 'searches'}`}
       </span>
     </div>
@@ -411,7 +411,7 @@ export function AgenticChatPanel({
             const completedMessage: LocalMessage = {
               id: 'restored-complete',
               role: 'assistant',
-              content: `✅ Generated ${state.file_count || 0} files`,
+              content: `Generated ${state.file_count || 0} ${(state.file_count || 0) === 1 ? 'file' : 'files'}`,
               status: 'complete',
               createdAt: state.created_at || new Date().toISOString(),
               files: restoredFiles,
@@ -595,6 +595,47 @@ export function AgenticChatPanel({
             const lastMsg = updated[updated.length - 1]
             if (lastMsg?.role === 'assistant') {
               lastMsg.files = upsertFileChange(lastMsg.files || [], newFile)
+            }
+            return updated
+          })
+          break
+        }
+
+        case 'table_created': {
+          // A new data table was created by the agent
+          setMessages((prev) => {
+            const updated = [...prev]
+            const lastMsg = updated[updated.length - 1]
+            if (lastMsg?.role === 'assistant') {
+              // Add table creation info to the message
+              const tableInfo = `Created table "${data.name}" (${data.slug}) with ${data.columns} columns`
+              lastMsg.content = lastMsg.content 
+                ? `${lastMsg.content}\n\n📊 ${tableInfo}`
+                : `📊 ${tableInfo}`
+            }
+            return updated
+          })
+          break
+        }
+
+        case 'table_updated': {
+          // An existing data table was updated by the agent
+          setMessages((prev) => {
+            const updated = [...prev]
+            const lastMsg = updated[updated.length - 1]
+            if (lastMsg?.role === 'assistant') {
+              const changes = data.changes || {}
+              const changeInfo = []
+              if (changes.added?.length) changeInfo.push(`added: ${changes.added.join(', ')}`)
+              if (changes.removed?.length) changeInfo.push(`removed: ${changes.removed.join(', ')}`)
+              if (changes.modified?.length) changeInfo.push(`modified: ${changes.modified.join(', ')}`)
+              
+              const tableInfo = changeInfo.length > 0
+                ? `Updated table "${data.name}" - ${changeInfo.join('; ')}`
+                : `Updated table "${data.name}"`
+              lastMsg.content = lastMsg.content 
+                ? `${lastMsg.content}\n\n📊 ${tableInfo}`
+                : `📊 ${tableInfo}`
             }
             return updated
           })
