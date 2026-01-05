@@ -4,7 +4,7 @@
  * Displays table data in a grid format with pagination,
  * sorting, filtering, and row operations.
  */
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import {
   Plus,
   Trash2,
@@ -12,6 +12,7 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
@@ -20,6 +21,13 @@ import {
   PencilLine,
   Filter,
   X,
+  Calendar,
+  Hash,
+  Type,
+  ToggleLeft,
+  List,
+  Braces,
+  Check,
 } from 'lucide-react'
 import {
   useQueryRows,
@@ -40,6 +48,262 @@ import { ImportExportMenu } from './ImportExportMenu'
 import { cn } from '@/lib/utils'
 import type { DataTable, QuerySpec, QueryResultRow, ColumnDef, FilterDef, FilterOperator } from '@/types/dataStore'
 
+// Type-specific operator configurations
+type OperatorConfig = {
+  value: FilterOperator
+  label: string
+  needsValue: boolean
+}
+
+const getOperatorsForType = (type: string): OperatorConfig[] => {
+  switch (type) {
+    case 'string':
+    case 'text':
+      return [
+        { value: 'icontains', label: 'contains', needsValue: true },
+        { value: 'eq', label: 'equals', needsValue: true },
+        { value: 'neq', label: 'not equals', needsValue: true },
+        { value: 'is_null', label: 'is empty', needsValue: false },
+      ]
+    case 'integer':
+    case 'float':
+      return [
+        { value: 'eq', label: 'equals', needsValue: true },
+        { value: 'neq', label: 'not equals', needsValue: true },
+        { value: 'gt', label: 'greater than', needsValue: true },
+        { value: 'gte', label: 'at least', needsValue: true },
+        { value: 'lt', label: 'less than', needsValue: true },
+        { value: 'lte', label: 'at most', needsValue: true },
+        { value: 'is_null', label: 'is empty', needsValue: false },
+      ]
+    case 'boolean':
+      return [
+        { value: 'eq', label: 'is true', needsValue: false },
+        { value: 'neq', label: 'is false', needsValue: false },
+        { value: 'is_null', label: 'is empty', needsValue: false },
+      ]
+    case 'date':
+    case 'datetime':
+      return [
+        { value: 'eq', label: 'is', needsValue: true },
+        { value: 'gt', label: 'after', needsValue: true },
+        { value: 'lt', label: 'before', needsValue: true },
+        { value: 'gte', label: 'on or after', needsValue: true },
+        { value: 'lte', label: 'on or before', needsValue: true },
+        { value: 'is_null', label: 'is empty', needsValue: false },
+      ]
+    case 'enum':
+      return [
+        { value: 'eq', label: 'is', needsValue: true },
+        { value: 'neq', label: 'is not', needsValue: true },
+        { value: 'is_null', label: 'is empty', needsValue: false },
+      ]
+    case 'uuid':
+      return [
+        { value: 'eq', label: 'equals', needsValue: true },
+        { value: 'is_null', label: 'is empty', needsValue: false },
+      ]
+    case 'json':
+      return [
+        { value: 'is_null', label: 'is empty', needsValue: false },
+      ]
+    default:
+      return [
+        { value: 'eq', label: 'equals', needsValue: true },
+        { value: 'neq', label: 'not equals', needsValue: true },
+        { value: 'is_null', label: 'is empty', needsValue: false },
+      ]
+  }
+}
+
+const getDefaultOperator = (type: string): FilterOperator => {
+  switch (type) {
+    case 'string':
+    case 'text':
+      return 'icontains'
+    case 'boolean':
+      return 'eq'
+    default:
+      return 'eq'
+  }
+}
+
+const getTypeIcon = (type: string) => {
+  switch (type) {
+    case 'string':
+    case 'text':
+      return Type
+    case 'integer':
+    case 'float':
+      return Hash
+    case 'boolean':
+      return ToggleLeft
+    case 'date':
+    case 'datetime':
+      return Calendar
+    case 'enum':
+      return List
+    case 'json':
+      return Braces
+    default:
+      return Type
+  }
+}
+
+// Extended filter with column info for UI
+interface FilterWithColumn extends FilterDef {
+  column: ColumnDef
+}
+
+// Filter row component for inline editing
+function FilterRow({
+  filter,
+  onUpdate,
+  onRemove,
+}: {
+  filter: FilterWithColumn
+  onUpdate: (updates: Partial<FilterDef>) => void
+  onRemove: () => void
+}) {
+  const operators = getOperatorsForType(filter.column.type)
+  const currentOp = operators.find(o => o.value === filter.op)
+  const needsValue = currentOp?.needsValue !== false
+  const TypeIcon = getTypeIcon(filter.column.type)
+
+  // Handle boolean value - set based on operator
+  useEffect(() => {
+    if (filter.column.type === 'boolean') {
+      if (filter.op === 'eq') {
+        onUpdate({ value: true })
+      } else if (filter.op === 'neq') {
+        onUpdate({ value: false })
+      }
+    }
+  }, [filter.op, filter.column.type])
+
+  const renderValueInput = () => {
+    if (!needsValue) return null
+
+    const { type, enum_values } = filter.column
+
+    const selectClass = "h-8 px-4 text-sm border border-gray-200 rounded bg-white text-gray-900 focus:outline-none"
+    const inputClass = "h-8 px-4 text-sm border border-gray-200 rounded bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none"
+
+    // Enum dropdown
+    if (type === 'enum' && enum_values && enum_values.length > 0) {
+      return (
+        <select
+          value={filter.value as string || ''}
+          onChange={(e) => onUpdate({ value: e.target.value })}
+          className={selectClass}
+        >
+          <option value="">Select value...</option>
+          {enum_values.map((val) => (
+            <option key={val} value={val}>{val}</option>
+          ))}
+        </select>
+      )
+    }
+
+    // Date picker
+    if (type === 'date') {
+      return (
+        <input
+          type="date"
+          value={filter.value as string || ''}
+          onChange={(e) => onUpdate({ value: e.target.value })}
+          className={inputClass}
+        />
+      )
+    }
+
+    // Datetime picker
+    if (type === 'datetime') {
+      return (
+        <input
+          type="datetime-local"
+          value={filter.value as string || ''}
+          onChange={(e) => onUpdate({ value: e.target.value })}
+          className={inputClass}
+        />
+      )
+    }
+
+    // Number input
+    if (type === 'integer' || type === 'float') {
+      return (
+        <input
+          type="number"
+          step={type === 'float' ? 'any' : '1'}
+          value={filter.value as string || ''}
+          onChange={(e) => onUpdate({ value: e.target.value ? Number(e.target.value) : '' })}
+          placeholder="Enter number..."
+          className={`${inputClass} min-w-[120px]`}
+        />
+      )
+    }
+
+    // Text input (default)
+    return (
+      <input
+        type="text"
+        value={filter.value as string || ''}
+        onChange={(e) => onUpdate({ value: e.target.value })}
+        placeholder="Enter value..."
+        className={`${inputClass} min-w-[140px] flex-1`}
+      />
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-4 bg-white rounded-lg border border-gray-200 px-4 py-2.5 shadow-sm">
+      {/* Field name with icon */}
+      <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded border border-gray-100">
+        <TypeIcon className="h-3.5 w-3.5 text-gray-400" />
+        <span className="text-sm font-medium text-gray-700">{filter.field}</span>
+      </div>
+
+      {/* Operator dropdown */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button className="h-8 pl-3 pr-2 text-sm border border-gray-200 rounded bg-white text-gray-700 
+                             hover:bg-gray-50 transition-colors flex items-center gap-1.5 min-w-[110px] justify-between">
+            <span>{currentOp?.label || filter.op}</span>
+            <ChevronDown className="h-4 w-4 text-gray-400" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" sideOffset={4} className="min-w-[140px]">
+          {operators.map((op) => (
+            <DropdownMenuItem
+              key={op.value}
+              onSelect={() => onUpdate({ op: op.value })}
+              className="flex items-center justify-between gap-2"
+            >
+              <span>{op.label}</span>
+              {filter.op === op.value && (
+                <Check className="h-4 w-4 text-gray-900" />
+              )}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {/* Value input */}
+      <div className="flex-1">
+        {renderValueInput()}
+      </div>
+
+      {/* Remove button - always at far right */}
+      <button
+        onClick={onRemove}
+        className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors flex-shrink-0"
+      >
+        <X className="h-4 w-4" />
+      </button>
+    </div>
+  )
+}
+
 interface DataGridProps {
   appId: string
   table: DataTable
@@ -55,11 +319,25 @@ export function DataGrid({ appId, table }: DataGridProps) {
   const [rowFormOpen, setRowFormOpen] = useState(false)
   const [editingRow, setEditingRow] = useState<QueryResultRow | null>(null)
   const [showFilters, setShowFilters] = useState(false)
-  const [filters, setFilters] = useState<FilterDef[]>([])
+  const [filtersWithColumns, setFiltersWithColumns] = useState<FilterWithColumn[]>([])
   
   const deleteRow = useDeleteRow()
   const bulkDelete = useBulkDeleteRows()
   const { confirm } = useDialog()
+
+  const columns = table.schema_json.columns || []
+
+  // Convert filters with columns to plain filters for the API
+  const filters: FilterDef[] = useMemo(() => {
+    return filtersWithColumns
+      .filter(f => {
+        const operators = getOperatorsForType(f.column.type)
+        const currentOp = operators.find(o => o.value === f.op)
+        // Include filter if it doesn't need a value, or if it has a value
+        return currentOp?.needsValue === false || (f.value !== '' && f.value !== null && f.value !== undefined)
+      })
+      .map(({ field, op, value }) => ({ field, op, value }))
+  }, [filtersWithColumns])
 
   // Build query spec
   const querySpec: QuerySpec = useMemo(() => {
@@ -79,13 +357,45 @@ export function DataGrid({ appId, table }: DataGridProps) {
     return spec
   }, [page, sortColumn, sortDir, filters])
 
+  // Add a filter for a column
+  const addFilter = useCallback((column: ColumnDef) => {
+    const defaultOp = getDefaultOperator(column.type)
+    const defaultValue = column.type === 'boolean' ? true : ''
+    setFiltersWithColumns(prev => [...prev, { 
+      field: column.name, 
+      op: defaultOp, 
+      value: defaultValue,
+      column 
+    }])
+    setShowFilters(true)
+  }, [])
+
+  // Update a filter
+  const updateFilter = useCallback((index: number, updates: Partial<FilterDef>) => {
+    setFiltersWithColumns(prev => prev.map((f, i) => 
+      i === index ? { ...f, ...updates } : f
+    ))
+    setPage(0)
+  }, [])
+
+  // Remove a filter
+  const removeFilter = useCallback((index: number) => {
+    setFiltersWithColumns(prev => prev.filter((_, i) => i !== index))
+    setPage(0)
+  }, [])
+
+  // Clear all filters
+  const clearFilters = useCallback(() => {
+    setFiltersWithColumns([])
+    setPage(0)
+  }, [])
+
   const { data: queryResult, isLoading, refetch } = useQueryRows(
     appId,
     table.slug,
     querySpec
   )
 
-  const columns = table.schema_json.columns || []
   const rows = queryResult?.rows || []
   const totalCount = queryResult?.total_count || 0
   const totalPages = Math.ceil(totalCount / PAGE_SIZE)
@@ -234,15 +544,15 @@ export function DataGrid({ appId, table }: DataGridProps) {
           )}
 
           <Button
-            variant={showFilters || filters.length > 0 ? 'secondary' : 'outline'}
+            variant={showFilters || filtersWithColumns.length > 0 ? 'secondary' : 'outline'}
             size="sm"
             onClick={() => setShowFilters(!showFilters)}
           >
             <Filter className="h-3.5 w-3.5 mr-1.5" />
             Filter
-            {filters.length > 0 && (
-              <span className="ml-1.5 bg-gray-900 text-white text-[10px] rounded-full px-1.5 py-0.5">
-                {filters.length}
+            {filtersWithColumns.length > 0 && (
+              <span className="ml-1.5 bg-gray-900 text-white text-[10px] rounded-full h-4 w-4 flex items-center justify-center">
+                {filtersWithColumns.length}
               </span>
             )}
           </Button>
@@ -274,138 +584,75 @@ export function DataGrid({ appId, table }: DataGridProps) {
       {/* Filter Panel */}
       {showFilters && (
         <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
-          <div className="flex items-center gap-2 flex-wrap">
-            {filters.map((filter, index) => (
-              <div
-                key={index}
-                className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-md px-2 py-1 text-xs"
-              >
-                <span className="font-medium text-gray-900">{filter.field}</span>
-                <span className="text-gray-500">{filter.op}</span>
-                <span className="text-gray-700">
-                  {filter.value === null ? 'null' : String(filter.value)}
+          {/* Filter header */}
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Filter className="h-4 w-4 text-gray-500" />
+              <span className="text-sm font-medium text-gray-700">Filters</span>
+              {filters.length > 0 && (
+                <span className="text-xs text-gray-500">
+                  ({filters.length} active)
                 </span>
-                <button
-                  onClick={() => {
-                    setFilters((prev) => prev.filter((_, i) => i !== index))
-                    setPage(0)
-                  }}
-                  className="ml-1 p-0.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded"
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {filtersWithColumns.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+                  onClick={clearFilters}
                 >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
-            ))}
+                  <X className="h-3 w-3 mr-1" />
+                  Clear all
+                </Button>
+              )}
+            </div>
+          </div>
 
+          {/* Active filters */}
+          <div className="space-y-2">
+            {filtersWithColumns.map((filter, index) => (
+              <FilterRow
+                key={`${filter.field}-${index}`}
+                filter={filter}
+                onUpdate={(updates) => updateFilter(index, updates)}
+                onRemove={() => removeFilter(index)}
+              />
+            ))}
+          </div>
+
+          {/* Add filter button */}
+          <div className="mt-3">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-7 text-xs">
-                  <Plus className="h-3 w-3 mr-1" />
+                <Button variant="outline" size="sm" className="h-8">
+                  <Plus className="h-3.5 w-3.5 mr-1.5" />
                   Add filter
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" sideOffset={4}>
-                {columns.map((col) => (
-                  <DropdownMenuItem
-                    key={col.name}
-                    onSelect={() => {
-                      const defaultOp: FilterOperator = col.type === 'string' || col.type === 'text' 
-                        ? 'icontains' 
-                        : 'eq'
-                      setFilters((prev) => [...prev, { field: col.name, op: defaultOp, value: '' }])
-                    }}
-                  >
-                    {col.name}
-                    <span className="ml-2 text-xs text-gray-400">{col.type}</span>
-                  </DropdownMenuItem>
-                ))}
+              <DropdownMenuContent align="start" sideOffset={4} className="w-56">
+                <div className="px-2 py-1.5 text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Filter by column
+                </div>
+                <DropdownMenuSeparator />
+                {columns.filter(col => !col.primary_key).map((col) => {
+                  const TypeIcon = getTypeIcon(col.type)
+                  return (
+                    <DropdownMenuItem
+                      key={col.name}
+                      onSelect={() => addFilter(col)}
+                      className="gap-2"
+                    >
+                      <TypeIcon className="h-4 w-4 text-gray-400" />
+                      <span className="flex-1 text-gray-900">{col.name}</span>
+                      <span className="text-xs text-gray-400">{col.type}</span>
+                    </DropdownMenuItem>
+                  )
+                })}
               </DropdownMenuContent>
             </DropdownMenu>
-
-            {filters.length > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
-                onClick={() => {
-                  setFilters([])
-                  setPage(0)
-                }}
-              >
-                Clear all
-              </Button>
-            )}
           </div>
-
-          {/* Active filter editor */}
-          {filters.length > 0 && (
-            <div className="mt-3 space-y-2">
-              {filters.map((filter, index) => (
-                <div key={index} className="flex items-center gap-2">
-                  <span className="text-xs font-medium text-gray-700 w-24 truncate">
-                    {filter.field}
-                  </span>
-                  <select
-                    value={filter.op}
-                    onChange={(e) => {
-                      setFilters((prev) =>
-                        prev.map((f, i) =>
-                          i === index ? { ...f, op: e.target.value as FilterOperator } : f
-                        )
-                      )
-                    }}
-                    className="h-7 px-2 text-xs border border-gray-200 rounded-md bg-white"
-                  >
-                    <option value="eq">equals</option>
-                    <option value="neq">not equals</option>
-                    <option value="gt">greater than</option>
-                    <option value="gte">greater or equal</option>
-                    <option value="lt">less than</option>
-                    <option value="lte">less or equal</option>
-                    <option value="contains">contains</option>
-                    <option value="icontains">contains (ignore case)</option>
-                    <option value="is_null">is null</option>
-                  </select>
-                  {filter.op !== 'is_null' && (
-                    <input
-                      type="text"
-                      value={filter.value as string || ''}
-                      onChange={(e) => {
-                        setFilters((prev) =>
-                          prev.map((f, i) =>
-                            i === index ? { ...f, value: e.target.value } : f
-                          )
-                        )
-                      }}
-                      placeholder="Value"
-                      className="flex-1 h-7 px-2 text-xs border border-gray-200 rounded-md bg-white"
-                    />
-                  )}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 w-7 p-0"
-                    onClick={() => {
-                      setFilters((prev) => prev.filter((_, i) => i !== index))
-                      setPage(0)
-                    }}
-                  >
-                    <X className="h-3 w-3" />
-                  </Button>
-                </div>
-              ))}
-              <Button
-                size="sm"
-                className="mt-2"
-                onClick={() => {
-                  setPage(0)
-                  refetch()
-                }}
-              >
-                Apply Filters
-              </Button>
-            </div>
-          )}
         </div>
       )}
 
@@ -417,23 +664,47 @@ export function DataGrid({ appId, table }: DataGridProps) {
           </div>
         ) : rows.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full py-12">
-            <div className="h-12 w-12 rounded-lg bg-gray-100 flex items-center justify-center mb-3">
-              <Search className="h-6 w-6 text-gray-400" />
-            </div>
-            <p className="text-sm font-medium text-gray-900 mb-1">No data yet</p>
-            <p className="text-xs text-gray-500 text-center mb-4">
-              Add your first row to get started
-            </p>
-            <Button
-              size="sm"
-              onClick={() => {
-                setEditingRow(null)
-                setRowFormOpen(true)
-              }}
-            >
-              <Plus className="h-3.5 w-3.5 mr-1.5" />
-              Add Row
-            </Button>
+            {filters.length > 0 ? (
+              // Empty state when filters are applied but no results match
+              <>
+                <div className="h-12 w-12 rounded-lg bg-gray-100 flex items-center justify-center mb-3">
+                  <Filter className="h-6 w-6 text-gray-400" />
+                </div>
+                <p className="text-sm font-medium text-gray-900 mb-1">No matching results</p>
+                <p className="text-xs text-gray-500 text-center mb-4">
+                  Try adjusting your filters to find what you're looking for
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={clearFilters}
+                >
+                  <X className="h-3.5 w-3.5 mr-1.5" />
+                  Clear filters
+                </Button>
+              </>
+            ) : (
+              // Empty state when table has no data
+              <>
+                <div className="h-12 w-12 rounded-lg bg-gray-100 flex items-center justify-center mb-3">
+                  <Search className="h-6 w-6 text-gray-400" />
+                </div>
+                <p className="text-sm font-medium text-gray-900 mb-1">No data yet</p>
+                <p className="text-xs text-gray-500 text-center mb-4">
+                  Add your first row to get started
+                </p>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setEditingRow(null)
+                    setRowFormOpen(true)
+                  }}
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1.5" />
+                  Add Row
+                </Button>
+              </>
+            )}
           </div>
         ) : (
           <table className="w-full text-sm">
