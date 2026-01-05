@@ -19,6 +19,7 @@ import { AppBuilderPage } from './pages/AppBuilderPage'
 import { ResourcesPage } from './pages/ResourcesPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { AppPreviewPage } from './pages/AppPreviewPage'
+import { PublishedAppPage } from './pages/PublishedAppPage'
 
 function App() {
   return (
@@ -80,6 +81,17 @@ function App() {
                   <MainLayout>
                     <SettingsPage />
                   </MainLayout>
+                </AuthGuard>
+              }
+            />
+            
+            {/* Published App - Full-screen immersive runtime */}
+            {/* Place this route last to avoid conflicts with other routes */}
+            <Route
+              path="/:orgSlug/:appSlug"
+              element={
+                <AuthGuard>
+                  <PublishedAppPage />
                 </AuthGuard>
               }
             />

@@ -10,6 +10,7 @@ import type {
   VersionAuditLog,
   RollbackPreview,
   VersionDiff,
+  PublishedAppResponse,
 } from '../types/models'
 
 export function useApps(orgId: string | null) {
@@ -275,6 +276,24 @@ export function usePublishApp() {
       queryClient.invalidateQueries({ queryKey: ['app', data.internal_app] })
       queryClient.invalidateQueries({ queryKey: ['versions', data.internal_app] })
     },
+  })
+}
+
+/**
+ * Fetch a published app by org and app slug
+ */
+export function usePublishedApp(orgSlug: string | null, appSlug: string | null) {
+  return useQuery({
+    queryKey: ['published-app', orgSlug, appSlug],
+    queryFn: async () => {
+      if (!orgSlug || !appSlug) return null
+      const response = await api.get<PublishedAppResponse>(
+        `/published/${orgSlug}/${appSlug}/`
+      )
+      return response.data
+    },
+    enabled: !!orgSlug && !!appSlug,
+    staleTime: 60000, // Cache for 1 minute
   })
 }
 

@@ -39,17 +39,35 @@ export interface ResourceRegistryEntry {
 export interface InternalApp {
   id: string
   organization: string
+  organization_slug: string
   name: string
+  slug: string | null
   description: string
   status: 'draft' | 'published'
   status_display: string
   backend_connection: string
   backend_connection_name: string
+  published_version_id: string | null
+  published_version_number: number | null
+  published_at: string | null
+  published_url: string | null
   allow_actions_in_preview: boolean
   created_by: string
   created_by_email: string
   created_at: string
   updated_at: string
+}
+
+// Response type for published app endpoint
+export interface PublishedAppResponse {
+  app: InternalApp
+  version: AppVersion
+  files: Array<{
+    id: string
+    path: string
+    content: string
+    content_hash: string
+  }>
 }
 
 export interface AppVersion {
@@ -60,7 +78,6 @@ export interface AppVersion {
   source: 'ai_edit' | 'code_edit' | 'rollback' | 'publish' | 'ai' | 'code'
   source_display: string
   intent_message?: string | null
-  is_active: boolean
   generation_status?: 'pending' | 'generating' | 'complete' | 'error'
   spec_json: AppSpec
   scope_snapshot_json: any | null
@@ -68,6 +85,8 @@ export interface AppVersion {
   created_by_email: string
   created_at: string
   files: VersionFile[]
+  // Added by publish endpoint
+  published_url?: string
 }
 
 // Chat and AI Generation types

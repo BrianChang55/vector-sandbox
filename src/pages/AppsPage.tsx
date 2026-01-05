@@ -163,11 +163,11 @@ export function AppsPage() {
           <div>
             <h1 className="text-xl font-semibold text-gray-900">Apps</h1>
             <p className="text-sm text-gray-500 mt-0.5">
-              Build and manage your internal applications
+              Build and manage internal applications
             </p>
           </div>
           <Button onClick={openCreateDialog}>
-            <Plus className="h-4 w-4 mr-2" />
+            <Plus className="h-4 w-4 mr-1.5" />
             New App
           </Button>
         </div>

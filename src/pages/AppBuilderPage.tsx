@@ -12,16 +12,13 @@
  * 
  * Light enterprise theme matching the rest of the application.
  */
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { 
   ArrowLeft, 
   Layers,
   Play,
-  Rocket,
   Loader2,
-  CheckCircle,
-  Link2,
   Code2,
   Database,
 } from 'lucide-react'
@@ -34,14 +31,13 @@ import { AgenticChatPanel } from '../components/builder/AgenticChatPanel'
 import { PreviewPanel } from '../components/builder/PreviewPanel'
 import { SandpackPreview } from '../components/builder/SandpackPreview'
 import { VersionsPanel } from '../components/builder/VersionsPanel'
+import { PublishPopover } from '../components/builder/PublishPopover'
 import { DataPanel } from '../components/data'
 import { Button } from '../components/ui/button'
-import { ConfirmDialog } from '../components/ui/dialog'
 import { useToast, toast } from '../components/ui/toast'
 import { cn } from '../lib/utils'
 import type { FileChange } from '../types/agent'
 import { upsertFileChange } from '../services/agentService'
-import { buildPreviewUrl } from '../lib/preview'
 
 type AppTab = 'builder' | 'data'
 
@@ -51,7 +47,7 @@ export function AppBuilderPage() {
   const navigate = useNavigate()
   const dispatch = useAppDispatch()
   
-  const { data: app, isLoading: appLoading } = useApp(appId || null)
+  const { data: app, isLoading: appLoading, refetch: refetchApp } = useApp(appId || null)
   const { data: versions, refetch: refetchVersions } = useAppVersions(appId || null, { includeFiles: true })
   const publishApp = usePublishApp()
   const rollbackMutation = useRollback()
@@ -69,8 +65,6 @@ export function AppBuilderPage() {
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [isPublishing, setIsPublishing] = useState(false)
   const [generatedFiles, setGeneratedFiles] = useState<FileChange[]>([])
-  const [copiedPublishedLink, setCopiedPublishedLink] = useState(false)
-  const [publishConfirmOpen, setPublishConfirmOpen] = useState(false)
   const [publishError, setPublishError] = useState<string | null>(null)
   const [showVersionsSidebar, setShowVersionsSidebar] = useState(false)
   const [activeGeneratingVersionId, setActiveGeneratingVersionId] = useState<string | null>(null)
@@ -83,17 +77,9 @@ export function AppBuilderPage() {
   }, [versions, selectedVersionId, dispatch])
 
   const selectedVersion = versions?.find((v) => v.id === selectedVersionId) || versions?.[0]
-  const latestPublishedVersion = useMemo(
-    () => (versions || []).find((v) => v.source === 'publish'),
-    [versions]
-  )
   const latestVersion = versions?.[0]
   const latestVersionGenerating = latestVersion?.generation_status && latestVersion.generation_status !== 'complete'
   const canPublish = !!selectedVersion && !isPublishing && !latestVersionGenerating
-  const latestPublishedLink = useMemo(() => {
-    if (!appId || !latestPublishedVersion) return ''
-    return buildPreviewUrl(appId, latestPublishedVersion.id)
-  }, [appId, latestPublishedVersion])
 
   // Load existing version files into generatedFiles for Sandpack preview
   // This runs when a version is selected (either on initial load or when switching versions)
@@ -167,10 +153,13 @@ export function AppBuilderPage() {
     setIsPublishing(true)
     try {
       await publishApp.mutateAsync(appId)
-      refetchVersions()
+      // Refetch both app (for updated published_url) and versions
+      await Promise.all([refetchApp(), refetchVersions()])
+      toastHelpers.success('App published!', 'Your app is now live.')
     } catch (error: any) {
       const apiMessage = error?.response?.data?.error || error?.message || 'Publish failed'
       setPublishError(apiMessage)
+      toastHelpers.error('Publish failed', apiMessage)
       console.error('Publish failed:', error)
     } finally {
       setIsPublishing(false)
@@ -284,54 +273,13 @@ export function AppBuilderPage() {
             Preview
           </Button>
 
-          {/* Publish button */}
-          <Button
-            size="sm"
-            className="gap-1.5 text-xs"
-            onClick={() => setPublishConfirmOpen(true)}
-            disabled={!canPublish}
-            title={
-              latestVersionGenerating
-                ? 'Latest version is still generating. Please wait until it completes.'
-                : undefined
-            }
-          >
-            {isPublishing ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : app.status === 'published' ? (
-              <CheckCircle className="h-3.5 w-3.5" />
-            ) : (
-              <Rocket className="h-3.5 w-3.5" />
-            )}
-            {isPublishing ? 'Publishing...' : app.status === 'published' ? 'Published' : 'Publish'}
-          </Button>
-
-          {/* Copy latest published link */}
-          <div className="w-px h-6 bg-gray-200" />
-
-          <button
-            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            onClick={async () => {
-              if (!latestPublishedLink) return
-              try {
-                await navigator.clipboard.writeText(`${app.name} — ${latestPublishedLink}`)
-                setCopiedPublishedLink(true)
-                setTimeout(() => setCopiedPublishedLink(false), 1200)
-              } catch (error) {
-                console.error('Failed to copy published link', error)
-              }
-            }}
-            disabled={!latestPublishedLink}
-            title={
-              latestPublishedLink
-                ? copiedPublishedLink
-                  ? 'Link copied'
-                  : 'Copy link to latest published version'
-                : 'Publish to get a shareable link'
-            }
-          >
-            {copiedPublishedLink ? <CheckCircle className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
-          </button>
+          {/* Publish Popover */}
+          <PublishPopover
+            app={app}
+            isPublishing={isPublishing}
+            canPublish={canPublish}
+            onPublish={handlePublish}
+          />
         </div>
       </header>
 
@@ -401,23 +349,7 @@ export function AppBuilderPage() {
       </div>
     </div>
 
-    {/* Publish confirmation dialog */}
-    <ConfirmDialog
-      open={publishConfirmOpen}
-      onOpenChange={setPublishConfirmOpen}
-      title={app?.status === 'published' ? 'Republish this app?' : 'Publish this app?'}
-      description={
-        app
-          ? `We’ll freeze the current version of “${app.name}” and mark it as the latest published release.`
-          : 'We’ll freeze the current version and mark it as the latest published release.'
-      }
-      confirmText={isPublishing ? 'Publishing…' : app?.status === 'published' ? 'Republish' : 'Publish'}
-      cancelText="Cancel"
-      variant="default"
-      loading={isPublishing}
-      onConfirm={handlePublish}
-      onCancel={() => setIsPublishing(false)}
-    />
+    {/* Publish error toast */}
     {publishError && (
       <div className="fixed bottom-4 right-4 bg-white border border-gray-200 shadow-lg rounded-md px-4 py-3 text-sm text-red-600">
         {publishError}
