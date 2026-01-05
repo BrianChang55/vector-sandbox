@@ -9,8 +9,9 @@ from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
 from django.db import transaction
 
-from ..models import InternalApp, AppVersion, ResourceRegistryEntry
+from ..models import InternalApp, AppVersion, ResourceRegistryEntry, Organization
 from ..services.version_service import VersionService
+from ..serializers import InternalAppSerializer, AppVersionSerializer
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,6 @@ def publish_app(request, pk=None):
             spec_json=latest_stable.spec_json,
             scope_snapshot_json=scope_snapshot,
             created_by=request.user,
-            is_active=False,  # Start inactive until files are copied
         )
         
         # Copy all files from stable version
@@ -78,16 +78,81 @@ def publish_app(request, pk=None):
                 content_hash=source_file.content_hash or VersionFile.compute_hash(source_file.content),
             )
         
-        # Update app status to published
+        # Ensure app has a slug (auto-generated in model.save() if not set)
+        if not app.slug:
+            app.slug = app.generate_slug()
+        
+        # Set this version as the active published version
+        app.published_version = publish_version
         app.status = InternalApp.STATUS_PUBLISHED
         app.save()
-        
-        # Mark as active after successful file copy
-        publish_version.is_active = True
-        publish_version.save(update_fields=['is_active', 'updated_at'])
     
-    from ..serializers import AppVersionSerializer
+    # Build published URL for response
+    published_url = f"/{app.organization.slug}/{app.slug}"
+    
+    version_data = AppVersionSerializer(publish_version).data
+    version_data['published_url'] = published_url
+    
     return Response(
-        AppVersionSerializer(publish_version).data,
+        version_data,
         status=status.HTTP_201_CREATED
     )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_published_app(request, org_slug=None, app_slug=None):
+    """
+    Fetch the active published version of an app by org/app slug.
+    
+    GET /api/v1/published/:org_slug/:app_slug/
+    
+    Returns:
+        - app: InternalApp data
+        - version: The published AppVersion with files
+        - files: List of version files for Sandpack rendering
+    """
+    # Get organization by slug
+    org = get_object_or_404(Organization, slug=org_slug)
+    
+    # Verify user has access to this organization
+    if not request.user.user_organizations.filter(organization=org).exists():
+        return Response(
+            {'error': 'Access denied. You are not a member of this organization.'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
+    # Get app by slug within the organization
+    app = get_object_or_404(InternalApp, organization=org, slug=app_slug)
+    
+    # Check if app has a published version
+    if not app.published_version:
+        return Response(
+            {'error': 'This app has not been published yet.'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    # Get the published version with files
+    published_version = app.published_version
+    
+    # Serialize the app
+    app_data = InternalAppSerializer(app).data
+    
+    # Serialize the version (includes files)
+    version_data = AppVersionSerializer(published_version).data
+    
+    # Get files for Sandpack rendering
+    files = []
+    for file in published_version.files.all():
+        files.append({
+            'id': str(file.id),
+            'path': file.path,
+            'content': file.content,
+            'content_hash': file.content_hash,
+        })
+    
+    return Response({
+        'app': app_data,
+        'version': version_data,
+        'files': files,
+    })

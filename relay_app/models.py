@@ -174,6 +174,12 @@ class InternalApp(BaseModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='internal_apps')
     name = models.CharField(max_length=255)
+    slug = models.SlugField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text='URL-friendly identifier for the app (auto-generated from name if not set)'
+    )
     description = models.TextField(blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_DRAFT)
     backend_connection = models.ForeignKey(
@@ -184,11 +190,50 @@ class InternalApp(BaseModel):
         blank=True,
         help_text='Optional backend connection for data access'
     )
+    published_version = models.ForeignKey(
+        'AppVersion',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='published_for_app',
+        help_text='The currently active published version'
+    )
     allow_actions_in_preview = models.BooleanField(default=False)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='created_apps')
     
+    class Meta:
+        unique_together = ['organization', 'slug']
+        indexes = [
+            models.Index(fields=['organization', 'slug']),
+        ]
+    
     def __str__(self):
         return f"{self.name} ({self.organization.name})"
+    
+    def generate_slug(self):
+        """Generate a URL-friendly slug from the app name."""
+        from django.utils.text import slugify
+        base_slug = slugify(self.name)
+        if not base_slug:
+            base_slug = 'app'
+        
+        # Check for uniqueness within organization
+        slug = base_slug
+        counter = 1
+        while InternalApp.objects.filter(
+            organization=self.organization,
+            slug=slug
+        ).exclude(pk=self.pk).exists():
+            slug = f"{base_slug}-{counter}"
+            counter += 1
+        
+        return slug
+    
+    def save(self, *args, **kwargs):
+        # Auto-generate slug if not set
+        if not self.slug:
+            self.slug = self.generate_slug()
+        super().save(*args, **kwargs)
 
 
 class ResourceRegistryEntry(BaseModel):

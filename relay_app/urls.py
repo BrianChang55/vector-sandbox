@@ -73,6 +73,9 @@ urlpatterns = [
     path('orgs/<uuid:pk>/switch/', organization_views.OrganizationViewSet.as_view({'post': 'switch'}), name='org-switch'),
     path('apps/<uuid:pk>/publish/', publish_views.publish_app, name='app-publish'),
     
+    # Published app endpoint (fetch by org/app slug)
+    path('published/<slug:org_slug>/<slug:app_slug>/', publish_views.get_published_app, name='published-app'),
+    
     # Action allowlist
     path('actions/allowlist/', action_views.ActionAllowlistView.as_view(), name='action-allowlist'),
     path('actions/<str:action_id>/', action_views.ActionAllowlistView.as_view(), name='action-delete'),
