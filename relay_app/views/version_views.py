@@ -1,5 +1,12 @@
 """
 App Version API views
+
+Provides endpoints for managing app versions including:
+- Listing versions with snapshots
+- Creating versions from AI/code edits
+- Enhanced rollback with preview and schema revert
+- Version diff comparison
+- Audit trail access
 """
 import logging
 from rest_framework import viewsets, status
@@ -9,7 +16,7 @@ from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
 from django.db import transaction
 
-from ..models import InternalApp, AppVersion, VersionFile, Organization
+from ..models import InternalApp, AppVersion, VersionFile, Organization, VersionAuditLog
 from ..serializers import (
     AppVersionSerializer,
     AppVersionListSerializer,
@@ -20,6 +27,9 @@ from ..serializers import (
 from ..services.validation import AppSpecValidationService
 from ..services.codegen import CodegenService
 from ..services.ai_service import AIService
+from ..services.version_service import VersionService
+from ..services.snapshot_service import SnapshotService
+from ..services.schema_migration_service import SchemaMigrationService
 
 logger = logging.getLogger(__name__)
 
@@ -73,9 +83,10 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
         
         intent_message = serializer.validated_data.get('intent_message', '')
         
-        # Get current spec (from latest version if exists)
-        latest_version = AppVersion.objects.filter(internal_app=app).order_by('-version_number').first()
-        current_spec = latest_version.spec_json if latest_version else None
+        # Get current spec from latest STABLE version (complete generation)
+        # This ensures we don't build on top of incomplete/cancelled versions
+        latest_stable_version = VersionService.get_latest_stable_version(app)
+        current_spec = latest_stable_version.spec_json if latest_stable_version else None
         
         # Build registry surface for AI
         from ..models import ResourceRegistryEntry
@@ -114,16 +125,15 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Get next version number
-        latest_version = AppVersion.objects.filter(internal_app=app).order_by('-version_number').first()
-        next_version_number = (latest_version.version_number + 1) if latest_version else 1
+        # Get next version number using version service
+        next_version_number = VersionService.get_next_version_number(app)
         
         with transaction.atomic():
-            # Create version
+            # Create version - parent is the stable version we based the spec on
             version = AppVersion.objects.create(
                 internal_app=app,
                 version_number=next_version_number,
-                parent_version=latest_version,
+                parent_version=latest_stable_version,
                 source=AppVersion.SOURCE_AI_EDIT,
                 intent_message=intent_message,
                 spec_json=spec_json,
@@ -150,11 +160,12 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        # Get latest version to base edit on
-        latest_version = AppVersion.objects.filter(internal_app=app).order_by('-version_number').first()
-        if not latest_version:
+        # Get latest STABLE version to base edit on
+        # Code edits should only be made on complete versions
+        latest_stable = VersionService.get_latest_stable_version(app)
+        if not latest_stable:
             return Response(
-                {'error': 'No base version found. Create a version with AI edit first.'},
+                {'error': 'No stable version found. Create a complete version with AI edit first.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
@@ -166,22 +177,22 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Get next version number
-        next_version_number = latest_version.version_number + 1
+        # Get next version number using version service
+        next_version_number = VersionService.get_next_version_number(app)
         
         with transaction.atomic():
             # Create new version with same spec (code edits don't change spec)
             version = AppVersion.objects.create(
                 internal_app=app,
                 version_number=next_version_number,
-                parent_version=latest_version,
+                parent_version=latest_stable,
                 source=AppVersion.SOURCE_CODE_EDIT,
-                spec_json=latest_version.spec_json,
+                spec_json=latest_stable.spec_json,
                 created_by=request.user,
             )
             
             # Copy all files from parent, then update the edited file
-            for parent_file in latest_version.files.all():
+            for parent_file in latest_stable.files.all():
                 VersionFile.objects.create(
                     app_version=version,
                     path=parent_file.path,
@@ -250,7 +261,15 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
     
     @action(detail=True, methods=['post'])
     def rollback(self, request, pk=None):
-        """Rollback to a previous version."""
+        """
+        Enhanced rollback to a previous version.
+        
+        Supports:
+        - dry_run=True for preview mode (shows what would change)
+        - include_schema=True to revert schema changes
+        - Full audit logging
+        - Append-only version history (rollback creates new version)
+        """
         version = self.get_object()
         app = version.internal_app
         
@@ -261,32 +280,233 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        # Get latest version number
-        latest_version = AppVersion.objects.filter(internal_app=app).order_by('-version_number').first()
-        next_version_number = latest_version.version_number + 1 if latest_version else 1
+        # Get options from request
+        dry_run = request.data.get('dry_run', False)
+        include_schema = request.data.get('include_schema', True)
         
-        with transaction.atomic():
-            # Create new version as rollback (use publish as generic source for now)
-            rollback_version = AppVersion.objects.create(
+        # Get current stable version for comparison
+        current_version = VersionService.get_latest_stable_version(app)
+        
+        # If dry_run, return preview of what would change
+        if dry_run:
+            if current_version:
+                preview = SnapshotService.preview_revert(current_version, version)
+                
+                # Add schema compatibility info if reverting schema
+                if include_schema:
+                    try:
+                        current_snapshot = SnapshotService.ensure_snapshot_exists(current_version)
+                        target_snapshot = SnapshotService.ensure_snapshot_exists(version)
+                        
+                        schema_compatibility = SchemaMigrationService.check_table_compatibility(
+                            current_snapshot.tables_json,
+                            target_snapshot.tables_json
+                        )
+                        preview['schema_compatibility'] = schema_compatibility
+                        
+                        # Add migration hints
+                        if schema_compatibility['risk_level'] != 'safe':
+                            hints = []
+                            for table in schema_compatibility['tables']:
+                                if table.get('compatibility'):
+                                    from_schema = table['compatibility'].get('from_schema', {})
+                                    to_schema = table['compatibility'].get('to_schema', {})
+                                    table_hints = SchemaMigrationService.generate_migration_hints(
+                                        from_schema, to_schema
+                                    )
+                                    hints.extend(table_hints)
+                            preview['migration_hints'] = hints
+                    except Exception as e:
+                        logger.warning(f"Failed to get schema compatibility: {e}")
+                        preview['schema_compatibility'] = None
+            else:
+                preview = {
+                    'diff': None,
+                    'warnings': [],
+                    'can_revert': True,
+                    'target_version': {
+                        'id': str(version.id),
+                        'version_number': version.version_number,
+                        'source': version.source,
+                        'created_at': version.created_at.isoformat(),
+                        'intent_message': version.intent_message,
+                    },
+                }
+            
+            # Log preview access for audit
+            VersionAuditLog.log_operation(
                 internal_app=app,
-                version_number=next_version_number,
-                parent_version=version,
-                source=AppVersion.SOURCE_ROLLBACK,
-                spec_json=version.spec_json,
-                created_by=request.user,
+                app_version=version,
+                operation=VersionAuditLog.OPERATION_PREVIEW,
+                user=request.user,
+                details={'action': 'rollback_preview', 'include_schema': include_schema},
+                ip_address=self._get_client_ip(request),
+                user_agent=request.META.get('HTTP_USER_AGENT'),
             )
             
-            # Copy all files from rollback target
-            for source_file in version.files.all():
-                VersionFile.objects.create(
-                    app_version=rollback_version,
-                    path=source_file.path,
-                    content=source_file.content,
-                    content_hash=source_file.content_hash or VersionFile.compute_hash(source_file.content),
-                )
+            return Response(preview)
         
-        return Response(
-            AppVersionSerializer(rollback_version).data,
-            status=status.HTTP_201_CREATED
-        )
+        # Execute the rollback
+        try:
+            rollback_version = SnapshotService.execute_rollback(
+                target_version=version,
+                user=request.user,
+                include_schema=include_schema,
+                ip_address=self._get_client_ip(request),
+                user_agent=request.META.get('HTTP_USER_AGENT'),
+            )
+            
+            return Response(
+                AppVersionSerializer(rollback_version).data,
+                status=status.HTTP_201_CREATED
+            )
+        except Exception as e:
+            logger.error(f"Rollback failed: {e}")
+            
+            # Log failed operation
+            VersionAuditLog.log_operation(
+                internal_app=app,
+                app_version=version,
+                operation=VersionAuditLog.OPERATION_ROLLBACK,
+                user=request.user,
+                details={'action': 'rollback_failed', 'include_schema': include_schema},
+                ip_address=self._get_client_ip(request),
+                user_agent=request.META.get('HTTP_USER_AGENT'),
+                success=False,
+                error_message=str(e),
+            )
+            
+            return Response(
+                {'error': f'Rollback failed: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=True, methods=['get'])
+    def snapshot(self, request, pk=None):
+        """
+        Get the state snapshot for a version.
+        
+        Returns the complete state captured at this version including
+        tables, resources, and file counts.
+        """
+        version = self.get_object()
+        app = version.internal_app
+        
+        # Verify access
+        if not request.user.user_organizations.filter(organization=app.organization).exists():
+            return Response(
+                {'error': 'Access denied'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Ensure snapshot exists (create if needed for backfill)
+        snapshot = SnapshotService.ensure_snapshot_exists(version)
+        
+        return Response({
+            'version_id': str(version.id),
+            'version_number': version.version_number,
+            'tables': snapshot.tables_json,
+            'resources': snapshot.resources_json,
+            'total_tables': snapshot.total_tables,
+            'total_rows': snapshot.total_rows,
+            'file_count': snapshot.file_count,
+            'created_at': snapshot.created_at.isoformat(),
+        })
+    
+    @action(detail=True, methods=['get'], url_path='diff/(?P<target_id>[^/.]+)')
+    def diff(self, request, pk=None, target_id=None):
+        """
+        Compare this version with another version.
+        
+        Returns detailed diff including files, tables, and resources.
+        """
+        from_version = self.get_object()
+        app = from_version.internal_app
+        
+        # Verify access
+        if not request.user.user_organizations.filter(organization=app.organization).exists():
+            return Response(
+                {'error': 'Access denied'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Get target version
+        try:
+            to_version = AppVersion.objects.get(pk=target_id, internal_app=app)
+        except AppVersion.DoesNotExist:
+            return Response(
+                {'error': 'Target version not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get the diff
+        diff = SnapshotService.get_snapshot_diff(from_version, to_version)
+        
+        return Response(diff)
+    
+    @action(detail=False, methods=['get'], url_path='audit-trail')
+    def audit_trail(self, request, internal_app_pk=None):
+        """
+        Get the audit trail for this app's versions.
+        
+        Returns history of all version operations for compliance.
+        """
+        app = get_object_or_404(InternalApp, pk=internal_app_pk)
+        
+        # Verify access
+        if not request.user.user_organizations.filter(organization=app.organization).exists():
+            return Response(
+                {'error': 'Access denied'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Get limit from query params
+        limit = min(int(request.query_params.get('limit', 50)), 200)
+        
+        audit_trail = SnapshotService.get_audit_trail(app, limit)
+        
+        return Response({
+            'app_id': str(app.id),
+            'app_name': app.name,
+            'entries': audit_trail,
+            'count': len(audit_trail),
+        })
+    
+    @action(detail=False, methods=['get'], url_path='history')
+    def history(self, request, internal_app_pk=None):
+        """
+        Get version history with optional snapshot data.
+        
+        Query params:
+        - include_snapshots: Include full snapshot data (default: false)
+        - limit: Max versions to return (default: 50, max: 100)
+        """
+        app = get_object_or_404(InternalApp, pk=internal_app_pk)
+        
+        # Verify access
+        if not request.user.user_organizations.filter(organization=app.organization).exists():
+            return Response(
+                {'error': 'Access denied'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Get options
+        include_snapshots = request.query_params.get('include_snapshots', 'false').lower() == 'true'
+        limit = min(int(request.query_params.get('limit', 50)), 100)
+        
+        history = SnapshotService.get_version_history(app, limit, include_snapshots)
+        
+        return Response({
+            'app_id': str(app.id),
+            'app_name': app.name,
+            'versions': history,
+            'count': len(history),
+        })
+    
+    def _get_client_ip(self, request) -> str:
+        """Extract client IP from request."""
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            return x_forwarded_for.split(',')[0].strip()
+        return request.META.get('REMOTE_ADDR')
 

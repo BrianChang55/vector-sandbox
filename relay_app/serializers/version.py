@@ -1,8 +1,10 @@
 """
 Version serializers
+
+Provides serializers for app versions, version files, snapshots, and audit logs.
 """
 from rest_framework import serializers
-from ..models import AppVersion, VersionFile
+from ..models import AppVersion, VersionFile, VersionStateSnapshot, VersionAuditLog
 
 
 class VersionFileSerializer(serializers.ModelSerializer):
@@ -95,4 +97,205 @@ class CodeEditSerializer(serializers.Serializer):
     """Serializer for code edits."""
     file_path = serializers.CharField(max_length=500)
     content = serializers.CharField()
+
+
+# ============================================================================
+# Snapshot Serializers
+# ============================================================================
+
+class VersionStateSnapshotSerializer(serializers.ModelSerializer):
+    """
+    Serializer for VersionStateSnapshot model.
+    
+    Provides complete snapshot data including tables and resources.
+    """
+    version_number = serializers.IntegerField(source='app_version.version_number', read_only=True)
+    version_source = serializers.CharField(source='app_version.source', read_only=True)
+    
+    class Meta:
+        model = VersionStateSnapshot
+        fields = [
+            'id',
+            'app_version',
+            'version_number',
+            'version_source',
+            'tables_json',
+            'resources_json',
+            'total_tables',
+            'total_rows',
+            'file_count',
+            'created_at',
+        ]
+        read_only_fields = fields
+
+
+class VersionStateSnapshotSummarySerializer(serializers.ModelSerializer):
+    """
+    Lightweight serializer for snapshot summaries (without full table data).
+    
+    Used for listing versions with snapshot metadata.
+    """
+    class Meta:
+        model = VersionStateSnapshot
+        fields = [
+            'id',
+            'total_tables',
+            'total_rows',
+            'file_count',
+            'created_at',
+        ]
+        read_only_fields = fields
+
+
+class AppVersionWithSnapshotSerializer(serializers.ModelSerializer):
+    """
+    Version serializer that includes snapshot summary.
+    
+    Useful for version history views where snapshot metadata is needed.
+    """
+    source_display = serializers.CharField(source='get_source_display', read_only=True)
+    created_by_email = serializers.EmailField(source='created_by.email', read_only=True)
+    snapshot = VersionStateSnapshotSummarySerializer(source='state_snapshot', read_only=True)
+    
+    class Meta:
+        model = AppVersion
+        fields = [
+            'id',
+            'internal_app',
+            'version_number',
+            'parent_version',
+            'source',
+            'source_display',
+            'intent_message',
+            'generation_status',
+            'created_by',
+            'created_by_email',
+            'created_at',
+            'snapshot',
+        ]
+        read_only_fields = fields
+
+
+# ============================================================================
+# Audit Log Serializers
+# ============================================================================
+
+class VersionAuditLogSerializer(serializers.ModelSerializer):
+    """
+    Serializer for VersionAuditLog model.
+    
+    Provides complete audit trail data for compliance.
+    """
+    version_number = serializers.IntegerField(source='app_version.version_number', read_only=True)
+    source_version_number = serializers.SerializerMethodField()
+    user_email = serializers.EmailField(source='user.email', read_only=True)
+    operation_display = serializers.CharField(source='get_operation_display', read_only=True)
+    
+    class Meta:
+        model = VersionAuditLog
+        fields = [
+            'id',
+            'internal_app',
+            'app_version',
+            'version_number',
+            'source_version',
+            'source_version_number',
+            'operation',
+            'operation_display',
+            'user',
+            'user_email',
+            'details_json',
+            'schema_changes_json',
+            'ip_address',
+            'success',
+            'error_message',
+            'created_at',
+        ]
+        read_only_fields = fields
+    
+    def get_source_version_number(self, obj):
+        """Get the source version number if available."""
+        if obj.source_version:
+            return obj.source_version.version_number
+        return None
+
+
+class VersionAuditLogSummarySerializer(serializers.ModelSerializer):
+    """
+    Lightweight serializer for audit log summaries.
+    
+    Used for listing audit entries without full detail data.
+    """
+    version_number = serializers.IntegerField(source='app_version.version_number', read_only=True)
+    user_email = serializers.EmailField(source='user.email', read_only=True)
+    operation_display = serializers.CharField(source='get_operation_display', read_only=True)
+    
+    class Meta:
+        model = VersionAuditLog
+        fields = [
+            'id',
+            'version_number',
+            'operation',
+            'operation_display',
+            'user_email',
+            'success',
+            'created_at',
+        ]
+        read_only_fields = fields
+
+
+# ============================================================================
+# Diff and Comparison Serializers
+# ============================================================================
+
+class TableDiffSerializer(serializers.Serializer):
+    """Serializer for table diff data."""
+    added = serializers.ListField(child=serializers.DictField(), required=False)
+    removed = serializers.ListField(child=serializers.DictField(), required=False)
+    modified = serializers.ListField(child=serializers.DictField(), required=False)
+
+
+class FileDiffSerializer(serializers.Serializer):
+    """Serializer for file diff data."""
+    added = serializers.ListField(child=serializers.CharField(), required=False)
+    removed = serializers.ListField(child=serializers.CharField(), required=False)
+    modified = serializers.ListField(child=serializers.CharField(), required=False)
+    from_count = serializers.IntegerField()
+    to_count = serializers.IntegerField()
+
+
+class VersionDiffSerializer(serializers.Serializer):
+    """
+    Serializer for version diff comparison results.
+    
+    Used for rollback preview and version comparison views.
+    """
+    tables = TableDiffSerializer()
+    resources = TableDiffSerializer()
+    files = FileDiffSerializer()
+    versions = serializers.DictField()
+
+
+class RollbackPreviewSerializer(serializers.Serializer):
+    """
+    Serializer for rollback preview response.
+    
+    Includes diff, warnings, and compatibility information.
+    """
+    diff = VersionDiffSerializer(allow_null=True)
+    warnings = serializers.ListField(child=serializers.DictField())
+    can_revert = serializers.BooleanField()
+    target_version = serializers.DictField()
+    schema_compatibility = serializers.DictField(allow_null=True, required=False)
+    migration_hints = serializers.ListField(child=serializers.DictField(), required=False)
+
+
+class RollbackRequestSerializer(serializers.Serializer):
+    """
+    Serializer for rollback request payload.
+    
+    Validates rollback options.
+    """
+    dry_run = serializers.BooleanField(default=False, required=False)
+    include_schema = serializers.BooleanField(default=True, required=False)
 

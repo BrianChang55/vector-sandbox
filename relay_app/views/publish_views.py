@@ -10,6 +10,7 @@ from django.shortcuts import get_object_or_404
 from django.db import transaction
 
 from ..models import InternalApp, AppVersion, ResourceRegistryEntry
+from ..services.version_service import VersionService
 
 logger = logging.getLogger(__name__)
 
@@ -27,17 +28,11 @@ def publish_app(request, pk=None):
             status=status.HTTP_403_FORBIDDEN
         )
     
-    # Get latest version
-    latest_version = AppVersion.objects.filter(internal_app=app).order_by('-version_number').first()
-    if not latest_version:
+    # Get latest STABLE version (complete generation) to publish
+    latest_stable = VersionService.get_latest_stable_version(app)
+    if not latest_stable:
         return Response(
-            {'error': 'No version to publish. Create a version first.'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-    
-    if latest_version.generation_status != AppVersion.GEN_STATUS_COMPLETE:
-        return Response(
-            {'error': 'Latest version is still generating. Please wait until it completes.'},
+            {'error': 'No stable version to publish. Create a complete version first.'},
             status=status.HTTP_400_BAD_REQUEST
         )
     
@@ -56,25 +51,25 @@ def publish_app(request, pk=None):
             'allowed_actions': entry.allowed_actions_json,
         })
     
-    # Get next version number
-    next_version_number = latest_version.version_number + 1
+    # Get next version number using version service
+    next_version_number = VersionService.get_next_version_number(app)
     
     with transaction.atomic():
-        # Create publish version
+        # Create publish version from the stable version
         publish_version = AppVersion.objects.create(
             internal_app=app,
             version_number=next_version_number,
-            parent_version=latest_version,
+            parent_version=latest_stable,
             source=AppVersion.SOURCE_PUBLISH,
-            intent_message=latest_version.intent_message,
-            spec_json=latest_version.spec_json,
+            intent_message=latest_stable.intent_message,
+            spec_json=latest_stable.spec_json,
             scope_snapshot_json=scope_snapshot,
             created_by=request.user,
         )
         
-        # Copy all files from latest version
+        # Copy all files from stable version
         from ..models import VersionFile
-        for source_file in latest_version.files.all():
+        for source_file in latest_stable.files.all():
             VersionFile.objects.create(
                 app_version=publish_version,
                 path=source_file.path,

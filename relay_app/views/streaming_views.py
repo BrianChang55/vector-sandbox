@@ -20,7 +20,7 @@ from rest_framework import status as http_status
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.request import Request
 
-from ..models import InternalApp, AppVersion, VersionFile
+from ..models import InternalApp, AppVersion, VersionFile, VersionAuditLog
 from ..models import ChatSession, ChatMessage, CodeGenerationJob
 from ..services.openrouter_service import (
     get_openrouter_service,
@@ -30,6 +30,8 @@ from ..services.openrouter_service import (
 from ..services.validation import AppSpecValidationService
 from ..services.codegen import CodegenService
 from ..services.agentic_service import get_agentic_service
+from ..services.version_service import VersionService
+from ..services.snapshot_service import SnapshotService
 
 logger = logging.getLogger(__name__)
 
@@ -343,13 +345,12 @@ class StreamingGenerateView(View):
         })
         
         # Get current spec and registry surface
+        # Use the latest STABLE version (complete generation) as the base
         current_spec = None
-        latest_version = AppVersion.objects.filter(
-            internal_app=app
-        ).order_by('-version_number').first()
+        latest_stable_version = VersionService.get_latest_stable_version(app)
         
-        if latest_version:
-            current_spec = latest_version.spec_json
+        if latest_stable_version:
+            current_spec = latest_stable_version.spec_json
         
         # Build registry surface
         from ..models import ResourceRegistryEntry
@@ -461,10 +462,8 @@ class StreamingGenerateView(View):
                             )
                             
                             if is_valid:
-                                # Create new version
-                                next_version_number = (
-                                    latest_version.version_number + 1 if latest_version else 1
-                                )
+                                # Create new version using version service for correct numbering
+                                next_version_number = VersionService.get_next_version_number(app)
                                 
                                 version = AppVersion.objects.create(
                                     internal_app=app,
@@ -476,6 +475,12 @@ class StreamingGenerateView(View):
                                 
                                 # Generate files
                                 CodegenService.generate_files_from_spec(version)
+                                
+                                # Create snapshot for revert capability
+                                try:
+                                    SnapshotService.create_version_snapshot(version)
+                                except Exception as snapshot_error:
+                                    logger.warning(f"Failed to create snapshot: {snapshot_error}")
                                 
                                 # Link to message
                                 assistant_message.version_created = version
@@ -659,6 +664,12 @@ class NonStreamingGenerateView(APIView):
                 
                 CodegenService.generate_files_from_spec(version)
                 
+                # Create snapshot for revert capability
+                try:
+                    SnapshotService.create_version_snapshot(version)
+                except Exception as snapshot_error:
+                    logger.warning(f"Failed to create snapshot: {snapshot_error}")
+                
                 assistant_message.version_created = version
                 assistant_message.save()
             
@@ -836,13 +847,13 @@ class AgenticGenerateView(View):
         )
         
         # Get current spec and registry surface
+        # Use the latest STABLE version (complete generation) as the base
+        # This ensures we don't build on top of incomplete/cancelled versions
         current_spec = None
-        latest_version = AppVersion.objects.filter(
-            internal_app=app
-        ).order_by('-version_number').first()
+        latest_stable_version = VersionService.get_latest_stable_version(app)
         
-        if latest_version:
-            current_spec = latest_version.spec_json
+        if latest_stable_version:
+            current_spec = latest_stable_version.spec_json
         
         # Build registry surface
         from ..models import ResourceRegistryEntry
@@ -877,9 +888,8 @@ class AgenticGenerateView(View):
         
         try:
             # Create draft version at the start with 'generating' status
-            next_version_number = (
-                latest_version.version_number + 1 if latest_version else 1
-            )
+            # Use version service to get next version number (includes all versions)
+            next_version_number = VersionService.get_next_version_number(app)
             
             # Carry forward the latest known spec so preview has pages/resources
             draft_spec = current_spec or {"generated": True, "agentic": True}
@@ -970,6 +980,27 @@ class AgenticGenerateView(View):
             }
             assistant_message.save()
             
+            # Create version snapshot for revert capability
+            try:
+                snapshot = SnapshotService.create_version_snapshot(version)
+                logger.info(f"Created snapshot for version {version.id}: {snapshot.total_tables} tables")
+                
+                # Log version creation for audit trail
+                VersionAuditLog.log_operation(
+                    internal_app=app,
+                    app_version=version,
+                    operation=VersionAuditLog.OPERATION_CREATE,
+                    user=user if user.is_authenticated else None,
+                    details={
+                        'source': 'agentic_generation',
+                        'files_generated': len(final_files_payload),
+                        'tables_snapshot': snapshot.total_tables,
+                        'duration_ms': duration_ms,
+                    },
+                )
+            except Exception as snapshot_error:
+                logger.warning(f"Failed to create snapshot for version {version.id}: {snapshot_error}")
+            
             # Get final file list
             yield sse_event("preview_ready", {
                 "version_id": str(version.id),
@@ -979,6 +1010,12 @@ class AgenticGenerateView(View):
             })
             
             yield sse_event("version_created", {
+                "version_id": str(version.id),
+                "version_number": version.version_number,
+            })
+            
+            # Emit snapshot_created event for frontend awareness
+            yield sse_event("snapshot_created", {
                 "version_id": str(version.id),
                 "version_number": version.version_number,
             })
@@ -1072,6 +1109,7 @@ class LatestGenerationView(APIView):
     GET /api/v1/apps/:app_id/latest-generation
     
     Returns the most recent version and its generation state.
+    Also includes the latest stable version info for fallback when generation is incomplete.
     """
     permission_classes = [IsAuthenticated]
     
@@ -1094,10 +1132,15 @@ class LatestGenerationView(APIView):
                 internal_app=app
             ).prefetch_related('files').order_by('-created_at').first()
             
+            # Also get the latest stable version for fallback
+            latest_stable = VersionService.get_latest_stable_version(app)
+            
             if not version:
                 return Response({
                     "has_generation": False,
-                    "message": "No versions found for this app"
+                    "message": "No versions found for this app",
+                    "latest_stable_version_id": None,
+                    "latest_stable_version_number": None,
                 })
             
             # Get files
@@ -1110,6 +1153,19 @@ class LatestGenerationView(APIView):
                 }
                 for f in version.files.all()
             ]
+            
+            # Get stable version files if different
+            stable_files = None
+            if latest_stable and latest_stable.id != version.id:
+                stable_files = [
+                    {
+                        "path": f.path,
+                        "content": f.content,
+                        "action": "create",
+                        "language": f.path.split('.')[-1] if '.' in f.path else "txt"
+                    }
+                    for f in latest_stable.files.all()
+                ]
             
             return Response({
                 "has_generation": True,
@@ -1124,6 +1180,10 @@ class LatestGenerationView(APIView):
                 "is_complete": version.generation_status == AppVersion.GEN_STATUS_COMPLETE,
                 "is_generating": version.generation_status == AppVersion.GEN_STATUS_GENERATING,
                 "created_at": version.created_at.isoformat(),
+                # Stable version info for fallback
+                "latest_stable_version_id": str(latest_stable.id) if latest_stable else None,
+                "latest_stable_version_number": latest_stable.version_number if latest_stable else None,
+                "latest_stable_files": stable_files,
             })
             
         except InternalApp.DoesNotExist:
@@ -1192,6 +1252,12 @@ class ApplyGeneratedCodeView(APIView):
             
             CodegenService.generate_files_from_spec(version)
             
+            # Create snapshot for revert capability
+            try:
+                SnapshotService.create_version_snapshot(version)
+            except Exception as snapshot_error:
+                logger.warning(f"Failed to create snapshot: {snapshot_error}")
+            
             message.version_created = version
             message.save()
             
@@ -1208,6 +1274,70 @@ class ApplyGeneratedCodeView(APIView):
             )
         except Exception as e:
             logger.error(f"Apply error: {e}")
+            return Response(
+                {"error": str(e)},
+                status=http_status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class CancelGenerationView(APIView):
+    """
+    Cancel an in-progress code generation.
+    
+    POST /api/v1/versions/:version_id/cancel
+    
+    This endpoint is called when the user aborts a generation request.
+    It cleans up the generating version:
+    - If no files were generated, the version is deleted
+    - If partial files exist, the version is marked as 'error' 
+    
+    The frontend can then show the latest stable version instead.
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request, version_id):
+        """Cancel a generating version."""
+        try:
+            version = AppVersion.objects.select_related(
+                'internal_app__organization'
+            ).get(pk=version_id)
+            
+            # Verify access
+            if not request.user.user_organizations.filter(
+                organization=version.internal_app.organization
+            ).exists():
+                return Response(
+                    {"error": "Access denied"},
+                    status=http_status.HTTP_403_FORBIDDEN
+                )
+            
+            # Cancel the generation
+            result = VersionService.cancel_generating_version(version_id, request.user)
+            
+            if result['success']:
+                # Get the latest stable version to return
+                latest_stable = VersionService.get_latest_stable_version(version.internal_app)
+                
+                return Response({
+                    "success": True,
+                    "action": result['action'],
+                    "cancelled_version_id": version_id,
+                    "latest_stable_version_id": str(latest_stable.id) if latest_stable else None,
+                    "latest_stable_version_number": latest_stable.version_number if latest_stable else None,
+                })
+            else:
+                return Response(
+                    {"error": result.get('error', 'Cancel failed')},
+                    status=http_status.HTTP_400_BAD_REQUEST
+                )
+            
+        except AppVersion.DoesNotExist:
+            return Response(
+                {"error": "Version not found"},
+                status=http_status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Cancel error: {e}")
             return Response(
                 {"error": str(e)},
                 status=http_status.HTTP_500_INTERNAL_SERVER_ERROR

@@ -10,6 +10,7 @@ from django.views import View
 from django.shortcuts import get_object_or_404
 
 from ..models import InternalApp, AppVersion, VersionFile
+from ..services.version_service import VersionService
 
 logger = logging.getLogger(__name__)
 
@@ -31,10 +32,8 @@ class AppPreviewView(View):
             if version_id:
                 version = AppVersion.objects.get(pk=version_id, internal_app=app)
             else:
-                # Get latest version
-                version = AppVersion.objects.filter(
-                    internal_app=app
-                ).order_by('-version_number').first()
+                # Get latest STABLE version (complete generation) for preview
+                version = VersionService.get_latest_stable_version(app)
                 
                 if not version:
                     response = HttpResponse(
@@ -43,10 +42,14 @@ class AppPreviewView(View):
                     )
                     return self._allow_iframe(response)
 
-            # Fallback: if the selected version has no pages, use the latest version that does
+            # Fallback: if the selected version has no pages, use the latest stable version that does
             if not self._has_pages(version):
                 fallback_version = None
-                for candidate in AppVersion.objects.filter(internal_app=app).order_by('-version_number'):
+                # Only look at stable versions for fallback
+                for candidate in AppVersion.objects.filter(
+                    internal_app=app,
+                    generation_status=AppVersion.GEN_STATUS_COMPLETE
+                ).order_by('-version_number'):
                     if self._has_pages(candidate):
                         fallback_version = candidate
                         break

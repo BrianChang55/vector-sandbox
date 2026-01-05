@@ -115,7 +115,8 @@ class PublishFlowTests(TestCase):
 
         response = self.client.post(f'/api/v1/apps/{app.id}/publish/')
         self.assertEqual(response.status_code, 400)
-        self.assertIn(b'Latest version is still generating', response.content)
+        # With the fix, publishing requires a stable (complete) version
+        self.assertIn(b'No stable version to publish', response.content)
 
         app.refresh_from_db()
         self.assertEqual(app.status, InternalApp.STATUS_DRAFT)
@@ -131,5 +132,6 @@ class PublishFlowTests(TestCase):
 
         response = self.client.post(f'/api/v1/apps/{app.id}/publish/')
         self.assertEqual(response.status_code, 400)
-        self.assertIn(b'No version to publish', response.content)
+        # With the fix, publishing requires a stable (complete) version
+        self.assertIn(b'No stable version to publish', response.content)
 
