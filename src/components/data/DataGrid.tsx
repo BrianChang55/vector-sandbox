@@ -18,8 +18,6 @@ import {
   Loader2,
   MoreHorizontal,
   PencilLine,
-  Copy,
-  Settings2,
   Filter,
   X,
 } from 'lucide-react'
@@ -37,8 +35,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { RowFormDialog } from './RowFormDialog'
-import { SchemaViewer } from './SchemaViewer'
+import { RowFormDrawer } from './RowFormDrawer'
 import { ImportExportMenu } from './ImportExportMenu'
 import { cn } from '@/lib/utils'
 import type { DataTable, QuerySpec, QueryResultRow, ColumnDef, FilterDef, FilterOperator } from '@/types/dataStore'
@@ -57,7 +54,6 @@ export function DataGrid({ appId, table }: DataGridProps) {
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set())
   const [rowFormOpen, setRowFormOpen] = useState(false)
   const [editingRow, setEditingRow] = useState<QueryResultRow | null>(null)
-  const [schemaViewerOpen, setSchemaViewerOpen] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
   const [filters, setFilters] = useState<FilterDef[]>([])
   
@@ -216,13 +212,6 @@ export function DataGrid({ appId, table }: DataGridProps) {
           <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
             {totalCount} rows
           </span>
-          <button
-            onClick={() => setSchemaViewerOpen(true)}
-            className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
-            title="View schema"
-          >
-            <Settings2 className="h-4 w-4" />
-          </button>
         </div>
 
         <div className="flex items-center gap-2">
@@ -455,7 +444,7 @@ export function DataGrid({ appId, table }: DataGridProps) {
                     type="checkbox"
                     checked={selectedRows.size === rows.length && rows.length > 0}
                     onChange={handleSelectAll}
-                    className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                    className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-0 focus:ring-offset-0"
                   />
                 </th>
                 {columns.map((col) => (
@@ -488,17 +477,21 @@ export function DataGrid({ appId, table }: DataGridProps) {
               {rows.map((row) => (
                 <tr
                   key={row.id}
+                  onClick={() => {
+                    setEditingRow(row)
+                    setRowFormOpen(true)
+                  }}
                   className={cn(
-                    'hover:bg-gray-50 transition-colors',
+                    'hover:bg-gray-50 transition-colors cursor-pointer',
                     selectedRows.has(row.id) && 'bg-blue-50 hover:bg-blue-50'
                   )}
                 >
-                  <td className="px-3 py-2">
+                  <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                     <input
                       type="checkbox"
                       checked={selectedRows.has(row.id)}
                       onChange={() => handleSelectRow(row.id)}
-                      className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
+                      className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-0 focus:ring-offset-0"
                     />
                   </td>
                   {columns.map((col) => (
@@ -531,7 +524,7 @@ export function DataGrid({ appId, table }: DataGridProps) {
                       )}
                     </td>
                   ))}
-                  <td className="px-3 py-2">
+                  <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <button className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
@@ -548,15 +541,6 @@ export function DataGrid({ appId, table }: DataGridProps) {
                         >
                           <PencilLine className="h-4 w-4 text-gray-500" />
                           Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          className="gap-2"
-                          onSelect={() => {
-                            navigator.clipboard.writeText(row.id)
-                          }}
-                        >
-                          <Copy className="h-4 w-4 text-gray-500" />
-                          Copy ID
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
@@ -607,8 +591,8 @@ export function DataGrid({ appId, table }: DataGridProps) {
         </div>
       )}
 
-      {/* Row Form Dialog */}
-      <RowFormDialog
+      {/* Row Form Drawer */}
+      <RowFormDrawer
         open={rowFormOpen}
         onOpenChange={setRowFormOpen}
         appId={appId}
@@ -618,14 +602,6 @@ export function DataGrid({ appId, table }: DataGridProps) {
           setRowFormOpen(false)
           setEditingRow(null)
         }}
-      />
-
-      {/* Schema Viewer Dialog */}
-      <SchemaViewer
-        open={schemaViewerOpen}
-        onOpenChange={setSchemaViewerOpen}
-        appId={appId}
-        table={table}
       />
     </div>
   )

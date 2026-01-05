@@ -63,6 +63,38 @@
     @apply bg-zinc-900/50 backdrop-blur-xl border border-zinc-800/50;
   }
 
+  /* Animation utilities for Radix dialogs/drawers */
+  [data-state="open"] {
+    animation-fill-mode: forwards;
+  }
+  
+  [data-state="closed"] {
+    animation-fill-mode: forwards;
+  }
+
+  /* Black accent for checkboxes and date inputs */
+  input[type="checkbox"] {
+    accent-color: #111827;
+  }
+  
+  input[type="date"],
+  input[type="datetime-local"] {
+    accent-color: #111827;
+    color-scheme: light;
+  }
+  
+  input[type="date"]::-webkit-calendar-picker-indicator,
+  input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+    filter: grayscale(1);
+    opacity: 0.6;
+    cursor: pointer;
+  }
+  
+  input[type="date"]::-webkit-calendar-picker-indicator:hover,
+  input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
+    opacity: 0.8;
+  }
+
   /* Hide scrollbars until the user is actively scrolling */
   .scrollbar-auto-hide {
     scrollbar-width: none;

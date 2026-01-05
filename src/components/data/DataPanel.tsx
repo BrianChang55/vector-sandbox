@@ -16,7 +16,7 @@ import { useTables } from '@/hooks/useDataStore'
 import { Button } from '@/components/ui/button'
 import { TableList } from './TableList'
 import { DataGrid } from './DataGrid'
-import { CreateTableDialog } from './CreateTableDialog'
+import { CreateTableDrawer } from './CreateTableDrawer'
 import type { DataTable } from '@/types/dataStore'
 
 interface DataPanelProps {
@@ -120,8 +120,8 @@ export function DataPanel({ appId, className = '' }: DataPanelProps) {
         )}
       </div>
 
-      {/* Create Table Dialog */}
-      <CreateTableDialog
+      {/* Create Table Drawer */}
+      <CreateTableDrawer
         open={createDialogOpen}
         onOpenChange={setCreateDialogOpen}
         appId={appId}

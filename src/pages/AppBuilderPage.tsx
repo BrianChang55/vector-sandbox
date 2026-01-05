@@ -168,43 +168,44 @@ export function AppBuilderPage() {
     <>
     <div className="flex flex-col h-screen bg-gray-50 overflow-hidden">
       {/* Top Bar */}
-      <header className="flex items-center justify-between px-4 py-2 border-b border-gray-200 bg-white">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate('/apps')}
-              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </button>
-            
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-md bg-gray-100 flex items-center justify-center">
-                <Layers className="h-4 w-4 text-gray-500" />
-              </div>
-              <div>
-                <h1 className="text-sm font-semibold text-gray-900">{app.name}</h1>
-                <div className="flex items-center gap-2">
-                  <span className={cn(
-                    'text-[10px] px-1.5 py-0.5 rounded-full font-medium',
-                    app.status === 'published' 
-                      ? 'bg-green-50 text-green-700 border border-green-200'
-                      : 'bg-gray-100 text-gray-600'
-                  )}>
-                    {app.status}
+      <header className="grid grid-cols-3 items-center px-4 py-2 border-b border-gray-200 bg-white">
+        {/* Left - Back button and app info */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate('/apps')}
+            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </button>
+          
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-md bg-gray-100 flex items-center justify-center">
+              <Layers className="h-4 w-4 text-gray-500" />
+            </div>
+            <div>
+              <h1 className="text-sm font-semibold text-gray-900">{app.name}</h1>
+              <div className="flex items-center gap-2">
+                <span className={cn(
+                  'text-[10px] px-1.5 py-0.5 rounded-full font-medium',
+                  app.status === 'published' 
+                    ? 'bg-green-50 text-green-700 border border-green-200'
+                    : 'bg-gray-100 text-gray-600'
+                )}>
+                  {app.status}
+                </span>
+                {selectedVersion && (
+                  <span className="text-[10px] text-gray-600">
+                    v{selectedVersion.version_number}
                   </span>
-                  {selectedVersion && (
-                    <span className="text-[10px] text-gray-600">
-                      v{selectedVersion.version_number}
-                    </span>
-                  )}
-                </div>
+                )}
               </div>
             </div>
           </div>
+        </div>
 
-          {/* Tab Navigation */}
-          <div className="flex items-center h-8 bg-gray-100 rounded-lg p-0.5 ml-2">
+        {/* Center - Tab Navigation */}
+        <div className="flex justify-center">
+          <div className="flex items-center h-8 bg-gray-100 rounded-lg p-0.5">
             <button
               onClick={() => setActiveTab('builder')}
               className={cn(
@@ -215,7 +216,7 @@ export function AppBuilderPage() {
               )}
             >
               <Code2 className="h-3.5 w-3.5" />
-              Builder
+              App
             </button>
             <button
               onClick={() => setActiveTab('data')}
@@ -232,7 +233,8 @@ export function AppBuilderPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* Right - Action buttons */}
+        <div className="flex items-center gap-2 justify-end">
           {/* Run/Preview button */}
           <Button
             variant="outline"

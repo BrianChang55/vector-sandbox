@@ -7,7 +7,6 @@ import { useState } from 'react'
 import {
   Table2,
   MoreVertical,
-  PencilLine,
   Trash2,
   Hash,
 } from 'lucide-react'
@@ -17,7 +16,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
@@ -112,11 +110,6 @@ export function TableList({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" sideOffset={4}>
-              <DropdownMenuItem className="gap-2">
-                <PencilLine className="h-4 w-4 text-gray-500" />
-                Edit Schema
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="gap-2 text-red-600 focus:bg-red-50"
                 onSelect={(e) => handleDelete(table, e)}

@@ -47,6 +47,50 @@ export default {
         'in-soft': 'var(--internal-apps-ease-in-soft)',
         'in-out-soft': 'var(--internal-apps-ease-in-out-soft)',
       },
+      keyframes: {
+        'fade-in': {
+          from: { opacity: '0' },
+          to: { opacity: '1' },
+        },
+        'fade-out': {
+          from: { opacity: '1' },
+          to: { opacity: '0' },
+        },
+        'slide-in-from-left': {
+          '0%': { transform: 'translateX(-100%)', opacity: '0.8' },
+          '100%': { transform: 'translateX(0)', opacity: '1' },
+        },
+        'slide-out-to-left': {
+          '0%': { transform: 'translateX(0)', opacity: '1' },
+          '100%': { transform: 'translateX(-100%)', opacity: '0.8' },
+        },
+        'slide-in-from-right': {
+          '0%': { transform: 'translateX(100%)', opacity: '0.8' },
+          '100%': { transform: 'translateX(0)', opacity: '1' },
+        },
+        'slide-out-to-right': {
+          '0%': { transform: 'translateX(0)', opacity: '1' },
+          '100%': { transform: 'translateX(100%)', opacity: '0.8' },
+        },
+        'zoom-in': {
+          from: { opacity: '0', transform: 'translate(-50%, -50%) scale(0.95)' },
+          to: { opacity: '1', transform: 'translate(-50%, -50%) scale(1)' },
+        },
+        'zoom-out': {
+          from: { opacity: '1', transform: 'translate(-50%, -50%) scale(1)' },
+          to: { opacity: '0', transform: 'translate(-50%, -50%) scale(0.95)' },
+        },
+      },
+      animation: {
+        'fade-in': 'fade-in 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+        'fade-out': 'fade-out 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+        'slide-in-from-left': 'slide-in-from-left 0.35s cubic-bezier(0.32, 0.72, 0, 1)',
+        'slide-out-to-left': 'slide-out-to-left 0.25s cubic-bezier(0.32, 0.72, 0, 1)',
+        'slide-in-from-right': 'slide-in-from-right 0.35s cubic-bezier(0.32, 0.72, 0, 1)',
+        'slide-out-to-right': 'slide-out-to-right 0.25s cubic-bezier(0.32, 0.72, 0, 1)',
+        'zoom-in': 'zoom-in 0.2s ease-out',
+        'zoom-out': 'zoom-out 0.15s ease-in',
+      },
     },
   },
   plugins: [],

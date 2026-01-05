@@ -46,3 +46,19 @@ export {
 // Dropdown Menu
 export * from './dropdown-menu'
 
+// Drawer
+export {
+  Drawer,
+  DrawerPortal,
+  DrawerOverlay,
+  DrawerTrigger,
+  DrawerClose,
+  DrawerContent,
+  DrawerHeader,
+  DrawerBody,
+  DrawerFooter,
+  DrawerTitle,
+  DrawerDescription,
+  type DrawerSide,
+} from './drawer'
+
