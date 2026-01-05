@@ -207,7 +207,7 @@ export function VersionsPanel({
                         {version.intent_message && (
                               <div className="mb-4 p-3 bg-gray-50 rounded border border-gray-100">
                                 <p className="text-xs text-gray-600 leading-relaxed">
-                              "{version.intent_message}"
+                              {version.intent_message}
                             </p>
                           </div>
                         )}
