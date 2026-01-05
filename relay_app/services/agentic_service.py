@@ -830,11 +830,22 @@ class AgenticService:
     
     def _parse_column_definition(self, line: str) -> Optional[Dict[str, Any]]:
         """Parse a column definition line."""
-        # Format: name: col_name, type: string, nullable: true, ...
+        # Format: name: col_name, type: string, nullable: true, enum_values: [a, b, c]
         col = {}
         
-        # Split by comma and parse each key-value pair
-        parts = [p.strip() for p in line.split(',')]
+        # First, extract any list values that might contain commas
+        # Pattern: key: [values] - handle this specially
+        import re
+        list_pattern = r'(\w+):\s*\[([^\]]+)\]'
+        list_matches = re.findall(list_pattern, line)
+        for key, value_str in list_matches:
+            values = [v.strip().strip('"').strip("'") for v in value_str.split(',')]
+            col[key] = values
+            # Remove from line to avoid re-parsing
+            line = re.sub(rf'{key}:\s*\[[^\]]+\]', '', line)
+        
+        # Split remaining by comma and parse each key-value pair
+        parts = [p.strip() for p in line.split(',') if p.strip()]
         
         for part in parts:
             if ':' in part:
@@ -842,14 +853,15 @@ class AgenticService:
                 key = key.strip()
                 value = value.strip()
                 
+                # Skip if already parsed as a list
+                if key in col:
+                    continue
+                
                 # Handle boolean values
                 if value.lower() == 'true':
                     value = True
                 elif value.lower() == 'false':
                     value = False
-                # Handle list values like enum_values: [a, b, c]
-                elif value.startswith('[') and value.endswith(']'):
-                    value = [v.strip() for v in value[1:-1].split(',')]
                 # Handle integer values
                 elif value.isdigit():
                     value = int(value)
@@ -859,6 +871,10 @@ class AgenticService:
         # Validate required fields
         if 'name' not in col or 'type' not in col:
             return None
+        
+        # If type is enum but no enum_values, convert to string
+        if col.get('type') == 'enum' and 'enum_values' not in col:
+            col['type'] = 'string'
         
         return col
     
@@ -889,29 +905,10 @@ class AgenticService:
             schema = {'columns': table_def.columns}
             
             if existing_table:
-                # Update existing table
-                table, errors, changes = AppDataService.update_table_schema_versioned(
-                    table=existing_table,
-                    version=version,
-                    schema=schema,
-                    name=table_def.name,
-                    description=table_def.description
-                )
-                
-                if table:
-                    yield AgentEvent("table_updated", {
-                        "slug": table.slug,
-                        "name": table.name,
-                        "changes": changes,
-                    })
-                    created_tables.append({
-                        'slug': table.slug,
-                        'name': table.name,
-                        'operation': 'updated',
-                        'changes': changes,
-                    })
-                else:
-                    logger.warning(f"Failed to update table {table_def.slug}: {errors}")
+                # Table already exists - skip to avoid duplicate snapshot errors
+                # The LLM often repeats table definitions across steps
+                logger.info(f"Table {table_def.slug} already exists, skipping")
+                continue
             else:
                 # Create new table
                 table, errors = AppDataService.create_table_versioned(

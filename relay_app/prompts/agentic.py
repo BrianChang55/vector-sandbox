@@ -90,16 +90,22 @@ App Name: {app_name}
 Available Resources: {available_resources}
 Has Existing Spec: {has_existing_spec}
 
+IMPORTANT: If the app needs to store/manage data (tasks, customers, products, etc.), your plan MUST include:
+1. A step to define data table schemas (using TABLE_DEFINITION blocks)
+2. A step to generate the dataStore client
+3. Steps to build UI components that use the dataStore API
+
 Generate a plan with 2-4 steps (fewer for simple requests). Return JSON:
 {{
-    "reasoning": "Your analysis of what needs to be built",
+    "reasoning": "Your analysis of what needs to be built, including what data tables are needed",
     "steps": [
-        {{"type": "design", "title": "Design App Structure", "description": "..."}}
+        {{"type": "data", "title": "Define Data Tables", "description": "Create table schemas for X, Y, Z"}},
+        {{"type": "code", "title": "Build Core Components", "description": "..."}}
     ]
 }}
 
-Step types: research, design, code, component, styling, integration, validation
-Keep it concise but comprehensive."""
+Step types: research, design, data, code, component, styling, integration, validation
+Keep it concise but comprehensive. ALWAYS include a 'data' step if the app manages any kind of data."""
 
 STEP_PROMPT_TEMPLATE = """Step {step_number}: {step_title}
 Description: {step_description}
@@ -113,7 +119,90 @@ Available Data Resources:
 
 CRITICAL: Generate complete, working React code for this step.
 
-OUTPUT FORMAT - You MUST format each file exactly like this:
+## DATA STORAGE INSTRUCTIONS
+
+If your app needs to store/manage data (e.g., tasks, customers, products, orders):
+
+1. FIRST, create the required table(s) using this EXACT format:
+
+```table:your-table-slug
+name: Your Table Name
+description: What this table stores
+columns:
+  - name: id, type: uuid, primary_key: true, auto_generate: true
+  - name: title, type: string, nullable: false
+  - name: status, type: string, default: active
+  - name: created_at, type: datetime, auto_now_add: true
+```
+
+2. THEN, use the dataStore client from lib/dataStore (already provided):
+
+IMPORTANT: The dataStore client is ALREADY available at `./lib/dataStore.ts`. 
+DO NOT create your own dataStore.ts - just import and use the existing one.
+The config is automatically injected via window.__RELAY_CONFIG__.
+
+If you must regenerate it (only if specifically needed), use this exact template:
+
+```src/lib/dataStore.ts
+// Runtime config is injected by the preview environment
+const getConfig = () => {{
+  const config = (window as any).__RELAY_CONFIG__;
+  if (!config?.apiBaseUrl) {{
+    console.error('RELAY_CONFIG not found - using fallback API URL');
+  }}
+  return {{
+    apiBaseUrl: config?.apiBaseUrl || 'http://localhost:8001/api/v1',
+    appId: config?.appId || '',
+    versionId: config?.versionId || '',
+  }};
+}};
+
+async function apiCall<T>(operation: string, tableSlug: string | null, params: any = {{}}): Promise<T> {{
+  const config = getConfig();
+  const response = await fetch(`${{config.apiBaseUrl}}/runtime/data/`, {{
+    method: 'POST',
+    headers: {{ 'Content-Type': 'application/json' }},
+    body: JSON.stringify({{ 
+      appId: config.appId, 
+      versionId: config.versionId,
+      operation, 
+      tableSlug, 
+      params 
+    }}),
+  }});
+  if (!response.ok) {{
+    const error = await response.json().catch(() => ({{}}));
+    throw new Error(error.error || 'API request failed');
+  }}
+  return response.json();
+}}
+
+export const dataStore = {{
+  listTables: () => apiCall<{{tables: any[]}}>('listTables', null).then(r => r.tables || []),
+  query: (tableSlug: string, params: any = {{}}) => apiCall<any>('query', tableSlug, params),
+  insert: (tableSlug: string, data: any) => apiCall<any>('insert', tableSlug, {{ data }}),
+  update: (tableSlug: string, rowId: string, data: any) => apiCall<any>('update', tableSlug, {{ rowId, data }}),
+  delete: (tableSlug: string, rowId: string) => apiCall<any>('delete', tableSlug, {{ rowId }}),
+  bulkInsert: (tableSlug: string, rows: any[]) => apiCall<any>('bulkInsert', tableSlug, {{ rows }}),
+  bulkDelete: (tableSlug: string, rowIds: string[]) => apiCall<any>('bulkDelete', tableSlug, {{ rowIds }}),
+}};
+```
+
+3. Use the dataStore in components:
+
+```typescript
+import {{ dataStore }} from '../lib/dataStore';
+
+// In a component:
+const [items, setItems] = useState([]);
+useEffect(() => {{
+  dataStore.query('your-table-slug', {{}}).then(r => setItems(r.rows || []));
+}}, []);
+```
+
+## OUTPUT FORMAT
+
+You MUST format each file exactly like this:
 ```src/App.tsx
 import React from 'react';
 // ... complete code here
@@ -128,14 +217,15 @@ Another example:
 Requirements:
 - Use TypeScript with proper types
 - Use Tailwind CSS for all styling (available via CDN)
-- For data, use realistic mock data arrays (the runtime API will be connected later)
+- For apps with data, ALWAYS create tables and use dataStore - NO hardcoded mock data
 - Create a complete, functional UI that looks professional
 - Include proper loading states and error handling
 - Make sure the code is complete and runnable - no placeholders or TODOs
 
 If building a table/data display:
-- Include sample data inline as a const array
-- Add edit/delete functionality with state management
+- Create the data table first using TABLE_DEFINITION format above
+- Use dataStore.query() to fetch real data
+- Add edit/delete functionality using dataStore.update()/delete()
 - Include search/filter if appropriate"""
 
 FINAL_APP_PROMPT_TEMPLATE = """Generate the MAIN App.tsx file that creates a complete, polished application.

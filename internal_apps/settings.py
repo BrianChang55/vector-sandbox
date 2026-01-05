@@ -180,6 +180,13 @@ CORS_ALLOWED_ORIGINS = [
     'https://localhost:3001',
 ]
 
+# Allow Sandpack/CodeSandbox iframe origins for the preview runtime
+# These are dynamically generated subdomains, so we use a regex pattern
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r'^https://.*\.codesandbox\.io$',
+    r'^https://.*-sandpack\.codesandbox\.io$',
+]
+
 FRONTEND_URL = env('FRONTEND_URL', default='http://localhost:5176')
 
 if FRONTEND_URL:
@@ -194,6 +201,11 @@ CORS_ALLOW_METHODS = [
     'POST',
     'PUT',
 ]
+
+# Allow Private Network Access - required for Sandpack iframes (public origin)
+# to access localhost (private network) during development
+# See: https://developer.chrome.com/blog/private-network-access-preflight/
+CORS_ALLOW_PRIVATE_NETWORK = True
 
 # CSRF settings
 CSRF_TRUSTED_ORIGINS = [
