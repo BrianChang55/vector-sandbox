@@ -1324,8 +1324,8 @@ export function AgenticChatPanel({
 
                     {/* Thought duration badge (after thinking completes) */}
                     {message.thinkingDuration && message.thinkingDuration > 0 && (
-                      <div className="flex items-center gap-2 text-sm text-gray-600">
-                        <Lightbulb className="h-4 w-4 text-gray-400" />
+                      <div className="flex items-center gap-1 text-[10px] text-gray-400">
+                        <Lightbulb className="h-2.5 w-2.5 flex-shrink-0" />
                         <span>Thought for {message.thinkingDuration}s</span>
                       </div>
                     )}

@@ -60,6 +60,7 @@ export interface AppVersion {
   source: 'ai_edit' | 'code_edit' | 'rollback' | 'publish' | 'ai' | 'code'
   source_display: string
   intent_message?: string | null
+  is_active: boolean
   generation_status?: 'pending' | 'generating' | 'complete' | 'error'
   spec_json: AppSpec
   scope_snapshot_json: any | null
