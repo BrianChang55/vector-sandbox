@@ -73,6 +73,7 @@ export function AppBuilderPage() {
   const [publishConfirmOpen, setPublishConfirmOpen] = useState(false)
   const [publishError, setPublishError] = useState<string | null>(null)
   const [showVersionsSidebar, setShowVersionsSidebar] = useState(false)
+  const [activeGeneratingVersionId, setActiveGeneratingVersionId] = useState<string | null>(null)
 
   // Select latest version by default
   useEffect(() => {
@@ -346,6 +347,7 @@ export function AppBuilderPage() {
                 onSessionChange={setSessionId}
                 onVersionCreated={handleVersionCreated}
                 onFilesGenerated={handleFilesGenerated}
+                onGeneratingVersionChange={setActiveGeneratingVersionId}
                 className="h-full"
               />
             </div>
@@ -386,6 +388,7 @@ export function AppBuilderPage() {
                   selectedVersionId={selectedVersionId}
                   onVersionSelect={handleVersionSelect}
                   onRollback={handleRollback}
+                  activeGeneratingVersionId={activeGeneratingVersionId}
                   className="h-full"
                 />
               </div>

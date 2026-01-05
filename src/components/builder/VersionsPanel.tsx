@@ -22,6 +22,7 @@ interface VersionsPanelProps {
   selectedVersionId: string | null
   onVersionSelect: (versionId: string) => void
   onRollback: (versionId: string, options?: { include_schema?: boolean }) => void
+  activeGeneratingVersionId?: string | null
   className?: string
 }
 
@@ -43,6 +44,12 @@ const statusConfig: Record<string, {
     borderClass: 'border-blue-200',
     label: 'Generating'
   },
+  cancelled: { 
+    bgClass: 'bg-amber-50', 
+    textClass: 'text-amber-600', 
+    borderClass: 'border-amber-200',
+    label: 'Cancelled'
+  },
   complete: { 
     bgClass: 'bg-green-50', 
     textClass: 'text-green-600', 
@@ -62,6 +69,7 @@ export function VersionsPanel({
   selectedVersionId,
   onVersionSelect,
   onRollback,
+  activeGeneratingVersionId,
   className = '',
 }: VersionsPanelProps) {
   const [expandedVersion, setExpandedVersion] = useState<string | null>(null)
@@ -113,7 +121,15 @@ export function VersionsPanel({
               const isSelected = selectedVersionId === version.id
               const isLatest = index === 0
               const isExpanded = expandedVersion === version.id
-                const statusCfg = version.generation_status ? statusConfig[version.generation_status] : null
+              
+              // Determine the effective status for display
+              // If status is "generating" but this isn't the active generating version, show as "cancelled"
+              const isActivelyGenerating = version.id === activeGeneratingVersionId
+              const effectiveStatus = 
+                version.generation_status === 'generating' && !isActivelyGenerating
+                  ? 'cancelled'
+                  : version.generation_status
+              const statusCfg = effectiveStatus ? statusConfig[effectiveStatus] : null
 
               return (
                   <div key={version.id} className="relative">
@@ -146,13 +162,13 @@ export function VersionsPanel({
                             </span>
                           )}
                               
-                              {statusCfg && version.generation_status !== 'complete' && (
+                              {statusCfg && effectiveStatus !== 'complete' && (
                             <span className={cn(
                                   'inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded',
                                   statusCfg.bgClass,
                                   statusCfg.textClass
                             )}>
-                              {version.generation_status === 'generating' && (
+                              {effectiveStatus === 'generating' && (
                                 <Loader2 className="h-2.5 w-2.5 animate-spin" />
                               )}
                                   {statusCfg.label}

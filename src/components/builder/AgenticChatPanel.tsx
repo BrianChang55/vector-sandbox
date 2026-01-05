@@ -47,6 +47,7 @@ interface AgenticChatPanelProps {
   onSessionChange: (sessionId: string) => void
   onVersionCreated: (versionId: string, versionNumber: number) => void
   onFilesGenerated?: (files: FileChange[]) => void
+  onGeneratingVersionChange?: (versionId: string | null) => void
   className?: string
 }
 
@@ -403,6 +404,7 @@ export function AgenticChatPanel({
   onSessionChange,
   onVersionCreated,
   onFilesGenerated,
+  onGeneratingVersionChange,
   className = '',
 }: AgenticChatPanelProps) {
   const [messages, setMessages] = useState<LocalMessage[]>([])
@@ -414,6 +416,12 @@ export function AgenticChatPanel({
   const [accumulatedFiles, setAccumulatedFiles] = useState<FileChange[]>([])
   // Track the generating version ID so we can cancel it properly
   const [generatingVersionId, setGeneratingVersionId] = useState<string | null>(null)
+  
+  // Notify parent component of generating version changes
+  useEffect(() => {
+    onGeneratingVersionChange?.(generatingVersionId)
+  }, [generatingVersionId, onGeneratingVersionChange])
+  
   const [hasLoadedState, setHasLoadedState] = useState(false)
   const [isScrolling, setIsScrolling] = useState(false)
   const progressMilestonesRef = useRef<Set<number>>(new Set())
