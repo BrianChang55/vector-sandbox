@@ -47,9 +47,17 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = AppVersionSerializer
     
     def get_queryset(self):
-        """Filter versions to app."""
+        """
+        Filter versions to app, or return all accessible versions for direct access.
+        
+        When accessed via /apps/{app_id}/versions/ - filter by app
+        When accessed via /versions/{version_id}/ (direct) - return all versions
+        """
         app_id = self.kwargs.get('internal_app_pk')
-        return AppVersion.objects.filter(internal_app_id=app_id).select_related('created_by')
+        if app_id:
+            return AppVersion.objects.filter(internal_app_id=app_id).select_related('created_by')
+        # Direct access - return all versions (will be filtered by pk lookup)
+        return AppVersion.objects.all().select_related('created_by')
     
     def get_serializer_class(self):
         """
