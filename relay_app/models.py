@@ -947,3 +947,157 @@ class AIUsageLog(BaseModel):
             total_cost_cents=Sum('total_cost_cents'),
             avg_duration_ms=Avg('duration_ms'),
         )
+
+
+# ============================================================================
+# App Data Store Models
+# ============================================================================
+
+class AppDataTable(BaseModel):
+    """
+    Represents a data table within an Internal App's data store.
+    Each app can have multiple tables, each with its own schema.
+    
+    The schema is stored as JSON and defines columns, types, and constraints.
+    This allows apps to store structured data without external database connections.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    internal_app = models.ForeignKey(
+        InternalApp,
+        on_delete=models.CASCADE,
+        related_name='data_tables'
+    )
+    name = models.CharField(max_length=255)
+    slug = models.SlugField(max_length=255)
+    description = models.TextField(blank=True)
+    
+    # Schema definition stored as JSON
+    # Structure: {"columns": [...], "indexes": [...]}
+    schema_json = models.JSONField(
+        default=dict,
+        help_text='Table schema: columns, types, constraints'
+    )
+    
+    # Cached row count for performance
+    row_count = models.PositiveIntegerField(default=0)
+    
+    class Meta:
+        unique_together = ['internal_app', 'slug']
+        indexes = [
+            models.Index(fields=['internal_app', 'slug']),
+        ]
+    
+    def __str__(self):
+        return f"{self.name} ({self.internal_app.name})"
+    
+    def get_columns(self):
+        """Get column definitions from schema."""
+        return self.schema_json.get('columns', [])
+    
+    def get_column_names(self):
+        """Get list of column names."""
+        return [col['name'] for col in self.get_columns()]
+    
+    def get_primary_key_column(self):
+        """Get the primary key column definition."""
+        for col in self.get_columns():
+            if col.get('primary_key'):
+                return col
+        return None
+    
+    def increment_row_count(self, delta: int = 1):
+        """Increment the cached row count."""
+        self.row_count = models.F('row_count') + delta
+        self.save(update_fields=['row_count', 'updated_at'])
+        self.refresh_from_db(fields=['row_count'])
+    
+    def decrement_row_count(self, delta: int = 1):
+        """Decrement the cached row count."""
+        from django.db.models.functions import Greatest
+        self.row_count = Greatest(models.F('row_count') - delta, 0)
+        self.save(update_fields=['row_count', 'updated_at'])
+        self.refresh_from_db(fields=['row_count'])
+
+
+class AppDataRow(BaseModel):
+    """
+    Represents a single row of data in an AppDataTable.
+    Data is stored as JSON and validated against the table schema.
+    
+    Each row has a sequential index within its table for ordering.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    table = models.ForeignKey(
+        AppDataTable,
+        on_delete=models.CASCADE,
+        related_name='rows'
+    )
+    
+    # Row data stored as JSON - keys match column names from schema
+    data = models.JSONField(
+        default=dict,
+        help_text='Row data matching table schema'
+    )
+    
+    # Row ordering/identifier within table
+    row_index = models.PositiveIntegerField(
+        help_text='Sequential index within table'
+    )
+    
+    class Meta:
+        indexes = [
+            models.Index(fields=['table', 'row_index']),
+            models.Index(fields=['table', 'created_at']),
+        ]
+        ordering = ['row_index']
+    
+    def __str__(self):
+        return f"Row {self.row_index} in {self.table.name}"
+    
+    def get_value(self, column_name: str):
+        """Get value for a specific column."""
+        return self.data.get(column_name)
+    
+    def set_value(self, column_name: str, value):
+        """Set value for a specific column."""
+        self.data[column_name] = value
+    
+    def save(self, *args, **kwargs):
+        """Assign row_index if not set."""
+        if self.row_index is None:
+            # Get the next row index for this table
+            max_index = AppDataRow.objects.filter(
+                table=self.table
+            ).aggregate(
+                max_index=models.Max('row_index')
+            )['max_index']
+            self.row_index = (max_index or 0) + 1
+        super().save(*args, **kwargs)
+
+
+class AppDataQuery(BaseModel):
+    """
+    Saved/named queries for an app's data tables.
+    Enables reusable queries in the app UI.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    internal_app = models.ForeignKey(
+        InternalApp,
+        on_delete=models.CASCADE,
+        related_name='data_queries'
+    )
+    name = models.CharField(max_length=255)
+    table = models.ForeignKey(
+        AppDataTable,
+        on_delete=models.CASCADE,
+        related_name='saved_queries'
+    )
+    query_spec = models.JSONField(
+        help_text='Query specification: filters, sort, pagination'
+    )
+    
+    class Meta:
+        unique_together = ['internal_app', 'name']
+    
+    def __str__(self):
+        return f"{self.name} ({self.internal_app.name})"

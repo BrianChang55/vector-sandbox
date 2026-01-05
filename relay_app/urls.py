@@ -15,6 +15,7 @@ from .views import (
     publish_views,
     auth_views,
     streaming_views,
+    app_data_views,
 )
 
 # Router for viewsets
@@ -104,4 +105,60 @@ urlpatterns = [
     path('apps/<uuid:app_id>/latest-generation/', streaming_views.LatestGenerationView.as_view(), name='latest-generation'),
     path('versions/<uuid:version_id>/generation-state/', streaming_views.GenerationStateView.as_view(), name='generation-state'),
     path('messages/<uuid:message_id>/apply/', streaming_views.ApplyGeneratedCodeView.as_view(), name='apply-generated'),
+    
+    # =========================================================================
+    # App Data Store endpoints
+    # =========================================================================
+    
+    # Tables
+    path(
+        'apps/<uuid:internal_app_pk>/data/tables/',
+        app_data_views.AppDataTableViewSet.as_view({
+            'get': 'list',
+            'post': 'create',
+        }),
+        name='app-data-tables'
+    ),
+    path(
+        'apps/<uuid:internal_app_pk>/data/tables/<slug:pk>/',
+        app_data_views.AppDataTableViewSet.as_view({
+            'get': 'retrieve',
+            'patch': 'partial_update',
+            'delete': 'destroy',
+        }),
+        name='app-data-table-detail'
+    ),
+    
+    # Rows
+    path(
+        'apps/<uuid:internal_app_pk>/data/tables/<slug:table_slug>/rows/',
+        app_data_views.AppDataRowViewSet.as_view({
+            'get': 'list',
+            'post': 'create',
+        }),
+        name='app-data-rows'
+    ),
+    path(
+        'apps/<uuid:internal_app_pk>/data/tables/<slug:table_slug>/rows/<uuid:pk>/',
+        app_data_views.AppDataRowViewSet.as_view({
+            'get': 'retrieve',
+            'patch': 'partial_update',
+            'delete': 'destroy',
+        }),
+        name='app-data-row-detail'
+    ),
+    
+    # Bulk operations
+    path(
+        'apps/<uuid:internal_app_pk>/data/tables/<slug:table_slug>/rows/bulk/',
+        app_data_views.AppDataRowBulkView.as_view(),
+        name='app-data-rows-bulk'
+    ),
+    
+    # Query endpoint (POST for complex queries)
+    path(
+        'apps/<uuid:internal_app_pk>/data/tables/<slug:table_slug>/query/',
+        app_data_views.AppDataQueryView.as_view(),
+        name='app-data-query'
+    ),
 ]
