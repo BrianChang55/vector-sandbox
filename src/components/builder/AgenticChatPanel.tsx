@@ -684,20 +684,26 @@ export function AgenticChatPanel({
         case 'plan_created':
           // Update the last assistant message with tasks
           setMessages((prev) => {
-            const updated = [...prev]
-            const lastMsg = updated[updated.length - 1]
-            if (lastMsg?.role === 'assistant') {
-              lastMsg.tasks = data.steps || []
-              lastMsg.exploredInfo = {
-                directories: data.exploredDirectories || 0,
-                files: data.exploredFiles || 0,
-                searches: data.searches || 0,
-              }
-              if (thinkingStartTime) {
-                lastMsg.thinkingDuration = Math.floor((Date.now() - thinkingStartTime) / 1000)
-              }
-            }
-            return updated
+            const lastIdx = prev.length - 1
+            if (lastIdx < 0) return prev
+            const lastMsg = prev[lastIdx]
+            if (lastMsg?.role !== 'assistant') return prev
+            
+            return [
+              ...prev.slice(0, lastIdx),
+              {
+                ...lastMsg,
+                tasks: data.steps || [],
+                exploredInfo: {
+                  directories: data.exploredDirectories || 0,
+                  files: data.exploredFiles || 0,
+                  searches: data.searches || 0,
+                },
+                thinkingDuration: thinkingStartTime 
+                  ? Math.floor((Date.now() - thinkingStartTime) / 1000)
+                  : lastMsg.thinkingDuration,
+              },
+            ]
           })
           appendProgressUpdate(
             `Plan ready (${(data.steps || data.plan?.steps || []).length || 0} steps): moving to execution`,
@@ -720,35 +726,43 @@ export function AgenticChatPanel({
             'step',
             { dedupeWindowMs: 2000 }
           )
-          // Update task status in the message (alias to existing handler)
+          // Update task status in the message - properly clone
           setMessages((prev) => {
-            const updated = [...prev]
-            const lastMsg = updated[updated.length - 1]
-            if (lastMsg?.tasks) {
-              lastMsg.tasks = lastMsg.tasks.map((t) =>
-                t.id === data.stepId || t.title === stepTitle
-                  ? { ...t, status: 'in_progress' }
-                  : t
-              )
-            }
-            return updated
+            const lastIdx = prev.length - 1
+            if (lastIdx < 0) return prev
+            const lastMsg = prev[lastIdx]
+            if (!lastMsg?.tasks) return prev
+            
+            const updatedTasks = lastMsg.tasks.map((t) =>
+              t.id === data.stepId || t.title === stepTitle
+                ? { ...t, status: 'in_progress' as const }
+                : t
+            )
+            return [
+              ...prev.slice(0, lastIdx),
+              { ...lastMsg, tasks: updatedTasks },
+            ]
           })
           break
         }
 
         case 'step_completed':
-          // Update task status in the message
+          // Update task status in the message - properly clone
           setMessages((prev) => {
-            const updated = [...prev]
-            const lastMsg = updated[updated.length - 1]
-            if (lastMsg?.tasks) {
-              lastMsg.tasks = lastMsg.tasks.map(t =>
-                t.id === data.stepId
-                  ? { ...t, status: event.type === 'step_completed' ? 'complete' : 'in_progress', duration: data.duration }
-                  : t
-              )
-            }
-            return updated
+            const lastIdx = prev.length - 1
+            if (lastIdx < 0) return prev
+            const lastMsg = prev[lastIdx]
+            if (!lastMsg?.tasks) return prev
+            
+            const updatedTasks = lastMsg.tasks.map(t =>
+              t.id === data.stepId
+                ? { ...t, status: 'complete' as const, duration: data.duration }
+                : t
+            )
+            return [
+              ...prev.slice(0, lastIdx),
+              { ...lastMsg, tasks: updatedTasks },
+            ]
           })
           appendProgressUpdate('Step completed: output captured', 'step', { dedupeWindowMs: 2000 })
           break
@@ -810,14 +824,18 @@ export function AgenticChatPanel({
             onFilesGenerated?.(updated)
             return updated
           })
-          // Also update the message
+          // Also update the message - properly clone to trigger re-render
           setMessages((prev) => {
-            const updated = [...prev]
-            const lastMsg = updated[updated.length - 1]
-            if (lastMsg?.role === 'assistant') {
-              lastMsg.files = upsertFileChange(lastMsg.files || [], newFile)
-            }
-            return updated
+            const lastIdx = prev.length - 1
+            if (lastIdx < 0) return prev
+            const lastMsg = prev[lastIdx]
+            if (lastMsg?.role !== 'assistant') return prev
+            
+            const updatedFiles = upsertFileChange(lastMsg.files || [], newFile)
+            return [
+              ...prev.slice(0, lastIdx),
+              { ...lastMsg, files: updatedFiles },
+            ]
           })
           break
         }
@@ -825,16 +843,19 @@ export function AgenticChatPanel({
         case 'table_created': {
           // A new data table was created by the agent
           setMessages((prev) => {
-            const updated = [...prev]
-            const lastMsg = updated[updated.length - 1]
-            if (lastMsg?.role === 'assistant') {
-              // Add table creation info to the message
-              const tableInfo = `Created table ${data.name} with ${data.columns} columns`
-              lastMsg.content = lastMsg.content 
-                ? `${lastMsg.content}\n\n ${tableInfo}`
-                : `${tableInfo}`
-            }
-            return updated
+            const lastIdx = prev.length - 1
+            if (lastIdx < 0) return prev
+            const lastMsg = prev[lastIdx]
+            if (lastMsg?.role !== 'assistant') return prev
+            
+            const tableInfo = `Created table ${data.name} with ${data.columns} columns`
+            const newContent = lastMsg.content 
+              ? `${lastMsg.content}\n\n ${tableInfo}`
+              : `${tableInfo}`
+            return [
+              ...prev.slice(0, lastIdx),
+              { ...lastMsg, content: newContent },
+            ]
           })
           break
         }
@@ -842,23 +863,27 @@ export function AgenticChatPanel({
         case 'table_updated': {
           // An existing data table was updated by the agent
           setMessages((prev) => {
-            const updated = [...prev]
-            const lastMsg = updated[updated.length - 1]
-            if (lastMsg?.role === 'assistant') {
-              const changes = data.changes || {}
-              const changeInfo = []
-              if (changes.added?.length) changeInfo.push(`added: ${changes.added.join(', ')}`)
-              if (changes.removed?.length) changeInfo.push(`removed: ${changes.removed.join(', ')}`)
-              if (changes.modified?.length) changeInfo.push(`modified: ${changes.modified.join(', ')}`)
-              
-              const tableInfo = changeInfo.length > 0
-                ? `Updated table "${data.name}" - ${changeInfo.join('; ')}`
-                : `Updated table "${data.name}"`
-              lastMsg.content = lastMsg.content 
-                ? `${lastMsg.content}\n\n📊 ${tableInfo}`
-                : `📊 ${tableInfo}`
-            }
-            return updated
+            const lastIdx = prev.length - 1
+            if (lastIdx < 0) return prev
+            const lastMsg = prev[lastIdx]
+            if (lastMsg?.role !== 'assistant') return prev
+            
+            const changes = data.changes || {}
+            const changeInfo = []
+            if (changes.added?.length) changeInfo.push(`added: ${changes.added.join(', ')}`)
+            if (changes.removed?.length) changeInfo.push(`removed: ${changes.removed.join(', ')}`)
+            if (changes.modified?.length) changeInfo.push(`modified: ${changes.modified.join(', ')}`)
+            
+            const tableInfo = changeInfo.length > 0
+              ? `Updated table "${data.name}" - ${changeInfo.join('; ')}`
+              : `Updated table "${data.name}"`
+            const newContent = lastMsg.content 
+              ? `${lastMsg.content}\n\n📊 ${tableInfo}`
+              : `📊 ${tableInfo}`
+            return [
+              ...prev.slice(0, lastIdx),
+              { ...lastMsg, content: newContent },
+            ]
           })
           break
         }
@@ -927,13 +952,19 @@ export function AgenticChatPanel({
 
         case 'agent_complete':
           setMessages((prev) => {
-            const updated = [...prev]
-            const lastMsg = updated[updated.length - 1]
-            if (lastMsg?.role === 'assistant') {
-              lastMsg.status = 'complete'
-              lastMsg.content = data.summary || 'App generated successfully!'
-            }
-            return updated
+            const lastIdx = prev.length - 1
+            if (lastIdx < 0) return prev
+            const lastMsg = prev[lastIdx]
+            if (lastMsg?.role !== 'assistant') return prev
+            
+            return [
+              ...prev.slice(0, lastIdx),
+              {
+                ...lastMsg,
+                status: 'complete' as const,
+                content: data.summary || 'App generated successfully!',
+              },
+            ]
           })
           appendProgressUpdate('Generation complete: summarizing results', 'preview')
           setThinkingStartTime(null)
@@ -941,13 +972,19 @@ export function AgenticChatPanel({
 
         case 'agent_error':
           setMessages((prev) => {
-            const updated = [...prev]
-            const lastMsg = updated[updated.length - 1]
-            if (lastMsg?.role === 'assistant') {
-              lastMsg.status = 'error'
-              lastMsg.error = data.message
-            }
-            return updated
+            const lastIdx = prev.length - 1
+            if (lastIdx < 0) return prev
+            const lastMsg = prev[lastIdx]
+            if (lastMsg?.role !== 'assistant') return prev
+            
+            return [
+              ...prev.slice(0, lastIdx),
+              {
+                ...lastMsg,
+                status: 'error' as const,
+                error: data.message,
+              },
+            ]
           })
           appendProgressUpdate(`Error: ${data.message}`, 'error')
           setThinkingStartTime(null)
@@ -1026,13 +1063,19 @@ export function AgenticChatPanel({
         setThinkingStartTime(null)
         setGeneratingVersionId(null)  // Clear on error
         setMessages((prev) => {
-          const updated = [...prev]
-          const lastMsg = updated[updated.length - 1]
-          if (lastMsg?.role === 'assistant') {
-            lastMsg.status = 'error'
-            lastMsg.error = error.message
-          }
-          return updated
+          const lastIdx = prev.length - 1
+          if (lastIdx < 0) return prev
+          const lastMsg = prev[lastIdx]
+          if (lastMsg?.role !== 'assistant') return prev
+          
+          return [
+            ...prev.slice(0, lastIdx),
+            {
+              ...lastMsg,
+              status: 'error' as const,
+              error: error.message,
+            },
+          ]
         })
       },
     })
@@ -1242,7 +1285,11 @@ export function AgenticChatPanel({
           </AnimatePresence>
 
           <AnimatePresence initial={false}>
-            {messages.map((message) => (
+            {messages.map((message, messageIndex) => {
+              // Only show thinking indicator on the very last message
+              const isLastMessage = messageIndex === messages.length - 1
+              
+              return (
               <motion.div
                 key={message.id}
                 className="space-y-3"
@@ -1255,15 +1302,15 @@ export function AgenticChatPanel({
                 {message.role === 'user' ? (
                   // User message - simple right-aligned bubble
                   <div className="flex justify-end">
-                    <div className="max-w-[80%] bg-gray-100 text-gray-700 rounded-2xl px-4 py-3">
-                      <p className="text-sm">{message.content}</p>
+                    <div className="max-w-[80%] bg-gray-100 text-gray-700 rounded-xl px-4 py-3">
+                      <p className="text-sm whitespace-pre-wrap break-words">{message.content}</p>
                     </div>
                   </div>
                 ) : (
                   // Assistant message with inline agentic content
                   <div className="space-y-3">
-                    {/* Thinking indicator */}
-                    {message.status === 'streaming' && thinkingStartTime && !message.tasks?.length && (
+                    {/* Thinking indicator - only show on the last message while actively streaming */}
+                    {isLastMessage && message.status === 'streaming' && thinkingStartTime && !message.tasks?.length && (
                       <ThinkingIndicator startTime={thinkingStartTime} />
                     )}
 
@@ -1326,7 +1373,7 @@ export function AgenticChatPanel({
                   </div>
                 )}
               </motion.div>
-            ))}
+            )})}
           </AnimatePresence>
 
           <div ref={messagesEndRef} />
@@ -1336,7 +1383,7 @@ export function AgenticChatPanel({
       {/* Input area */}
       <div className="border-t border-gray-200 bg-gray-50">
         <div className="max-w-3xl mx-auto px-4 py-5">
-          <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
+          <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
             <div className="px-4 pt-4">
               <textarea
                 ref={inputRef}
@@ -1347,8 +1394,8 @@ export function AgenticChatPanel({
                 rows={1}
                 disabled={isLoading}
                 className="w-full bg-transparent border-none text-sm text-gray-900 placeholder-gray-500 resize-none
-                           focus:outline-none focus:ring-0 disabled:opacity-60"
-                style={{ minHeight: '48px', maxHeight: '140px' }}
+                           focus:outline-none focus:ring-0 disabled:opacity-60 whitespace-pre-wrap break-words"
+                style={{ minHeight: '48px', maxHeight: '140px', wordWrap: 'break-word', overflowWrap: 'break-word' }}
                 onInput={(e) => {
                   const target = e.target as HTMLTextAreaElement
                   target.style.height = 'auto'
@@ -1357,7 +1404,7 @@ export function AgenticChatPanel({
               />
             </div>
 
-            <div className="mt-3 flex items-center justify-between gap-3 px-4 py-3 bg-white rounded-b-2xl">
+            <div className="mt-3 flex items-center justify-between gap-3 px-4 py-3 bg-white rounded-b-xl">
               <ModelSelector
                 selectedModel={selectedModel}
                 onModelChange={setSelectedModel}
