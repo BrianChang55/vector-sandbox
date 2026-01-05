@@ -11,4 +11,8 @@ export { PreviewPanel } from './PreviewPanel'
 export { SandpackPreview, SimplePreview } from './SandpackPreview'
 export { ModelSelector } from './ModelSelector'
 export { VersionsPanel } from './VersionsPanel'
+export { RollbackModal } from './RollbackModal'
+export { VersionDetailsDrawer } from './VersionDetailsDrawer'
+export { VersionCompareView } from './VersionCompareView'
+export { AuditTimeline, AuditTimelineCompact } from './AuditTimeline'
 

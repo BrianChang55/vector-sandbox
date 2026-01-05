@@ -26,16 +26,18 @@ import {
   Database,
 } from 'lucide-react'
 
-import { useApp, useAppVersions, usePublishApp } from '../hooks/useApps'
+import { useApp, useAppVersions, usePublishApp, useRollback } from '../hooks/useApps'
 import { useAppSelector, useAppDispatch } from '../store/hooks'
 import { setSelectedVersion } from '../store/slices/uiSlice'
 
 import { AgenticChatPanel } from '../components/builder/AgenticChatPanel'
 import { PreviewPanel } from '../components/builder/PreviewPanel'
 import { SandpackPreview } from '../components/builder/SandpackPreview'
+import { VersionsPanel } from '../components/builder/VersionsPanel'
 import { DataPanel } from '../components/data'
 import { Button } from '../components/ui/button'
 import { ConfirmDialog } from '../components/ui/dialog'
+import { useToast, toast } from '../components/ui/toast'
 import { cn } from '../lib/utils'
 import type { FileChange } from '../types/agent'
 import { upsertFileChange } from '../services/agentService'
@@ -52,6 +54,9 @@ export function AppBuilderPage() {
   const { data: app, isLoading: appLoading } = useApp(appId || null)
   const { data: versions, refetch: refetchVersions } = useAppVersions(appId || null, { includeFiles: true })
   const publishApp = usePublishApp()
+  const rollbackMutation = useRollback()
+  const { addToast } = useToast()
+  const toastHelpers = toast(addToast)
   
   const selectedVersionId = useAppSelector((state) => state.ui.selectedVersionId)
   
@@ -67,6 +72,7 @@ export function AppBuilderPage() {
   const [copiedPublishedLink, setCopiedPublishedLink] = useState(false)
   const [publishConfirmOpen, setPublishConfirmOpen] = useState(false)
   const [publishError, setPublishError] = useState<string | null>(null)
+  const [showVersionsSidebar, setShowVersionsSidebar] = useState(false)
 
   // Select latest version by default
   useEffect(() => {
@@ -128,6 +134,31 @@ export function AppBuilderPage() {
   const handleFilesGenerated = useCallback((files: FileChange[]) => {
     setGeneratedFiles(files)
   }, [])
+
+  const handleRollback = useCallback(async (versionId: string, options?: { include_schema?: boolean }) => {
+    try {
+      const newVersion = await rollbackMutation.mutateAsync({
+        versionId,
+        includeSchema: options?.include_schema ?? true,
+      })
+      dispatch(setSelectedVersion(newVersion.id))
+      refetchVersions()
+      toastHelpers.success(
+        `Rolled back to version ${newVersion.version_number}`,
+        'A new version has been created based on the selected historical version.'
+      )
+    } catch (error: any) {
+      console.error('Rollback failed:', error)
+      toastHelpers.error(
+        'Rollback failed',
+        error?.response?.data?.error || 'An unexpected error occurred.'
+      )
+    }
+  }, [rollbackMutation, dispatch, refetchVersions, toastHelpers])
+
+  const handleVersionSelect = useCallback((versionId: string) => {
+    dispatch(setSelectedVersion(versionId))
+  }, [dispatch])
 
   const handlePublish = async () => {
     if (!appId) return
@@ -319,7 +350,7 @@ export function AppBuilderPage() {
               />
             </div>
 
-            {/* Right Panel - Preview (Sandpack for generated files, iframe for versions) */}
+            {/* Center Panel - Preview (Sandpack for generated files, iframe for versions) */}
             <div className="flex-1 min-w-0 h-full">
               {generatedFiles.length > 0 ? (
                 <SandpackPreview
@@ -329,6 +360,8 @@ export function AppBuilderPage() {
                   appName={app.name}
                   className="h-full"
                   onFilesChange={(files) => setGeneratedFiles(files)}
+                  showVersionsSidebar={showVersionsSidebar}
+                  onToggleVersionsSidebar={() => setShowVersionsSidebar(!showVersionsSidebar)}
                 />
               ) : (
                 <PreviewPanel
@@ -344,6 +377,19 @@ export function AppBuilderPage() {
                 />
               )}
             </div>
+
+            {/* Right Panel - Versions Sidebar (Collapsible) */}
+            {showVersionsSidebar && (
+              <div className="w-[400px] flex-shrink-0 border-l border-gray-200 bg-white h-full">
+                <VersionsPanel
+                  versions={versions || []}
+                  selectedVersionId={selectedVersionId}
+                  onVersionSelect={handleVersionSelect}
+                  onRollback={handleRollback}
+                  className="h-full"
+                />
+              </div>
+            )}
           </>
         ) : (
           /* Data Tab - Full width data management */

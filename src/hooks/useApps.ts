@@ -3,7 +3,14 @@
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../services/api'
-import type { InternalApp, AppVersion } from '../types/models'
+import type {
+  InternalApp,
+  AppVersion,
+  VersionStateSnapshot,
+  VersionAuditLog,
+  RollbackPreview,
+  VersionDiff,
+} from '../types/models'
 
 export function useApps(orgId: string | null) {
   return useQuery({
@@ -154,13 +161,105 @@ export function useRollback() {
   const queryClient = useQueryClient()
   
   return useMutation({
-    mutationFn: async (versionId: string) => {
-      const response = await api.post<AppVersion>(`/versions/${versionId}/rollback/`)
+    mutationFn: async ({
+      versionId,
+      includeSchema = true,
+    }: {
+      versionId: string
+      includeSchema?: boolean
+    }) => {
+      const response = await api.post<AppVersion>(`/versions/${versionId}/rollback/`, {
+        include_schema: includeSchema,
+      })
       return response.data
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['versions', data.internal_app] })
+      queryClient.invalidateQueries({ queryKey: ['audit-trail', data.internal_app] })
     },
+  })
+}
+
+/**
+ * Fetch rollback preview (dry run) for a version
+ */
+export function useRollbackPreview(versionId: string | null, includeSchema = true) {
+  return useQuery({
+    queryKey: ['rollback-preview', versionId, includeSchema],
+    queryFn: async () => {
+      if (!versionId) return null
+      const response = await api.post<RollbackPreview>(`/versions/${versionId}/rollback/`, {
+        dry_run: true,
+        include_schema: includeSchema,
+      })
+      return response.data
+    },
+    enabled: !!versionId,
+    staleTime: 30000, // Cache for 30 seconds
+  })
+}
+
+/**
+ * Fetch version snapshot details
+ */
+export function useVersionSnapshot(versionId: string | null) {
+  return useQuery({
+    queryKey: ['version-snapshot', versionId],
+    queryFn: async () => {
+      if (!versionId) return null
+      const response = await api.get<VersionStateSnapshot>(`/versions/${versionId}/snapshot/`)
+      return response.data
+    },
+    enabled: !!versionId,
+  })
+}
+
+/**
+ * Fetch diff between two versions
+ */
+export function useVersionDiff(fromVersionId: string | null, toVersionId: string | null) {
+  return useQuery({
+    queryKey: ['version-diff', fromVersionId, toVersionId],
+    queryFn: async () => {
+      if (!fromVersionId || !toVersionId) return null
+      const response = await api.get<VersionDiff>(`/versions/${fromVersionId}/diff/${toVersionId}/`)
+      return response.data
+    },
+    enabled: !!fromVersionId && !!toVersionId,
+  })
+}
+
+/**
+ * Fetch audit trail for an app
+ */
+export function useAuditTrail(appId: string | null, options?: { limit?: number }) {
+  const limit = options?.limit ?? 50
+
+  return useQuery({
+    queryKey: ['audit-trail', appId, limit],
+    queryFn: async () => {
+      if (!appId) return []
+      const response = await api.get<VersionAuditLog[]>(
+        `/apps/${appId}/versions/audit-trail/?limit=${limit}`
+      )
+      return response.data
+    },
+    enabled: !!appId,
+  })
+}
+
+/**
+ * Fetch version history with snapshots
+ */
+export function useVersionHistory(appId: string | null) {
+  return useQuery({
+    queryKey: ['version-history', appId],
+    queryFn: async () => {
+      if (!appId) return []
+      const response = await api.get<AppVersion[]>(`/apps/${appId}/versions/history/`)
+      return response.data
+    },
+    enabled: !!appId,
   })
 }
 

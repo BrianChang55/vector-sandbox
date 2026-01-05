@@ -24,6 +24,7 @@ import {
   CheckCircle2,
   Loader2,
   ExternalLink,
+  History,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { api } from '../../services/api'
@@ -41,6 +42,8 @@ interface SandpackPreviewProps {
   className?: string
   hideToolbar?: boolean
   onFilesChange?: (files: FileChange[]) => void
+  showVersionsSidebar?: boolean
+  onToggleVersionsSidebar?: () => void
 }
 
 type ViewMode = 'preview' | 'code' | 'split'
@@ -1179,6 +1182,8 @@ export function SandpackPreview({
   className = '',
   hideToolbar = false,
   onFilesChange,
+  showVersionsSidebar = false,
+  onToggleVersionsSidebar,
 }: SandpackPreviewProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('preview')
   const [showConsole, setShowConsole] = useState(false)
@@ -1389,6 +1394,20 @@ export function SandpackPreview({
                 <Terminal className="h-4 w-4" />
               </button>
 
+              {onToggleVersionsSidebar && (
+                <button
+                  onClick={onToggleVersionsSidebar}
+                  className={cn(
+                    'p-1.5 rounded-md transition-colors',
+                    showVersionsSidebar
+                      ? 'bg-gray-100 text-gray-900'
+                      : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
+                  )}
+                  title={showVersionsSidebar ? 'Hide version history' : 'Show version history'}
+                >
+                  <History className="h-4 w-4" />
+                </button>
+              )}
               </div>
             </div>
           </div>

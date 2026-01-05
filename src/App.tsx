@@ -5,6 +5,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { Provider } from 'react-redux'
 import { QueryProvider } from './providers/QueryProvider'
 import { DialogProvider } from './components/ui/dialog-provider'
+import { ToastProvider } from './components/ui/toast'
 import { store } from './store'
 import { MainLayout } from './components/Layout/MainLayout'
 import { AuthGuard } from './components/auth/AuthGuard'
@@ -24,6 +25,7 @@ function App() {
     <Provider store={store}>
       <QueryProvider>
         <DialogProvider>
+          <ToastProvider>
           <BrowserRouter>
           <Routes>
             {/* Public routes */}
@@ -83,6 +85,7 @@ function App() {
             />
           </Routes>
           </BrowserRouter>
+          </ToastProvider>
         </DialogProvider>
       </QueryProvider>
     </Provider>
