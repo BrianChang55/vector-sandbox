@@ -8,10 +8,6 @@ import { useState, useRef, useEffect } from 'react'
 import { 
   RefreshCw, 
   Monitor, 
-  ExternalLink,
-  Maximize2,
-  Play,
-  Pause,
   Eye,
   Code2
 } from 'lucide-react'
@@ -60,22 +56,6 @@ export function PreviewPanel({
     }
   }
 
-  const handleFullscreen = () => {
-    if (containerRef.current) {
-      if (!document.fullscreenElement) {
-        containerRef.current.requestFullscreen()
-      } else {
-        document.exitFullscreen()
-      }
-    }
-  }
-
-  const handleOpenExternal = () => {
-    if (previewUrl) {
-      window.open(previewUrl, '_blank')
-    }
-  }
-
   // Auto-refresh when version changes
   useEffect(() => {
     if (autoRefresh && previewUrl) {
@@ -117,58 +97,6 @@ export function PreviewPanel({
                 </button>
               ))}
             </div>
-          )}
-        </div>
-
-        <div className="flex items-center gap-1">
-          {viewMode === 'preview' && (
-            <>
-              {/* Auto-refresh toggle */}
-              <button
-                onClick={() => setAutoRefresh(!autoRefresh)}
-                className={cn(
-                  'p-1.5 rounded-md transition-colors',
-                  autoRefresh
-                    ? 'bg-green-50 text-green-600'
-                    : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
-                )}
-                title={autoRefresh ? 'Auto-refresh on' : 'Auto-refresh off'}
-              >
-                {autoRefresh ? (
-                  <Play className="h-4 w-4" />
-                ) : (
-                  <Pause className="h-4 w-4" />
-                )}
-              </button>
-              
-              <button
-                onClick={handleRefresh}
-                disabled={!previewUrl}
-                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 
-                         disabled:opacity-50 disabled:cursor-not-allowed rounded-md transition-colors"
-                title="Refresh preview"
-              >
-                <RefreshCw className={cn('h-4 w-4', isLoading && 'animate-spin')} />
-              </button>
-              
-              <button
-                onClick={handleFullscreen}
-                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
-                title="Fullscreen"
-              >
-                <Maximize2 className="h-4 w-4" />
-              </button>
-              
-              <button
-                onClick={handleOpenExternal}
-                disabled={!previewUrl}
-                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 
-                         disabled:opacity-50 disabled:cursor-not-allowed rounded-md transition-colors"
-                title="Open in new tab"
-              >
-                <ExternalLink className="h-4 w-4" />
-              </button>
-            </>
           )}
         </div>
       </div>

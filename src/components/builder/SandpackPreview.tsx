@@ -110,17 +110,17 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }`,
   '/App.tsx': `import React from 'react';
-import { Sparkles } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 
 export default function App() {
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center">
       <div className="text-center">
-        <div className="w-16 h-16 mx-auto mb-4 bg-gray-900 rounded-xl flex items-center justify-center">
-          <Sparkles className="h-8 w-8 text-white" />
+        <div className="w-14 h-14 mx-auto mb-5 bg-white rounded-lg border border-gray-200 shadow-sm flex items-center justify-center">
+          <Loader2 className="h-6 w-6 text-gray-400 animate-spin" />
         </div>
-        <h1 className="text-2xl font-bold text-gray-900">App Preview</h1>
-        <p className="text-gray-600 mt-2">Generating your app...</p>
+        <h2 className="text-lg font-medium text-gray-900 mb-1">Generating</h2>
+        <p className="text-sm text-gray-500">Building your application...</p>
       </div>
     </div>
   );

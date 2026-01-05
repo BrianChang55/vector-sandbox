@@ -31,7 +31,7 @@ import {
   upsertFileChange,
   cancelGeneration,
 } from '../../services/agentService'
-import type { AgentEvent, PlanStep, FileChange } from '../../types/agent'
+import type { AgentEvent, PlanStep, FileChange, AgentState } from '../../types/agent'
 import { initialAgentState } from '../../types/agent'
 import { useChatSessions, useCreateChatSession, useChatMessages } from '../../hooks/useAI'
 import type { ChatMessage as ApiChatMessage } from '../../services/aiService'
@@ -60,8 +60,18 @@ interface LocalMessage {
   tasks?: PlanStep[]
   files?: FileChange[]
   exploredInfo?: { directories: number; files: number; searches: number }
+  progressUpdates?: ProgressUpdate[]
   error?: string
   createdAt: string
+}
+
+type ProgressVariant = 'info' | 'phase' | 'thinking' | 'step' | 'file' | 'preview' | 'error'
+
+interface ProgressUpdate {
+  id: string
+  text: string
+  timestamp: string
+  variant: ProgressVariant
 }
 
 // Animated thinking indicator with timer
@@ -256,9 +266,132 @@ function ExploredBadge({ info }: { info: { directories: number; files: number; s
       <Search className="h-3 w-3" />
       <span>
         Explored {info.directories} {info.directories === 1 ? 'directory' : 'directories'}{' '}
-        {info.files} {info.files === 1 ? 'file' : 'files'}, and {' '}
+        {info.files} {info.files === 1 ? 'file' : 'files'}{' '}
         {info.searches > 0 && `${info.searches} ${info.searches === 1 ? 'search' : 'searches'}`}
       </span>
+    </div>
+  )
+}
+
+function formatTimeLabel(timestamp: string) {
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date(timestamp))
+  } catch {
+    return ''
+  }
+}
+
+function ProgressFeed({
+  updates,
+  isStreaming,
+}: {
+  updates: ProgressUpdate[]
+  isStreaming: boolean
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  if (!updates.length) return null
+
+  const latestId = updates[updates.length - 1]?.id
+  const shimmerStyle = {
+    backgroundImage:
+      'linear-gradient(90deg, rgba(200,200,200,0.1) 0%, rgba(230,230,230,0.8) 50%, rgba(200,200,200,0.1) 100%)',
+    backgroundSize: '260% 100%',
+  } as const
+
+  return (
+    <div className="space-y-1">
+      <button
+        onClick={() => setIsOpen((v) => !v)}
+        className="inline-flex items-center gap-2 text-xs font-medium text-gray-700 hover:text-gray-900"
+      >
+        <ChevronDown
+          className={cn(
+            'h-3 w-3 transition-transform',
+            isOpen ? 'rotate-0' : '-rotate-90'
+          )}
+        />
+        <span className="relative inline-flex items-center gap-1 text-gray-800">
+          <span>Live activity</span>
+          <motion.span
+            className="pointer-events-none absolute inset-0 rounded-sm opacity-80 mix-blend-screen"
+            style={shimmerStyle}
+            animate={
+              isStreaming
+                ? { backgroundPosition: ['-40% 50%', '140% 50%', '-40% 50%'] }
+                : { backgroundPosition: '-40% 50%' }
+            }
+            transition={
+              isStreaming
+                ? { duration: 1.6, repeat: Infinity, ease: 'linear', repeatDelay: 0.25 }
+                : undefined
+            }
+          />
+        </span>
+      </button>
+
+      {!isOpen && latestId && (
+        <div className="pl-5 text-[12px] text-gray-800 relative inline-flex">
+          <span>{updates[updates.length - 1]?.text}</span>
+          <motion.span
+            className="pointer-events-none absolute inset-0 opacity-80 mix-blend-screen"
+            style={shimmerStyle}
+            animate={
+              isStreaming
+                ? { backgroundPosition: ['-40% 50%', '140% 50%', '-40% 50%'] }
+                : { backgroundPosition: '-40% 50%' }
+            }
+            transition={
+              isStreaming
+                ? { duration: 1.6, repeat: Infinity, ease: 'linear', repeatDelay: 0.25 }
+                : undefined
+            }
+          />
+        </div>
+      )}
+
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.ul
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="space-y-2 pl-5 text-xs text-gray-700"
+          >
+            {updates.map((update, idx) => {
+              const isLatest = update.id === latestId
+              return (
+                <motion.li
+                  key={update.id}
+                  initial={{ opacity: 0, x: -6 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -6 }}
+                  transition={{ duration: 0.12, delay: idx * 0.02 }}
+                  className="leading-relaxed"
+                >
+                  <span className="text-[11px] text-gray-500 mr-2">
+                    {formatTimeLabel(update.timestamp)}
+                  </span>
+                  <span className="relative inline-flex text-gray-800">
+                    {update.text}
+                    {isLatest && (
+                      <motion.span
+                        className="pointer-events-none absolute inset-0 opacity-80 mix-blend-screen"
+                        style={shimmerStyle}
+                        animate={{ backgroundPosition: ['-40% 50%', '140% 50%', '-40% 50%'] }}
+                        transition={{ duration: 1.6, repeat: Infinity, ease: 'linear', repeatDelay: 0.25 }}
+                      />
+                    )}
+                  </span>
+                </motion.li>
+              )
+            })}
+          </motion.ul>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
@@ -283,6 +416,11 @@ export function AgenticChatPanel({
   const [generatingVersionId, setGeneratingVersionId] = useState<string | null>(null)
   const [hasLoadedState, setHasLoadedState] = useState(false)
   const [isScrolling, setIsScrolling] = useState(false)
+  const progressMilestonesRef = useRef<Set<number>>(new Set())
+  const progressUpdateCountRef = useRef(0)
+  const progressLastPctRef = useRef(-1)
+  const progressFinalEmittedRef = useRef(false)
+  const progressThresholdIndexRef = useRef(0)
   const { data: chatSessions, refetch: refetchChatSessions, isLoading: sessionsLoading } = useChatSessions(appId)
   const { mutateAsync: createChatSession, isPending: creatingSession } = useCreateChatSession()
   const { data: sessionMessages, isFetching: messagesFetching } = useChatMessages(sessionId)
@@ -356,6 +494,47 @@ export function AgenticChatPanel({
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const appendProgressUpdate = useCallback(
+    (
+      text: string,
+      variant: ProgressVariant = 'info',
+      opts?: { dedupeWindowMs?: number }
+    ) => {
+      const timestamp = new Date().toISOString()
+      setMessages((prev) => {
+        if (!prev.length) return prev
+        const updated = [...prev]
+        const lastMsg = updated[updated.length - 1]
+        if (lastMsg?.role === 'assistant') {
+          const existing = lastMsg.progressUpdates || []
+
+          const dedupeWindow = opts?.dedupeWindowMs ?? 4000
+          const last = existing[existing.length - 1]
+          const withinDedupeWindow =
+            last &&
+            Math.abs(new Date(timestamp).getTime() - new Date(last.timestamp).getTime()) <
+              dedupeWindow
+          if (last && last.text === text && last.variant === variant && withinDedupeWindow) {
+            return updated // skip noisy duplicate
+          }
+
+          const next = [
+            ...existing,
+            {
+              id: `${timestamp}-${existing.length}`,
+              text,
+              timestamp,
+              variant,
+            },
+          ]
+          lastMsg.progressUpdates = next // append only; don't rewrite prior rows
+        }
+        return updated
+      })
+    },
+    []
+  )
 
   // Load existing generation state on mount (files only, not messages)
   // Chat messages come exclusively from session hydration to avoid race conditions.
@@ -466,12 +645,40 @@ export function AgenticChatPanel({
         case 'agent_start':
           setThinkingStartTime(Date.now())
           setAccumulatedFiles([]) // Reset files for new generation
+          progressMilestonesRef.current = new Set()
+          progressUpdateCountRef.current = 0
+          progressLastPctRef.current = -1
+          progressFinalEmittedRef.current = false
+          progressThresholdIndexRef.current = 0
+          appendProgressUpdate('Starting agentic build: setting up session and tools', 'phase')
           break
 
-        case 'phase_change':
+        case 'phase_change': {
+          const phase = (data.phase as AgentState['phase']) || 'working'
+          const phaseDescriptions: Record<AgentState['phase'] | 'working', string> = {
+            researching: 'reviewing code and context',
+            planning: 'drafting an execution plan',
+            executing: 'writing and wiring code',
+            validating: 'running checks and validations',
+            complete: 'wrapping up',
+            error: 'encountered an issue',
+            idle: 'waiting',
+            working: 'working',
+          }
+          appendProgressUpdate(
+            `Now ${phase}: ${phaseDescriptions[phase] || 'working'}`,
+            'phase',
+            { dedupeWindowMs: 4000 }
+          )
           break
+        }
 
         case 'thinking':
+          if (data.content) {
+            appendProgressUpdate(`Thinking: ${data.content}`, 'thinking', {
+              dedupeWindowMs: 6000,
+            })
+          }
           break
 
         case 'plan_created':
@@ -492,6 +699,11 @@ export function AgenticChatPanel({
             }
             return updated
           })
+          appendProgressUpdate(
+            `Plan ready (${(data.steps || data.plan?.steps || []).length || 0} steps): moving to execution`,
+            'step',
+            { dedupeWindowMs: 4000 }
+          )
           setThinkingStartTime(null)
           break
 
@@ -502,6 +714,12 @@ export function AgenticChatPanel({
             data.title ||
             data.stepTitle ||
             (typeof data.stepIndex === 'number' ? `Step ${data.stepIndex + 1}` : 'Step started')
+          const stepHint = data.step?.description || ''
+          appendProgressUpdate(
+            `Starting ${stepTitle}${stepHint ? `: ${stepHint}` : ''}`,
+            'step',
+            { dedupeWindowMs: 2000 }
+          )
           // Update task status in the message (alias to existing handler)
           setMessages((prev) => {
             const updated = [...prev]
@@ -532,19 +750,61 @@ export function AgenticChatPanel({
             }
             return updated
           })
+          appendProgressUpdate('Step completed: output captured', 'step', { dedupeWindowMs: 2000 })
           break
 
         case 'step_progress': {
+          const pct = typeof data.progress === 'number' ? data.progress : null
+          if (pct === null) break
+          // Emit only when crossing ordered thresholds (real progress), with slight display jitter
+          const thresholds = [6, 21, 53, 72, 100]
+          const idx = progressThresholdIndexRef.current
+          if (idx >= thresholds.length) break
+
+          const target = thresholds[idx]
+          const reached = pct >= target
+
+          // Always allow final even if prior ones were skipped
+          if (!reached && !(idx === thresholds.length - 1 && pct >= 99.5)) break
+
+          // Display the backend percent with a light ±3 jitter for a less "clean" feel
+          const jitteredPct = Math.max(
+            0,
+            Math.min(100, pct + (Math.floor(Math.random() * 7) - 5)) // ±5 jitter
+          )
+          const progressText = data.message || 'Working...'
+          const pctLabel = ` (${jitteredPct}%)`
+          appendProgressUpdate(`Progress${pctLabel}: ${progressText}`, 'step', {
+            dedupeWindowMs: 4000,
+          })
+
+          if (idx === thresholds.length - 1) {
+            progressFinalEmittedRef.current = true
+          } else {
+            progressThresholdIndexRef.current = idx + 1
+          }
+          progressUpdateCountRef.current += 1
+          progressLastPctRef.current = pct
           break
         }
 
         case 'step_complete': {
+          const duration = data.duration ? ` in ${(data.duration / 1000).toFixed(1)}s` : ''
+          const stepTitle =
+            data.step?.title ||
+            data.title ||
+            data.stepTitle ||
+            (typeof data.stepIndex === 'number' ? `Step ${data.stepIndex + 1}` : 'Step')
+          appendProgressUpdate(`Finished ${stepTitle}${duration}`, 'step')
           break
         }
 
         case 'file_generated': {
           // Add file to accumulated files and notify parent
           const newFile = data.file
+          appendProgressUpdate(`Generated ${newFile?.path || 'a file'}`, 'file', {
+            dedupeWindowMs: 1500,
+          })
           setAccumulatedFiles((prev) => {
             const updated = upsertFileChange(prev, newFile)
             onFilesGenerated?.(updated)
@@ -609,11 +869,23 @@ export function AgenticChatPanel({
         }
 
         case 'validation_result': {
+          const label = data.passed
+            ? 'Validation passed'
+            : `Validation failed: ${(data.errors || []).slice(0, 2).join('; ')}`
+          appendProgressUpdate(
+            data.passed ? `${label}: ready for preview` : `${label}: needs attention`,
+            data.passed ? 'preview' : 'error'
+          )
           break
         }
 
         case 'preview_ready': {
           onVersionCreated(data.versionId || data.version_id, data.versionNumber || data.version_number)
+          appendProgressUpdate(
+            `Preview ready${data.versionNumber ? ` (v${data.versionNumber})` : ''}`,
+            'preview',
+            { dedupeWindowMs: 4000 }
+          )
           const finalFiles =
             (Array.isArray(data.files)
               ? data.files.reduce(
@@ -634,6 +906,8 @@ export function AgenticChatPanel({
           if (accumulatedFiles.length > 0) {
             onFilesGenerated?.(accumulatedFiles)
           }
+          const duration = data.duration ? ` in ${(data.duration / 1000).toFixed(1)}s` : ''
+          appendProgressUpdate(`Run finished${duration}`, 'preview', { dedupeWindowMs: 4000 })
           break
         }
 
@@ -646,6 +920,7 @@ export function AgenticChatPanel({
 
         case 'version_created':
           onVersionCreated(data.versionId || data.version_id, data.versionNumber || data.version_number)
+          appendProgressUpdate(`Saved version ${data.versionNumber}`, 'preview', { dedupeWindowMs: 4000 })
           // Clear the generating version ID since generation is complete
           setGeneratingVersionId(null)
           break
@@ -660,6 +935,7 @@ export function AgenticChatPanel({
             }
             return updated
           })
+          appendProgressUpdate('Generation complete: summarizing results', 'preview')
           setThinkingStartTime(null)
           break
 
@@ -673,11 +949,13 @@ export function AgenticChatPanel({
             }
             return updated
           })
+          appendProgressUpdate(`Error: ${data.message}`, 'error')
           setThinkingStartTime(null)
           break
       }
     },
     [
+      appendProgressUpdate,
       onSessionChange,
       onVersionCreated,
       onFilesGenerated,
@@ -727,6 +1005,7 @@ export function AgenticChatPanel({
         isAgentic: true,
         tasks: [],
         files: [],
+        progressUpdates: [],
         createdAt: new Date().toISOString(),
       },
     ])
@@ -1008,9 +1287,14 @@ export function AgenticChatPanel({
                       />
                     )}
 
+                    {/* Live progress feed */}
+                    {message.progressUpdates && message.progressUpdates.length > 0 && (
+                      <ProgressFeed updates={message.progressUpdates} isStreaming={isLoading} />
+                    )}
+
                     {/* Summary text content */}
-                    {message.content && (
-                      <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
+                    {message.content && message.status === 'complete' && (
+                      <div className="text-sm text-gray-700 leading-relaxed">
                         {message.content}
                       </div>
                     )}
