@@ -268,6 +268,13 @@ class AppVersion(BaseModel):
     source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default=SOURCE_AI_EDIT)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
     
+    # Version activation status
+    is_active = models.BooleanField(
+        default=False,
+        help_text='Whether this version is active and should be returned by API. '
+                  'Only set True when generation completes successfully.'
+    )
+    
     # Agentic generation tracking
     generation_status = models.CharField(
         max_length=20,

@@ -65,6 +65,7 @@ def publish_app(request, pk=None):
             spec_json=latest_stable.spec_json,
             scope_snapshot_json=scope_snapshot,
             created_by=request.user,
+            is_active=False,  # Start inactive until files are copied
         )
         
         # Copy all files from stable version
@@ -80,6 +81,10 @@ def publish_app(request, pk=None):
         # Update app status to published
         app.status = InternalApp.STATUS_PUBLISHED
         app.save()
+        
+        # Mark as active after successful file copy
+        publish_version.is_active = True
+        publish_version.save(update_fields=['is_active', 'updated_at'])
     
     from ..serializers import AppVersionSerializer
     return Response(

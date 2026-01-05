@@ -50,6 +50,8 @@ class PublishFlowTests(TestCase):
             backend_connection=self.backend,
             created_by=self.user,
         )
+        # is_active should be True only when generation is complete
+        is_active = (generation_status == AppVersion.GEN_STATUS_COMPLETE)
         base_version = AppVersion.objects.create(
             internal_app=app,
             version_number=1,
@@ -58,6 +60,7 @@ class PublishFlowTests(TestCase):
             spec_json={'appName': 'Orders Dashboard', 'pages': []},
             created_by=self.user,
             generation_status=generation_status,
+            is_active=is_active,
         )
         VersionFile.objects.create(
             app_version=base_version,

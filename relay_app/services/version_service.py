@@ -26,11 +26,12 @@ class VersionService:
     @staticmethod
     def get_latest_stable_version(app: InternalApp) -> Optional[AppVersion]:
         """
-        Get the latest version that is stable (generation complete).
+        Get the latest version that is stable (generation complete and active).
         
         This excludes versions that are:
         - Still generating (generation_status='generating')
         - Failed with errors (generation_status='error')
+        - Not yet activated (is_active=False)
         
         Args:
             app: The internal app to get the version for
@@ -40,7 +41,8 @@ class VersionService:
         """
         return AppVersion.objects.filter(
             internal_app=app,
-            generation_status=AppVersion.GEN_STATUS_COMPLETE
+            generation_status=AppVersion.GEN_STATUS_COMPLETE,
+            is_active=True
         ).order_by('-version_number').first()
     
     @staticmethod

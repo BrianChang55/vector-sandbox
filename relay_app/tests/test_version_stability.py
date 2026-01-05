@@ -75,6 +75,7 @@ class VersionServiceTestCase(TestCase):
             version_number=1,
             spec_json={'version': 1},
             generation_status=AppVersion.GEN_STATUS_COMPLETE,
+            is_active=True,  # Active versions only
             created_by=self.user,
         )
         
@@ -99,6 +100,7 @@ class VersionServiceTestCase(TestCase):
             version_number=1,
             spec_json={'version': 1},
             generation_status=AppVersion.GEN_STATUS_COMPLETE,
+            is_active=True,  # Active versions only
             created_by=self.user,
         )
         
@@ -312,6 +314,7 @@ class CancelEndpointTestCase(TransactionTestCase):
             version_number=1,
             spec_json={'stable': True},
             generation_status=AppVersion.GEN_STATUS_COMPLETE,
+            is_active=True,  # Active versions only
             created_by=self.user,
         )
         
@@ -380,6 +383,7 @@ class StableVersionUsageTestCase(TestCase):
             version_number=1,
             spec_json={'pages': [{'id': 'page1', 'title': 'Stable Page'}]},
             generation_status=AppVersion.GEN_STATUS_COMPLETE,
+            is_active=True,  # Active versions only
             created_by=self.user,
         )
         
@@ -432,6 +436,7 @@ class StableVersionUsageTestCase(TestCase):
             version_number=1,
             spec_json={'v': 1},
             generation_status=AppVersion.GEN_STATUS_COMPLETE,
+            is_active=True,  # Active versions only
             created_by=self.user,
         )
         

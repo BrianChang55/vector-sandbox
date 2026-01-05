@@ -271,6 +271,7 @@ class SnapshotService:
                 intent_message=f"Rollback to v{target_version.version_number}",
                 created_by=user,
                 generation_status=AppVersion.GEN_STATUS_COMPLETE,
+                is_active=False,  # Start inactive until files are copied
             )
             
             # Copy files from target version
@@ -291,6 +292,10 @@ class SnapshotService:
             
             # Create snapshot for the new rollback version
             SnapshotService.create_version_snapshot(rollback_version)
+            
+            # Mark as active after successful file copy and schema revert
+            rollback_version.is_active = True
+            rollback_version.save(update_fields=['is_active', 'updated_at'])
             
             # Log the operation
             VersionAuditLog.log_operation(

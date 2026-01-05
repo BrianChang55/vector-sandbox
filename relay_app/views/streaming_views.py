@@ -471,10 +471,15 @@ class StreamingGenerateView(View):
                                     source=AppVersion.SOURCE_AI,
                                     spec_json=spec_json,
                                     created_by=user if user.is_authenticated else None,
+                                    is_active=False,  # Start inactive until files are generated
                                 )
                                 
                                 # Generate files
                                 CodegenService.generate_files_from_spec(version)
+                                
+                                # Mark as active after successful file generation
+                                version.is_active = True
+                                version.save(update_fields=['is_active', 'updated_at'])
                                 
                                 # Create snapshot for revert capability
                                 try:
@@ -660,9 +665,14 @@ class NonStreamingGenerateView(APIView):
                     source=AppVersion.SOURCE_AI,
                     spec_json=spec_json,
                     created_by=request.user,
+                    is_active=False,  # Start inactive until files are generated
                 )
                 
                 CodegenService.generate_files_from_spec(version)
+                
+                # Mark as active after successful file generation
+                version.is_active = True
+                version.save(update_fields=['is_active', 'updated_at'])
                 
                 # Create snapshot for revert capability
                 try:
@@ -953,12 +963,13 @@ class AgenticGenerateView(View):
                     )
                     logger.info(f"Saved file incrementally: {path}")
                 
-            # Generation complete - update version status
+            # Generation complete - update version status and mark as active
             duration_ms = int((time.time() - start_time) * 1000)
             
             version.generation_status = AppVersion.GEN_STATUS_COMPLETE
             version.generation_current_step = current_step_index + 1  # Mark all steps done
-            version.save(update_fields=['generation_status', 'generation_current_step', 'updated_at'])
+            version.is_active = True  # Mark as active so it appears in API responses
+            version.save(update_fields=['generation_status', 'generation_current_step', 'is_active', 'updated_at'])
             
             # Update assistant message
             assistant_message.status = ChatMessage.STATUS_COMPLETE
@@ -1085,6 +1096,7 @@ class GenerationStateView(APIView):
                 "version_id": str(version.id),
                 "version_number": version.version_number,
                 "generation_status": version.generation_status,
+                "is_active": version.is_active,
                 "generation_plan": version.generation_plan_json,
                 "current_step": version.generation_current_step,
                 "error": version.generation_error,
@@ -1172,6 +1184,7 @@ class LatestGenerationView(APIView):
                 "version_id": str(version.id),
                 "version_number": version.version_number,
                 "generation_status": version.generation_status,
+                "is_active": version.is_active,
                 "generation_plan": version.generation_plan_json,
                 "current_step": version.generation_current_step,
                 "error": version.generation_error,

@@ -52,11 +52,27 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
         
         When accessed via /apps/{app_id}/versions/ - filter by app
         When accessed via /versions/{version_id}/ (direct) - return all versions
+        
+        By default, only returns active versions (is_active=True) to ensure users
+        only see completed generations. Use ?include_inactive=true to include all versions.
         """
         app_id = self.kwargs.get('internal_app_pk')
+        
+        # Check if we should include inactive versions
+        include_inactive = False
+        if self.request:
+            flag = self.request.query_params.get('include_inactive')
+            include_inactive = str(flag).lower() in ('1', 'true', 'yes')
+        
         if app_id:
-            return AppVersion.objects.filter(internal_app_id=app_id).select_related('created_by')
+            queryset = AppVersion.objects.filter(internal_app_id=app_id).select_related('created_by')
+            # Filter to only active versions by default for list views
+            if not include_inactive and self.action == 'list':
+                queryset = queryset.filter(is_active=True)
+            return queryset
+        
         # Direct access - return all versions (will be filtered by pk lookup)
+        # For direct access (detail view), don't filter by is_active to allow accessing specific versions
         return AppVersion.objects.all().select_related('created_by')
     
     def get_serializer_class(self):
@@ -146,10 +162,15 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
                 intent_message=intent_message,
                 spec_json=spec_json,
                 created_by=request.user,
+                is_active=False,  # Start inactive until files are generated
             )
-            
-            # Generate files
-            CodegenService.generate_files_from_spec(version)
+        
+        # Generate files (potentially long-running, outside transaction)
+        CodegenService.generate_files_from_spec(version)
+        
+        # Mark as active after successful file generation
+        version.is_active = True
+        version.save(update_fields=['is_active', 'updated_at'])
         
         return Response(
             AppVersionSerializer(version).data,
@@ -197,6 +218,7 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
                 source=AppVersion.SOURCE_CODE_EDIT,
                 spec_json=latest_stable.spec_json,
                 created_by=request.user,
+                is_active=False,  # Start inactive until files are copied
             )
             
             # Copy all files from parent, then update the edited file
@@ -213,6 +235,10 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
             edited_file.content = request.data.get('content', '')
             edited_file.content_hash = VersionFile.compute_hash(edited_file.content)
             edited_file.save()
+            
+            # Mark as active after successful file operations
+            version.is_active = True
+            version.save(update_fields=['is_active', 'updated_at'])
         
         return Response(
             AppVersionSerializer(version).data,
