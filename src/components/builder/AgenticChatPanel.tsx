@@ -354,7 +354,9 @@ export function AgenticChatPanel({
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Load existing generation state on mount
+  // Load existing generation state on mount (files only, not messages)
+  // Chat messages come exclusively from session hydration to avoid race conditions.
+  // This effect only restores files for the Sandpack preview.
   useEffect(() => {
     if (hasLoadedState) return
     
@@ -377,54 +379,10 @@ export function AgenticChatPanel({
             onVersionCreated(state.version_id, state.version_number || 1)
           }
           
-          // If there's an in-progress generation, show status message
-          if (state.is_generating) {
-            setMessages([{
-              id: 'restored',
-              role: 'system',
-              content: `Resuming generation... ${state.file_count || 0} files saved so far.`,
-              status: 'complete',
-              createdAt: new Date().toISOString(),
-            }])
-            
-            // Restore tasks from plan if available
-            if (state.generation_plan?.steps) {
-              const restoredMessage: LocalMessage = {
-                id: 'restored-assistant',
-                role: 'assistant',
-                content: 'Generation in progress (resumed from saved state)',
-                status: 'streaming',
-                createdAt: new Date().toISOString(),
-                tasks: state.generation_plan.steps.map((s, i) => ({
-                  id: s.id,
-                  type: s.type as PlanStep['type'],
-                  title: s.title,
-                  description: s.description,
-                  status: i < (state.current_step || 0) ? 'complete' as const : s.status as PlanStep['status'],
-                })),
-                files: restoredFiles,
-              }
-              setMessages([restoredMessage])
-            }
-          } else if (state.is_complete) {
-            // Show completed generation
-            const completedMessage: LocalMessage = {
-              id: 'restored-complete',
-              role: 'assistant',
-              content: `Generated ${state.file_count || 0} ${(state.file_count || 0) === 1 ? 'file' : 'files'}`,
-              status: 'complete',
-              createdAt: state.created_at || new Date().toISOString(),
-              files: restoredFiles,
-              tasks: state.generation_plan?.steps?.map(s => ({
-                id: s.id,
-                type: s.type as PlanStep['type'],
-                title: s.title,
-                description: s.description,
-                status: 'complete' as const,
-              })),
-            }
-            setMessages([completedMessage])
-          }
+          // Note: We intentionally do NOT set messages here.
+          // Chat messages come from session hydration (useChatMessages hook).
+          // Setting messages here would race with session hydration and cause
+          // inconsistent behavior between page refresh and navigation from dashboard.
         }
       } catch (error) {
         console.error('Failed to load existing state:', error)
