@@ -14,7 +14,6 @@ import {
 } from '@codesandbox/sandpack-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  RefreshCw,
   Monitor,
   Code2,
   Terminal,
@@ -29,6 +28,10 @@ import {
 import { cn } from '../../lib/utils'
 import { api } from '../../services/api'
 import type { FileChange } from '../../types/agent'
+
+// Get the API base URL for runtime injection into Sandpack
+// This should point to the actual backend, not the Sandpack iframe origin
+const RUNTIME_API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001/api/v1'
 
 interface SandpackPreviewProps {
   files: FileChange[]
@@ -139,12 +142,19 @@ export interface QuerySpec {
   offset?: number;
 }
 
+// IMPORTANT: Always use absolute URL fallback to prevent relative URL issues in iframes
+const FALLBACK_API_URL = 'http://localhost:8001/api/v1';
+
 function getConfig() {
-  return window.__RELAY_CONFIG__ || {
-    appId: '',
-    versionId: '',
-    apiBaseUrl: '/api/v1',
-    appName: 'App',
+  const config = window.__RELAY_CONFIG__;
+  if (!config?.apiBaseUrl) {
+    console.warn('[runtime] RELAY_CONFIG not found - using fallback:', FALLBACK_API_URL);
+  }
+  return {
+    appId: config?.appId || '',
+    versionId: config?.versionId || '',
+    apiBaseUrl: config?.apiBaseUrl || FALLBACK_API_URL,
+    appName: config?.appName || 'App',
   };
 }
 
@@ -215,6 +225,165 @@ export function useQuery<T = any>(resourceId: string, querySpec?: QuerySpec, dep
   
   return { data, loading, error, refetch };
 }`,
+  '/lib/dataStore.ts': `// Data Store API Client
+// This client provides access to the app's data tables
+
+declare global {
+  interface Window {
+    __RELAY_CONFIG__?: {
+      appId: string;
+      versionId?: string;
+      apiBaseUrl: string;
+      appName?: string;
+    };
+  }
+}
+
+// IMPORTANT: Always use absolute URL fallback to prevent relative URL issues in iframes
+const FALLBACK_API_URL = 'http://localhost:8001/api/v1';
+
+function getConfig() {
+  const config = window.__RELAY_CONFIG__;
+  if (!config?.apiBaseUrl) {
+    console.warn('[dataStore] RELAY_CONFIG not found - using fallback:', FALLBACK_API_URL);
+  }
+  return {
+    appId: config?.appId || '',
+    versionId: config?.versionId || '',
+    apiBaseUrl: config?.apiBaseUrl || FALLBACK_API_URL,
+  };
+}
+
+interface QueryOptions {
+  filters?: Array<{ field: string; op: string; value: any }>;
+  orderBy?: Array<{ field: string; dir: 'asc' | 'desc' }>;
+  limit?: number;
+  offset?: number;
+  select?: string[];
+}
+
+interface QueryResult {
+  rows: Array<{ id: string; row_index: number; data: Record<string, any>; created_at: string | null; updated_at: string | null }>;
+  total_count: number;
+  limit: number;
+  offset: number;
+  has_more: boolean;
+}
+
+interface InsertResult {
+  id: string;
+  data: Record<string, any>;
+  row_index: number;
+  created_at: string | null;
+}
+
+async function dataApiCall<T>(operation: string, tableSlug: string | null, params: Record<string, any> = {}): Promise<T> {
+  const config = getConfig();
+  
+  // Build the full absolute URL - never use relative URLs in iframes
+  const url = \`\${config.apiBaseUrl}/runtime/data/\`;
+  console.log('[dataStore] API call:', operation, tableSlug, 'to', url);
+  
+  const body: Record<string, any> = {
+    appId: config.appId,
+    versionId: config.versionId,
+    operation,
+    tableSlug,
+    params,
+  };
+  
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.error || 'Data store operation failed');
+  }
+  
+  return response.json();
+}
+
+export const dataStore = {
+  // List all tables
+  listTables: async (): Promise<Array<{ slug: string; name: string; row_count: number }>> => {
+    const result = await dataApiCall<{ tables: any[] }>('listTables', null);
+    return result.tables || [];
+  },
+  
+  // Get table schema
+  getSchema: async (tableSlug: string): Promise<any> => {
+    return dataApiCall('getSchema', tableSlug);
+  },
+  
+  // Query rows with optional filtering, sorting, pagination
+  query: async (tableSlug: string, options: QueryOptions = {}): Promise<QueryResult> => {
+    return dataApiCall<QueryResult>('query', tableSlug, {
+      filters: options.filters,
+      orderBy: options.orderBy,
+      limit: options.limit,
+      offset: options.offset,
+      select: options.select,
+    });
+  },
+  
+  // Insert a new row
+  insert: async (tableSlug: string, data: Record<string, any>): Promise<InsertResult> => {
+    return dataApiCall<InsertResult>('insert', tableSlug, { data });
+  },
+  
+  // Update an existing row
+  update: async (tableSlug: string, rowId: string, data: Record<string, any>): Promise<InsertResult> => {
+    return dataApiCall<InsertResult>('update', tableSlug, { rowId, data });
+  },
+  
+  // Delete a row
+  delete: async (tableSlug: string, rowId: string): Promise<{ success: boolean }> => {
+    return dataApiCall<{ success: boolean }>('delete', tableSlug, { rowId });
+  },
+  
+  // Bulk insert multiple rows
+  bulkInsert: async (tableSlug: string, rows: Record<string, any>[]): Promise<{ created_count: number; rows: any[] }> => {
+    return dataApiCall('bulkInsert', tableSlug, { rows });
+  },
+  
+  // Bulk delete multiple rows
+  bulkDelete: async (tableSlug: string, rowIds: string[]): Promise<{ deleted_count: number }> => {
+    return dataApiCall('bulkDelete', tableSlug, { rowIds });
+  },
+};
+
+export default dataStore;
+
+// React hook for data queries
+import { useState, useEffect, useCallback } from 'react';
+
+export function useDataQuery<T = any>(tableSlug: string, options: QueryOptions = {}, deps: any[] = []) {
+  const [rows, setRows] = useState<T[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  const refetch = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await dataStore.query(tableSlug, options);
+      setRows(result.rows.map(r => ({ id: r.id, ...r.data })) as T[]);
+      setTotalCount(result.total_count);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [tableSlug, JSON.stringify(options)]);
+  
+  useEffect(() => { refetch(); }, [refetch, ...deps]);
+  
+  return { rows, totalCount, loading, error, refetch };
+}`,
 }
 
 // Convert FileChange array to Sandpack files format
@@ -226,7 +395,234 @@ function convertToSandpackFiles(
 ): Record<string, string> {
   const sandpackFiles: Record<string, string> = { ...DEFAULT_FILES }
 
-  // Inject runtime config
+  // CRITICAL: Use postMessage bridge to bypass CORS/Private Network Access issues
+  // The Sandpack iframe cannot directly call localhost due to Chrome's PNA restrictions
+  // Instead, we use postMessage to communicate with the parent window (our React app)
+  // which then makes the actual API calls and sends results back
+  sandpackFiles['/lib/dataStore.ts'] = `// Data Store API Client - Uses postMessage bridge to parent window
+// This bypasses CORS/Private Network Access restrictions in Sandpack iframes
+
+// Config is baked in at build time
+const CONFIG = {
+  appId: '${appId}',
+  versionId: '${versionId}',
+  apiBaseUrl: '${RUNTIME_API_BASE_URL}',
+  appName: '${appName}',
+};
+
+console.log('[dataStore] Initialized with postMessage bridge, appId:', CONFIG.appId);
+
+// Pending requests waiting for responses from parent
+const pendingRequests: Map<string, { resolve: (data: any) => void; reject: (error: Error) => void }> = new Map();
+
+// Generate unique request ID
+function generateRequestId(): string {
+  return \`req_\${Date.now()}_\${Math.random().toString(36).substr(2, 9)}\`;
+}
+
+// Listen for responses from parent window
+window.addEventListener('message', (event) => {
+  // Only accept messages that look like our API responses
+  if (event.data && event.data.type === 'DATASTORE_RESPONSE') {
+    const { requestId, success, data, error } = event.data;
+    console.log('[dataStore] Received response for', requestId, success ? 'success' : 'error');
+    
+    const pending = pendingRequests.get(requestId);
+    if (pending) {
+      pendingRequests.delete(requestId);
+      if (success) {
+        pending.resolve(data);
+      } else {
+        pending.reject(new Error(error || 'API call failed'));
+      }
+    }
+  }
+});
+
+interface QueryOptions {
+  filters?: Array<{ field: string; op: string; value: any }>;
+  orderBy?: Array<{ field: string; dir: 'asc' | 'desc' }>;
+  limit?: number;
+  offset?: number;
+  select?: string[];
+}
+
+interface QueryResult {
+  rows: Array<{ id: string; row_index: number; data: Record<string, any>; created_at: string | null; updated_at: string | null }>;
+  total_count: number;
+  limit: number;
+  offset: number;
+  has_more: boolean;
+}
+
+interface InsertResult {
+  id: string;
+  data: Record<string, any>;
+  row_index: number;
+  created_at: string | null;
+}
+
+// Make API call via postMessage bridge to parent window
+async function dataApiCall<T>(operation: string, tableSlug: string | null, params: Record<string, any> = {}): Promise<T> {
+  const requestId = generateRequestId();
+  console.log('[dataStore] Sending request via postMessage:', requestId, operation, tableSlug);
+  
+  return new Promise((resolve, reject) => {
+    // Store the pending request
+    pendingRequests.set(requestId, { resolve, reject });
+    
+    // Set timeout for request
+    setTimeout(() => {
+      if (pendingRequests.has(requestId)) {
+        pendingRequests.delete(requestId);
+        reject(new Error('Request timeout - parent window did not respond'));
+      }
+    }, 30000); // 30 second timeout
+    
+    // Send request to parent window
+    window.parent.postMessage({
+      type: 'DATASTORE_REQUEST',
+      requestId,
+      appId: CONFIG.appId,
+      versionId: CONFIG.versionId,
+      operation,
+      tableSlug,
+      params,
+    }, '*');
+  });
+}
+
+export const dataStore = {
+  listTables: async (): Promise<Array<{ slug: string; name: string; row_count: number }>> => {
+    const result = await dataApiCall<{ tables: any[] }>('listTables', null);
+    return result.tables || [];
+  },
+  
+  getSchema: async (tableSlug: string): Promise<any> => {
+    return dataApiCall('getSchema', tableSlug);
+  },
+  
+  query: async (tableSlug: string, options: QueryOptions = {}): Promise<QueryResult> => {
+    return dataApiCall<QueryResult>('query', tableSlug, {
+      filters: options.filters,
+      orderBy: options.orderBy,
+      limit: options.limit,
+      offset: options.offset,
+      select: options.select,
+    });
+  },
+  
+  insert: async (tableSlug: string, data: Record<string, any>): Promise<InsertResult> => {
+    return dataApiCall<InsertResult>('insert', tableSlug, { data });
+  },
+  
+  update: async (tableSlug: string, rowId: string, data: Record<string, any>): Promise<InsertResult> => {
+    return dataApiCall<InsertResult>('update', tableSlug, { rowId, data });
+  },
+  
+  delete: async (tableSlug: string, rowId: string): Promise<{ success: boolean }> => {
+    return dataApiCall<{ success: boolean }>('delete', tableSlug, { rowId });
+  },
+  
+  bulkInsert: async (tableSlug: string, rows: Record<string, any>[]): Promise<{ created_count: number; rows: any[] }> => {
+    return dataApiCall('bulkInsert', tableSlug, { rows });
+  },
+  
+  bulkDelete: async (tableSlug: string, rowIds: string[]): Promise<{ deleted_count: number }> => {
+    return dataApiCall('bulkDelete', tableSlug, { rowIds });
+  },
+};
+
+export default dataStore;
+`
+
+  // Also inject config into runtime.ts for legacy compatibility
+  sandpackFiles['/lib/runtime.ts'] = `// Runtime API Client - Config injected at build time
+// DO NOT MODIFY - this file is auto-generated with app-specific config
+
+const CONFIG = {
+  appId: '${appId}',
+  versionId: '${versionId}',
+  apiBaseUrl: '${RUNTIME_API_BASE_URL}',
+  appName: '${appName}',
+};
+
+export interface QuerySpec {
+  select?: string[];
+  filters?: Array<{ field: string; op: string; value: any }>;
+  orderBy?: Array<{ field: string; dir: 'asc' | 'desc' }>;
+  limit?: number;
+  offset?: number;
+}
+
+export async function runtimeQuery<T = any>(params: {
+  resourceId: string;
+  querySpec?: QuerySpec;
+}): Promise<{ data: T[]; count: number }> {
+  try {
+    const response = await fetch(\`\${CONFIG.apiBaseUrl}/runtime/query/\`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        appId: CONFIG.appId,
+        versionId: CONFIG.versionId,
+        ...params,
+      }),
+    });
+    return response.json();
+  } catch (error) {
+    console.error('Query error:', error);
+    return { data: [], count: 0 };
+  }
+}
+
+export async function runtimeAction(params: {
+  actionId: string;
+  args?: Record<string, any>;
+}): Promise<{ success: boolean; data?: any }> {
+  try {
+    const response = await fetch(\`\${CONFIG.apiBaseUrl}/runtime/action/\`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        appId: CONFIG.appId,
+        versionId: CONFIG.versionId,
+        ...params,
+      }),
+    });
+    return response.json();
+  } catch (error) {
+    console.error('Action error:', error);
+    return { success: false };
+  }
+}
+
+import { useState, useEffect, useCallback } from 'react';
+
+export function useQuery<T = any>(resourceId: string, querySpec?: QuerySpec, deps: any[] = []) {
+  const [data, setData] = useState<T[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  
+  const refetch = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await runtimeQuery<T>({ resourceId, querySpec });
+      setData(result.data);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [resourceId, JSON.stringify(querySpec)]);
+  
+  useEffect(() => { refetch(); }, [refetch, ...deps]);
+  
+  return { data, loading, error, refetch };
+}
+`
+
+  // Inject runtime config into index.html as well (belt and suspenders)
   sandpackFiles['/public/index.html'] = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -238,7 +634,7 @@ function convertToSandpackFiles(
     window.__RELAY_CONFIG__ = {
       appId: '${appId}',
       versionId: '${versionId}',
-      apiBaseUrl: window.location.origin + '/api/v1',
+      apiBaseUrl: '${RUNTIME_API_BASE_URL}',
       appName: '${appName}'
     };
   </script>
@@ -273,6 +669,13 @@ function convertToSandpackFiles(
     // Map common path patterns to Sandpack's expected structure
     // index.html or src/index.html → skip (we inject our own with runtime config)
     if (path === '/index.html' || path === '/src/index.html') {
+      continue
+    }
+    
+    // CRITICAL: Skip lib/dataStore.ts and lib/runtime.ts - we provide these with proper config
+    // AI-generated versions have bad fallbacks that cause CORS/URL issues
+    if (path === '/lib/dataStore.ts' || path === '/lib/runtime.ts') {
+      console.log('[Sandpack] Skipping AI-generated', path, '- using built-in template with proper config')
       continue
     }
     
@@ -496,22 +899,6 @@ function EditorTabs() {
         )
       })}
     </div>
-  )
-}
-
-// Refresh button that uses Sandpack context
-function RefreshButton() {
-  const { sandpack } = useSandpack()
-
-  return (
-    <button
-      onClick={() => sandpack.runSandpack()}
-      className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 
-               rounded-md transition-colors"
-      title="Refresh preview"
-    >
-      <RefreshCw className="h-4 w-4" />
-    </button>
   )
 }
 
@@ -798,6 +1185,75 @@ export function SandpackPreview({
     const t = window.setTimeout(() => setShowStartupLoading(false), 3000)
     return () => window.clearTimeout(t)
   }, [filesKey])
+
+  // PostMessage bridge: Listen for API requests from Sandpack iframe and proxy them
+  // This bypasses CORS/Private Network Access restrictions
+  useEffect(() => {
+    const handleMessage = async (event: MessageEvent) => {
+      // Only handle DATASTORE_REQUEST messages
+      if (!event.data || event.data.type !== 'DATASTORE_REQUEST') {
+        return
+      }
+
+      const { requestId, appId: reqAppId, versionId: reqVersionId, operation, tableSlug, params } = event.data
+      console.log('[SandpackPreview] Received dataStore request:', requestId, operation, tableSlug)
+
+      try {
+        // Make the actual API call from the parent window (no CORS issues)
+        const url = `${RUNTIME_API_BASE_URL}/runtime/data/`
+        console.log('[SandpackPreview] Proxying request to:', url)
+
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            appId: reqAppId || appId,
+            versionId: reqVersionId || versionId,
+            operation,
+            tableSlug,
+            params,
+          }),
+        })
+
+        const data = await response.json()
+        console.log('[SandpackPreview] Got response for:', requestId, response.ok ? 'success' : 'error')
+
+        if (!response.ok) {
+          // Send error back to iframe
+          event.source?.postMessage({
+            type: 'DATASTORE_RESPONSE',
+            requestId,
+            success: false,
+            error: data.error || `API error: ${response.status}`,
+          }, { targetOrigin: '*' })
+        } else {
+          // Send success response back to iframe
+          event.source?.postMessage({
+            type: 'DATASTORE_RESPONSE',
+            requestId,
+            success: true,
+            data,
+          }, { targetOrigin: '*' })
+        }
+      } catch (error) {
+        console.error('[SandpackPreview] API call failed:', requestId, error)
+        // Send error back to iframe
+        event.source?.postMessage({
+          type: 'DATASTORE_RESPONSE',
+          requestId,
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        }, { targetOrigin: '*' })
+      }
+    }
+
+    window.addEventListener('message', handleMessage)
+    console.log('[SandpackPreview] PostMessage bridge listener installed')
+
+    return () => {
+      window.removeEventListener('message', handleMessage)
+    }
+  }, [appId, versionId])
 
   return (
     <div

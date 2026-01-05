@@ -16,8 +16,6 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { 
   ArrowLeft, 
-  Settings, 
-  MoreVertical,
   Layers,
   Play,
   Rocket,
@@ -299,12 +297,6 @@ export function AppBuilderPage() {
             }
           >
             {copiedPublishedLink ? <CheckCircle className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
-          </button>
-          <button className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors">
-            <Settings className="h-4 w-4" />
-          </button>
-          <button className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors">
-            <MoreVertical className="h-4 w-4" />
           </button>
         </div>
       </header>
