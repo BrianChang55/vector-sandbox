@@ -320,7 +320,37 @@ const result = await dataStore.query('customers', {{
   orderBy: [{{ field: 'name', dir: 'asc' }}],
   limit: 50
 }});
-// Returns: {{ rows: [...], total_count: number, has_more: boolean }}
+
+// IMPORTANT: Query response structure
+// result = {{
+//   rows: [
+//     {{
+//       id: "row-uuid",           // Row ID for updates/deletes
+//       row_index: 1,             // Row order
+//       created_at: "...",
+//       updated_at: "...",
+//       data: {{                   // <-- YOUR FIELDS ARE NESTED IN data!
+//         name: "John Doe",
+//         email: "john@example.com",
+//         status: "active"
+//       }}
+//     }}
+//   ],
+//   total_count: 100,
+//   has_more: true
+// }}
+
+// CORRECT way to access row data:
+result.rows.map(row => (
+  <div key={{row.id}}>
+    <h3>{{row.data.name}}</h3>       // Access fields via row.data.fieldName
+    <p>{{row.data.email}}</p>
+  </div>
+));
+
+// WRONG - this won't work:
+// row.name    // undefined! Fields are in row.data
+// row.email   // undefined! Use row.data.email
 
 // Insert a new row
 const newCustomer = await dataStore.insert('customers', {{
@@ -328,25 +358,30 @@ const newCustomer = await dataStore.insert('customers', {{
   email: 'john@example.com',
   status: 'active'
 }});
-// Returns: {{ id: 'uuid', data: {{...}}, row_index: number }}
+// Returns: {{ id: 'row-uuid', data: {{name: '...', email: '...'}}, row_index: 1, created_at: '...' }}
 
-// Update an existing row
-await dataStore.update('customers', 'row-uuid', {{
+// Update an existing row (use row.id, not row.data.id)
+await dataStore.update('customers', row.id, {{
   status: 'inactive'
 }});
 
-// Delete a row
-await dataStore.delete('customers', 'row-uuid');
+// Delete a row (use row.id)
+await dataStore.delete('customers', row.id);
 
 // Bulk operations
 await dataStore.bulkInsert('customers', [
   {{ name: 'User 1', email: 'user1@example.com' }},
   {{ name: 'User 2', email: 'user2@example.com' }}
 ]);
-await dataStore.bulkDelete('customers', ['uuid-1', 'uuid-2']);
+await dataStore.bulkDelete('customers', ['row-uuid-1', 'row-uuid-2']);
 ```
 
 **Filter Operators:** `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `not_in`, `contains`, `icontains`, `is_null`
+
+**CRITICAL: Row Data Structure**
+- Use `row.id` for the row UUID (for update/delete operations)
+- Use `row.data.fieldName` to access your data fields (e.g., `row.data.title`, `row.data.email`)
+- The `data` object contains all your table columns
 
 IMPORTANT: When creating apps that need persistent data:
 1. First define the table(s) using TABLE_DEFINITION blocks
