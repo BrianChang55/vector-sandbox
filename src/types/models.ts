@@ -2,6 +2,54 @@
  * TypeScript types for backend models
  */
 
+// ============================================================================
+// Organization & Member Types
+// ============================================================================
+
+/**
+ * Organization roles with permission levels
+ */
+export type OrgRole = 'admin' | 'editor' | 'viewer'
+
+/**
+ * Permission capabilities based on role
+ */
+export interface RolePermissions {
+  canEditApps: boolean
+  canManageIntegrations: boolean
+  canManageMembers: boolean
+  canUpdateOrgSettings: boolean
+}
+
+/**
+ * Get permissions for a given role
+ */
+export function getRolePermissions(role: OrgRole): RolePermissions {
+  switch (role) {
+    case 'admin':
+      return {
+        canEditApps: true,
+        canManageIntegrations: true,
+        canManageMembers: true,
+        canUpdateOrgSettings: true,
+      }
+    case 'editor':
+      return {
+        canEditApps: true,
+        canManageIntegrations: false,
+        canManageMembers: false,
+        canUpdateOrgSettings: false,
+      }
+    case 'viewer':
+      return {
+        canEditApps: false,
+        canManageIntegrations: false,
+        canManageMembers: false,
+        canUpdateOrgSettings: false,
+      }
+  }
+}
+
 export interface Organization {
   id: string
   name: string
@@ -9,6 +57,86 @@ export interface Organization {
   logo_url: string | null
   created_at: string
   updated_at: string
+}
+
+/**
+ * Organization with user's role
+ */
+export interface OrganizationWithRole extends Organization {
+  role: OrgRole
+}
+
+/**
+ * Organization member (active user in org)
+ */
+export interface OrgMember {
+  id: string
+  user_id: string
+  email: string
+  first_name: string
+  last_name: string
+  profile_image_url: string | null
+  role: OrgRole
+  role_display: string
+  joined_at: string
+}
+
+/**
+ * Pending organization invitation
+ */
+export interface OrgInvite {
+  id: string
+  email: string
+  role: OrgRole
+  role_display: string
+  invited_by_email: string | null
+  invited_by_name: string | null
+  organization_name: string
+  created_at: string
+  expires_at: string
+  is_expired: boolean
+  is_valid: boolean
+  is_accepted: boolean
+}
+
+/**
+ * Response from members list endpoint
+ */
+export interface MembersListResponse {
+  members: OrgMember[]
+  pending_invites: OrgInvite[]
+  current_user_role: OrgRole
+  can_manage_members: boolean
+}
+
+/**
+ * Invitation details for accept page
+ */
+export interface InviteDetails {
+  organization_name: string
+  organization_logo_url: string | null
+  role: OrgRole
+  role_display: string
+  invited_by_name: string | null
+  email: string
+  expires_at: string
+}
+
+/**
+ * Response from accepting an invitation
+ */
+export interface InviteAcceptResponse {
+  message: string
+  organization?: {
+    id: string
+    name: string
+    slug: string
+  }
+  role?: OrgRole
+  is_new_user?: boolean
+  requires_signup?: boolean
+  email?: string
+  organization_name?: string
 }
 
 export interface BackendConnection {

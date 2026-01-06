@@ -297,3 +297,78 @@ export function usePublishedApp(orgSlug: string | null, appSlug: string | null) 
   })
 }
 
+// ============================================================================
+// App Favorites
+// ============================================================================
+
+interface FavoritesResponse {
+  favorites: string[]
+}
+
+interface ToggleFavoriteResponse {
+  favorited: boolean
+  app_id: string
+}
+
+/**
+ * Fetch user's favorite app IDs for an organization
+ */
+export function useAppFavorites(orgId: string | null) {
+  return useQuery({
+    queryKey: ['app-favorites', orgId],
+    queryFn: async () => {
+      if (!orgId) return new Set<string>()
+      const response = await api.get<FavoritesResponse>(`/orgs/${orgId}/favorites/`)
+      return new Set(response.data.favorites)
+    },
+    enabled: !!orgId,
+    staleTime: 30000, // Cache for 30 seconds
+  })
+}
+
+/**
+ * Toggle favorite status for an app
+ */
+export function useToggleFavorite() {
+  const queryClient = useQueryClient()
+  
+  return useMutation({
+    mutationFn: async ({ orgId, appId }: { orgId: string; appId: string }) => {
+      const response = await api.post<ToggleFavoriteResponse>(`/orgs/${orgId}/favorites/`, {
+        app_id: appId,
+      })
+      return response.data
+    },
+    onMutate: async ({ orgId, appId }) => {
+      // Cancel any outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ['app-favorites', orgId] })
+      
+      // Snapshot the previous value
+      const previousFavorites = queryClient.getQueryData<Set<string>>(['app-favorites', orgId])
+      
+      // Optimistically update to the new value
+      if (previousFavorites) {
+        const newFavorites = new Set(previousFavorites)
+        if (newFavorites.has(appId)) {
+          newFavorites.delete(appId)
+        } else {
+          newFavorites.add(appId)
+        }
+        queryClient.setQueryData(['app-favorites', orgId], newFavorites)
+      }
+      
+      return { previousFavorites }
+    },
+    onError: (_err, { orgId }, context) => {
+      // Rollback on error
+      if (context?.previousFavorites) {
+        queryClient.setQueryData(['app-favorites', orgId], context.previousFavorites)
+      }
+    },
+    onSettled: (_data, _error, { orgId }) => {
+      // Refetch after error or success
+      queryClient.invalidateQueries({ queryKey: ['app-favorites', orgId] })
+    },
+  })
+}
+

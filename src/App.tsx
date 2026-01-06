@@ -20,6 +20,7 @@ import { ResourcesPage } from './pages/ResourcesPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { AppPreviewPage } from './pages/AppPreviewPage'
 import { PublishedAppPage } from './pages/PublishedAppPage'
+import { InviteAcceptPage } from './pages/InviteAcceptPage'
 
 function App() {
   return (
@@ -35,6 +36,7 @@ function App() {
             <Route path="/signup" element={<SignUpPage />} />
             <Route path="/auth/google/callback" element={<GoogleOAuthCallbackPage />} />
             <Route path="/auth/magic-link/verify" element={<MagicLinkVerifyPage />} />
+            <Route path="/invite/accept" element={<InviteAcceptPage />} />
             
             {/* Protected routes */}
             <Route

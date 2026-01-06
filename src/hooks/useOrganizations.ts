@@ -3,6 +3,8 @@
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../services/api'
+import { useAppDispatch } from '../store/hooks'
+import { setSelectedOrg } from '../store/slices/uiSlice'
 import type { Organization } from '../types/models'
 
 export function useOrganizations() {
@@ -30,15 +32,20 @@ export function useCreateOrganization() {
 }
 
 export function useSwitchOrganization() {
+  const dispatch = useAppDispatch()
   const queryClient = useQueryClient()
   
   return useMutation({
     mutationFn: async (orgId: string) => {
-      const response = await api.post(`/orgs/${orgId}/switch/`)
-      return response.data
+      // This is a client-side operation - just update Redux state
+      dispatch(setSelectedOrg(orgId))
+      return { orgId }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['organizations'] })
+      // Invalidate queries that depend on the selected org
+      queryClient.invalidateQueries({ queryKey: ['apps'] })
+      queryClient.invalidateQueries({ queryKey: ['members'] })
+      queryClient.invalidateQueries({ queryKey: ['backends'] })
     },
   })
 }

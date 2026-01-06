@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 
 import { useApp, useAppVersions, usePublishApp, useRollback } from '../hooks/useApps'
+import { useOrgMembers } from '../hooks/useMembers'
 import { useAppSelector, useAppDispatch } from '../store/hooks'
 import { setSelectedVersion } from '../store/slices/uiSlice'
 
@@ -51,12 +52,31 @@ export function AppBuilderPage() {
   
   const { data: app, isLoading: appLoading, refetch: refetchApp } = useApp(appId || null)
   const { data: versions, refetch: refetchVersions } = useAppVersions(appId || null, { includeFiles: true })
+  
+  // Get current user's role for permission checks
+  const selectedOrgId = useAppSelector((state) => state.ui.selectedOrgId)
+  const { data: membersData } = useOrgMembers(selectedOrgId)
+  const currentUserRole = membersData?.current_user_role
+  const isViewer = currentUserRole === 'viewer'
+  
   const publishApp = usePublishApp()
   const rollbackMutation = useRollback()
   const { addToast } = useToast()
   const toastHelpers = toast(addToast)
   
   const selectedVersionId = useAppSelector((state) => state.ui.selectedVersionId)
+  
+  // Redirect viewers to the published app or preview page
+  useEffect(() => {
+    if (isViewer && app) {
+      if (app.published_url) {
+        navigate(app.published_url, { replace: true })
+      } else {
+        // If not published, redirect to preview
+        navigate(`/preview/apps/${app.id}`, { replace: true })
+      }
+    }
+  }, [isViewer, app, navigate])
   
   // Tab state from URL
   const activeTab = (searchParams.get('tab') as AppTab) || 'builder'

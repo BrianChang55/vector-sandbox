@@ -5,16 +5,21 @@ import { useState, useRef, useEffect } from 'react'
 import { useAppSelector, useAppDispatch } from '../store/hooks'
 import { logout } from '../store/slices/authSlice'
 import { useOrganizations, useUploadOrganizationLogo, useDeleteOrganizationLogo, useUpdateOrganization } from '../hooks/useOrganizations'
+import { useOrgMembers } from '../hooks/useMembers'
 import { Button } from '../components/ui/button'
 import { useDialog } from '../components/ui/dialog-provider'
-import { User, Building2, LogOut, Shield, Bell, Upload, Trash2, Loader2, Check } from 'lucide-react'
+import { MembersPanel } from '../components/settings/MembersPanel'
+import { IntegrationsPanel } from '../components/settings/IntegrationsPanel'
+import { User, Building2, LogOut, Shield, Bell, Upload, Trash2, Loader2, Check, Users, Plug } from 'lucide-react'
 import { cn } from '../lib/utils'
 
-type SettingsTab = 'profile' | 'organization' | 'security' | 'notifications'
+type SettingsTab = 'profile' | 'organization' | 'members' | 'integrations' | 'security' | 'notifications'
 
-const tabs: { id: SettingsTab; label: string; icon: React.ElementType }[] = [
+const tabs: { id: SettingsTab; label: string; icon: React.ElementType; adminOnly?: boolean }[] = [
   { id: 'profile', label: 'Profile', icon: User },
   { id: 'organization', label: 'Organization', icon: Building2 },
+  { id: 'members', label: 'Members', icon: Users },
+  { id: 'integrations', label: 'Integrations', icon: Plug, adminOnly: true },
   { id: 'security', label: 'Security', icon: Shield },
   { id: 'notifications', label: 'Notifications', icon: Bell },
 ]
@@ -24,10 +29,14 @@ export function SettingsPage() {
   const { user } = useAppSelector((state) => state.auth)
   const selectedOrgId = useAppSelector((state) => state.ui.selectedOrgId)
   const { data: organizations } = useOrganizations()
+  const { data: membersData } = useOrgMembers(selectedOrgId)
   const uploadLogo = useUploadOrganizationLogo()
   const deleteLogo = useDeleteOrganizationLogo()
   const updateOrganization = useUpdateOrganization()
   const { confirm, alert } = useDialog()
+  
+  const currentUserRole = membersData?.current_user_role
+  const canManageIntegrations = currentUserRole === 'admin'
   
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile')
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -186,6 +195,11 @@ export function SettingsPage() {
       <div className="w-56 border-r border-gray-200 bg-white p-4">
         <nav className="space-y-1">
           {tabs.map((tab) => {
+            // Hide admin-only tabs for non-admins
+            if (tab.adminOnly && !canManageIntegrations) {
+              return null
+            }
+            
             const Icon = tab.icon
             const isActive = activeTab === tab.id
             return (
@@ -443,6 +457,22 @@ export function SettingsPage() {
                   Notification preferences coming soon.
                 </p>
               </div>
+            </div>
+          )}
+
+          {/* Members Tab */}
+          {activeTab === 'members' && selectedOrgId && (
+            <div>
+              <h1 className="text-xl font-semibold text-gray-900 mb-6">Members</h1>
+              <MembersPanel orgId={selectedOrgId} />
+            </div>
+          )}
+
+          {/* Integrations Tab (Admin only) */}
+          {activeTab === 'integrations' && selectedOrgId && canManageIntegrations && (
+            <div>
+              <h1 className="text-xl font-semibold text-gray-900 mb-6">Integrations</h1>
+              <IntegrationsPanel orgId={selectedOrgId} />
             </div>
           )}
         </div>

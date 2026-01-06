@@ -39,6 +39,7 @@ import {
   useHandleLinkCallback,
 } from '../../hooks/useIntegrations'
 import type { Connector, IntegrationProvider } from '../../types/models'
+import { fuzzySearch } from '../../utils/fuzzySearch'
 
 interface IntegrationsPanelProps {
   orgId: string
@@ -144,14 +145,13 @@ function ProviderDashboard({ provider }: ProviderDashboardProps) {
       result = result.filter(c => !c.is_connected)
     }
     
-    // Apply search
+    // Apply fuzzy search
     if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase()
-      result = result.filter(c => 
-        c.name.toLowerCase().includes(query) ||
-        c.category?.toLowerCase().includes(query) ||
-        c.description?.toLowerCase().includes(query)
-      )
+      result = fuzzySearch(result, searchQuery, [
+        { getValue: (c) => c.name, weight: 2 },
+        { getValue: (c) => c.category, weight: 1.5 },
+        { getValue: (c) => c.description, weight: 1 },
+      ])
     }
     
     return result
