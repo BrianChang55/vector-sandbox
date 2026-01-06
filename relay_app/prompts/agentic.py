@@ -746,12 +746,19 @@ def build_step_prompt(
     if data_store_context:
         resources_info += f"\n\n{data_store_context}"
     
-    # Add connectors context to resources info
+    # Add connectors/MCP tools context to resources info
     if connectors_context:
-        connectors_prompt = CONNECTORS_PROMPT_TEMPLATE.format(
-            connectors_context=connectors_context
-        )
-        resources_info += f"\n\n{connectors_prompt}"
+        # Check if this is already a complete MCP context (from mcp_context.py)
+        # or if it needs to be wrapped in the template
+        if "## Available MCP" in connectors_context or "mcpTools" in connectors_context:
+            # Already formatted MCP context - use directly
+            resources_info += f"\n\n{connectors_context}"
+        else:
+            # Legacy connectors context - wrap in template
+            connectors_prompt = CONNECTORS_PROMPT_TEMPLATE.format(
+                connectors_context=connectors_context
+            )
+            resources_info += f"\n\n{connectors_prompt}"
     
     if not resources_info.strip():
         resources_info = "No data resources available - you can create tables using TABLE_DEFINITION blocks"

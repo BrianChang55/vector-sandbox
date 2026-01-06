@@ -213,6 +213,88 @@ class RuntimeConnectorProxyView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
         
+        elif tool_id == 'mcp_call':
+            # Execute an MCP tool via tools/call endpoint
+            # This is the main entry point for generated apps to call integration tools
+            if not provider.merge_registered_user_id:
+                return Response(
+                    {'error': 'Organization is not registered with Merge'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            tool_name = params.get('tool_name')
+            arguments = params.get('arguments', {})
+            
+            if not tool_name:
+                return Response(
+                    {'error': 'tool_name is required in params'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            try:
+                result = merge_service.mcp_call_tool(provider, tool_name, arguments)
+                
+                if result.success:
+                    # Check if the content contains an error message
+                    # MCP sometimes returns success=true but with error in content
+                    content = result.content
+                    error_in_content = None
+                    
+                    if isinstance(content, list) and len(content) > 0:
+                        first_item = content[0]
+                        if isinstance(first_item, dict) and first_item.get('type') == 'text':
+                            text = first_item.get('text', '')
+                            # Strip outer quotes if present (MCP sometimes double-escapes)
+                            if (text.startswith('"') and text.endswith('"')) or (text.startswith("'") and text.endswith("'")):
+                                text = text[1:-1]
+                            # Unescape escaped quotes
+                            text = text.replace('\\"', '"')
+                            # Check if the text contains an error
+                            if 'error' in text.lower():
+                                try:
+                                    import json
+                                    import re
+                                    # First try: pattern for 'error': "..."
+                                    match = re.search(r"'error':\s*\"([^\"]+)\"", text)
+                                    if match:
+                                        error_in_content = match.group(1)
+                                    else:
+                                        # Second try: pattern for "error": "..."
+                                        match = re.search(r'"error":\s*"([^"]+)"', text)
+                                        if match:
+                                            error_in_content = match.group(1)
+                                        else:
+                                            # Third try: parse as JSON
+                                            parsed = json.loads(text.replace("'", '"'))
+                                            if isinstance(parsed, dict) and 'error' in parsed:
+                                                error_in_content = parsed['error']
+                                except (json.JSONDecodeError, ValueError, AttributeError):
+                                    pass
+                    
+                    if error_in_content:
+                        logger.warning(f"MCP tool '{tool_name}' returned error in content: {error_in_content}")
+                        return Response({
+                            'success': False,
+                            'error': error_in_content,
+                        }, status=status.HTTP_400_BAD_REQUEST)
+                    
+                    return Response({
+                        'success': True,
+                        'data': content,
+                    })
+                else:
+                    return Response({
+                        'success': False,
+                        'error': result.error_message or 'Tool execution failed',
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                    
+            except MergeAPIError as e:
+                logger.error(f"Failed to call MCP tool '{tool_name}': {e}")
+                return Response(
+                    {'success': False, 'error': str(e)},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
         else:
             return Response(
                 {'error': f'Unknown meta operation: {tool_id}'},

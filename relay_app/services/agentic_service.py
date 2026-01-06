@@ -29,6 +29,10 @@ from relay_app.services.data_store_context import (
     build_data_store_context,
     get_table_summary,
 )
+from relay_app.services.mcp_context import (
+    build_mcp_tools_context,
+    MCPToolsContext,
+)
 
 if TYPE_CHECKING:
     from relay_app.models import InternalApp, AppVersion
@@ -168,7 +172,23 @@ class AgenticService:
         if app:
             data_store_context = build_data_store_context(app)
         
-        styled_user_message = apply_design_style_prompt(user_message, data_store_context)
+        # Build MCP tools context if app has connected integrations
+        mcp_context: Optional[MCPToolsContext] = None
+        mcp_tools_context_str: Optional[str] = None
+        if app:
+            try:
+                mcp_context = build_mcp_tools_context(app)
+                if mcp_context.has_tools:
+                    mcp_tools_context_str = mcp_context.full_context
+                    logger.info(f"MCP context: {len(mcp_context.tools)} tools available")
+            except Exception as e:
+                logger.warning(f"Failed to build MCP context: {e}")
+        
+        styled_user_message = apply_design_style_prompt(
+            user_message, 
+            data_store_context,
+            mcp_tools_context_str,  # Include MCP tools in prompt
+        )
         
         # Emit start event
         yield AgentEvent("agent_start", {
@@ -187,9 +207,9 @@ class AgenticService:
             "type": "observation",
         })
         
-        # Analyze context with data store info
+        # Analyze context with data store info and MCP tools
         context_analysis = self._analyze_context(
-            styled_user_message, current_spec, registry_surface, app_name, app
+            styled_user_message, current_spec, registry_surface, app_name, app, mcp_context
         )
         
         yield AgentEvent("thinking", {
@@ -258,7 +278,8 @@ class AgenticService:
                 for event in self._execute_step(
                     step, i, styled_user_message, context_analysis, 
                     generated_files, registry_surface, model,
-                    app=app, version=version, data_store_context=data_store_context
+                    app=app, version=version, data_store_context=data_store_context,
+                    mcp_tools_context=mcp_tools_context_str,
                 ):
                     yield event
                     if event.type == "file_generated":
@@ -338,6 +359,7 @@ class AgenticService:
         registry_surface: Dict[str, Any],
         app_name: str,
         app: Optional['InternalApp'] = None,
+        mcp_context: Optional[MCPToolsContext] = None,
     ) -> Dict[str, Any]:
         """Analyze the current context and requirements."""
         
@@ -348,6 +370,13 @@ class AgenticService:
         if app:
             data_store_summary = get_table_summary(app)
         
+        # Get MCP tools summary
+        mcp_tools_summary = ""
+        has_mcp_tools = False
+        if mcp_context and mcp_context.has_tools:
+            mcp_tools_summary = mcp_context.connectors_summary
+            has_mcp_tools = True
+        
         analysis = {
             "app_name": app_name,
             "has_existing_spec": current_spec is not None,
@@ -356,11 +385,18 @@ class AgenticService:
             "user_intent": user_message,
             "data_store_summary": data_store_summary,
             "has_data_store": bool(app),
+            "mcp_tools_summary": mcp_tools_summary,
+            "connectors_summary": mcp_tools_summary,  # For build_plan_prompt compatibility
+            "has_mcp_tools": has_mcp_tools,
             "analysis": f"Building '{app_name}' with {len(resources)} available data sources.",
         }
         
         if data_store_summary and "No data tables" not in data_store_summary:
             analysis["analysis"] += f" App has existing data tables."
+        
+        if has_mcp_tools:
+            tool_count = len(mcp_context.tools) if mcp_context else 0
+            analysis["analysis"] += f" {tool_count} MCP integration tools available."
         
         if current_spec:
             analysis["current_pages"] = len(current_spec.get("pages", []))
@@ -468,13 +504,15 @@ class AgenticService:
         app: Optional['InternalApp'] = None,
         version: Optional['AppVersion'] = None,
         data_store_context: Optional[str] = None,
+        mcp_tools_context: Optional[str] = None,  # MCP integration tools context
     ) -> Generator[AgentEvent, None, None]:
         """Execute a single plan step and yield progress events."""
         
-        # Build prompt for this step with data store context
+        # Build prompt for this step with data store and MCP tools context
         prompt = build_step_prompt(
             step, step_index, user_message, context, 
-            existing_files, registry_surface, data_store_context
+            existing_files, registry_surface, data_store_context,
+            connectors_context=mcp_tools_context,
         )
         
         has_data_store = context.get('has_data_store', False)
