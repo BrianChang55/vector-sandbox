@@ -19,16 +19,14 @@ from .views import (
     data_runtime_views,
     connector_views,
     connector_runtime_views,
+    member_views,
 )
 
 # Router for viewsets
 router = DefaultRouter()
 router.register(r'orgs', organization_views.OrganizationViewSet, basename='organization')
-router.register(
-    r'orgs/(?P<organization_pk>[^/.]+)/members',
-    organization_views.UserOrganizationViewSet,
-    basename='organization-members'
-)
+# NOTE: Members endpoint is now handled by member_views.OrgMembersListView
+# (removed old UserOrganizationViewSet registration to avoid conflict)
 router.register(
     r'orgs/(?P<organization_pk>[^/.]+)/backends',
     backend_connection_views.BackendConnectionViewSet,
@@ -67,6 +65,59 @@ urlpatterns = [
     # Google OAuth
     path('auth/google', auth_views.GoogleOAuthView.as_view(), name='google-oauth'),
     path('auth/google/callback', auth_views.GoogleOAuthCallbackView.as_view(), name='google-oauth-callback'),
+    
+    # Invitation accept endpoints (public)
+    path('auth/invite/verify', member_views.InviteVerifyView.as_view(), name='invite-verify'),
+    path('auth/invite/accept', member_views.InviteAcceptView.as_view(), name='invite-accept'),
+    
+    # =========================================================================
+    # Organization Members & Invitations endpoints
+    # =========================================================================
+    
+    # List members and pending invites
+    path(
+        'orgs/<uuid:org_id>/members/',
+        member_views.OrgMembersListView.as_view(),
+        name='org-members-list'
+    ),
+    # Update/remove a specific member
+    path(
+        'orgs/<uuid:org_id>/members/<uuid:member_id>/',
+        member_views.OrgMemberDetailView.as_view(),
+        name='org-member-detail'
+    ),
+    # Create an invitation
+    path(
+        'orgs/<uuid:org_id>/invites/',
+        member_views.OrgInviteListView.as_view(),
+        name='org-invites'
+    ),
+    # Cancel an invitation
+    path(
+        'orgs/<uuid:org_id>/invites/<uuid:invite_id>/',
+        member_views.OrgInviteDetailView.as_view(),
+        name='org-invite-detail'
+    ),
+    # Resend an invitation
+    path(
+        'orgs/<uuid:org_id>/invites/<uuid:invite_id>/resend/',
+        member_views.OrgInviteResendView.as_view(),
+        name='org-invite-resend'
+    ),
+    
+    # =========================================================================
+    # App Favorites endpoints
+    # =========================================================================
+    path(
+        'orgs/<uuid:org_id>/favorites/',
+        internal_app_views.AppFavoritesView.as_view(),
+        name='app-favorites'
+    ),
+    path(
+        'orgs/<uuid:org_id>/favorites/<uuid:app_id>/',
+        internal_app_views.AppFavoriteDetailView.as_view(),
+        name='app-favorite-detail'
+    ),
     
     # Custom action endpoints
     path('backends/<uuid:pk>/discover/', resource_registry_views.discover_resources, name='backend-discover'),

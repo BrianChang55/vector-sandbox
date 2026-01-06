@@ -21,6 +21,7 @@ from django.shortcuts import get_object_or_404
 
 from ..models import (
     Organization,
+    UserOrganization,
     MergeIntegrationProvider,
     ConnectorCache,
     OrganizationConnectorLink,
@@ -32,6 +33,24 @@ from ..serializers.connector_serializers import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def require_admin_for_integrations(request, organization):
+    """
+    Check if user is admin of the organization.
+    Integrations management requires admin role.
+    
+    Returns True if allowed, False otherwise.
+    """
+    membership = UserOrganization.objects.filter(
+        user=request.user,
+        organization=organization
+    ).first()
+    
+    if not membership:
+        return False
+    
+    return membership.can_manage_integrations()
 
 
 def get_or_create_provider(organization: Organization) -> MergeIntegrationProvider:
@@ -182,13 +201,15 @@ def sync_connectors(request, pk):
     
     This fetches all available connectors and their tools from Merge,
     and updates the local cache.
+    
+    Admin only.
     """
     provider = get_object_or_404(MergeIntegrationProvider, pk=pk)
     
-    # Verify user has access
-    if not request.user.user_organizations.filter(organization=provider.organization).exists():
+    # Verify user is admin (integration management requires admin)
+    if not require_admin_for_integrations(request, provider.organization):
         return Response(
-            {'error': 'Access denied'},
+            {'error': 'Only admins can manage integrations'},
             status=status.HTTP_403_FORBIDDEN
         )
     
@@ -365,13 +386,15 @@ def generate_link_token(request, pk):
         "link_token": "...",
         "expires_in": 3600
     }
+    
+    Admin only.
     """
     provider = get_object_or_404(MergeIntegrationProvider, pk=pk)
     
-    # Verify user has access
-    if not request.user.user_organizations.filter(organization=provider.organization).exists():
+    # Verify user is admin (integration management requires admin)
+    if not require_admin_for_integrations(request, provider.organization):
         return Response(
-            {'error': 'Access denied'},
+            {'error': 'Only admins can manage integrations'},
             status=status.HTTP_403_FORBIDDEN
         )
     
@@ -528,13 +551,15 @@ def handle_link_callback(request, pk):
     
     The connection is only marked as successful if the connector appears in
     the authenticated_connectors list from Merge API.
+    
+    Admin only.
     """
     provider = get_object_or_404(MergeIntegrationProvider, pk=pk)
     
-    # Verify user has access
-    if not request.user.user_organizations.filter(organization=provider.organization).exists():
+    # Verify user is admin (integration management requires admin)
+    if not require_admin_for_integrations(request, provider.organization):
         return Response(
-            {'error': 'Access denied'},
+            {'error': 'Only admins can manage integrations'},
             status=status.HTTP_403_FORBIDDEN
         )
     

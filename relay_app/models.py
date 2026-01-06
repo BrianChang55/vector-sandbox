@@ -75,25 +75,255 @@ class UserOrganization(BaseModel):
     """
     Junction table for User-Organization many-to-many relationship.
     Includes role field for membership permissions.
+    
+    Roles:
+    - Admin: Full access - can edit apps, manage integrations, manage members/roles
+    - Editor: Can edit apps - cannot modify integrations or members
+    - Viewer: View/run only - sees published apps, redirected to published view
     """
     ROLE_ADMIN = 'admin'
-    ROLE_MEMBER = 'member'
+    ROLE_EDITOR = 'editor'
+    ROLE_VIEWER = 'viewer'
+    
+    # Legacy role alias for backwards compatibility during migration
+    ROLE_MEMBER = 'editor'
     
     ROLE_CHOICES = [
         (ROLE_ADMIN, 'Admin'),
-        (ROLE_MEMBER, 'Member'),
+        (ROLE_EDITOR, 'Editor'),
+        (ROLE_VIEWER, 'Viewer'),
     ]
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='user_organizations')
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='user_organizations')
-    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default=ROLE_MEMBER)
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default=ROLE_EDITOR)
     
     class Meta:
         unique_together = ['user', 'organization']
     
     def __str__(self):
         return f"{self.user.email} - {self.organization.name} ({self.role})"
+    
+    def is_admin(self):
+        """Check if user has admin role."""
+        return self.role == self.ROLE_ADMIN
+    
+    def is_editor_or_above(self):
+        """Check if user has editor or admin role."""
+        return self.role in [self.ROLE_ADMIN, self.ROLE_EDITOR]
+    
+    def can_edit_apps(self):
+        """Check if user can edit apps."""
+        return self.is_editor_or_above()
+    
+    def can_manage_integrations(self):
+        """Check if user can manage integrations."""
+        return self.is_admin()
+    
+    def can_manage_members(self):
+        """Check if user can manage organization members."""
+        return self.is_admin()
+    
+    def can_update_org_settings(self):
+        """Check if user can update organization settings."""
+        return self.is_admin()
+
+
+class OrganizationInvite(BaseModel):
+    """
+    Pending invitation to join an organization.
+    
+    Security features:
+    - Tokens are hashed (SHA256) before storage - raw token never saved
+    - Short expiry time (7 days default)
+    - Single-use: invite is marked as accepted after successful verification
+    - Rate limiting can be tracked via created_at timestamps
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey(
+        Organization,
+        on_delete=models.CASCADE,
+        related_name='invites'
+    )
+    email = models.EmailField(
+        db_index=True,
+        help_text='Email address this invitation is for'
+    )
+    role = models.CharField(
+        max_length=20,
+        choices=UserOrganization.ROLE_CHOICES,
+        default=UserOrganization.ROLE_EDITOR,
+        help_text='Role the user will have when they accept'
+    )
+    invited_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='sent_invites',
+        help_text='User who sent the invitation'
+    )
+    token_hash = models.CharField(
+        max_length=64,
+        unique=True,
+        help_text='SHA256 hash of the invitation token'
+    )
+    expires_at = models.DateTimeField(
+        help_text='When this invitation expires'
+    )
+    accepted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text='When the invitation was accepted'
+    )
+    is_accepted = models.BooleanField(
+        default=False,
+        help_text='Whether this invitation has been accepted'
+    )
+    
+    class Meta:
+        indexes = [
+            models.Index(fields=['organization', 'email']),
+            models.Index(fields=['expires_at']),
+            models.Index(fields=['token_hash']),
+        ]
+        ordering = ['-created_at']
+        # Allow resending invites, but track unique active invites
+        unique_together = []
+    
+    def __str__(self):
+        status = "accepted" if self.is_accepted else ("expired" if self.is_expired else "pending")
+        return f"Invite for {self.email} to {self.organization.name} ({status})"
+    
+    @property
+    def is_expired(self):
+        """Check if the invitation has expired."""
+        from django.utils import timezone
+        return timezone.now() > self.expires_at
+    
+    @property
+    def is_valid(self):
+        """Check if the invitation is still valid (not expired and not accepted)."""
+        return not self.is_expired and not self.is_accepted
+    
+    @classmethod
+    def hash_token(cls, raw_token: str) -> str:
+        """Hash a raw token using SHA256."""
+        return hashlib.sha256(raw_token.encode()).hexdigest()
+    
+    @classmethod
+    def create_invite(
+        cls,
+        organization,
+        email: str,
+        role: str,
+        invited_by,
+        expiry_days: int = 7
+    ):
+        """
+        Create a new organization invitation.
+        
+        Invalidates any existing pending invites for the same email/org combo.
+        
+        Returns:
+            tuple: (OrganizationInvite instance, raw_token string)
+        """
+        import secrets
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        # Generate a secure random token (32 bytes = 256 bits)
+        raw_token = secrets.token_urlsafe(32)
+        token_hash = cls.hash_token(raw_token)
+        
+        # Invalidate any existing pending invites for this email/org
+        cls.objects.filter(
+            organization=organization,
+            email=email,
+            is_accepted=False
+        ).delete()
+        
+        # Create the invite record
+        invite = cls.objects.create(
+            organization=organization,
+            email=email,
+            role=role,
+            invited_by=invited_by,
+            token_hash=token_hash,
+            expires_at=timezone.now() + timedelta(days=expiry_days),
+        )
+        
+        return invite, raw_token
+    
+    @classmethod
+    def verify_token(cls, raw_token: str):
+        """
+        Verify an invitation token.
+        
+        Returns:
+            OrganizationInvite or None if invalid/expired/accepted
+        """
+        token_hash = cls.hash_token(raw_token)
+        
+        try:
+            invite = cls.objects.select_related('organization', 'invited_by').get(
+                token_hash=token_hash
+            )
+            if invite.is_valid:
+                return invite
+            return None
+        except cls.DoesNotExist:
+            return None
+    
+    def accept(self, user):
+        """
+        Accept this invitation and add user to organization.
+        
+        Args:
+            user: The User accepting the invitation
+            
+        Returns:
+            UserOrganization: The created membership
+        """
+        from django.utils import timezone
+        
+        # Create the membership
+        membership, created = UserOrganization.objects.get_or_create(
+            user=user,
+            organization=self.organization,
+            defaults={'role': self.role}
+        )
+        
+        # If already a member, update role if needed
+        if not created and membership.role != self.role:
+            membership.role = self.role
+            membership.save(update_fields=['role', 'updated_at'])
+        
+        # Mark invite as accepted
+        self.is_accepted = True
+        self.accepted_at = timezone.now()
+        self.save(update_fields=['is_accepted', 'accepted_at', 'updated_at'])
+        
+        return membership
+    
+    @classmethod
+    def cleanup_expired(cls):
+        """Delete all expired and unaccepted invitations."""
+        from django.utils import timezone
+        return cls.objects.filter(
+            expires_at__lt=timezone.now(),
+            is_accepted=False
+        ).delete()
+    
+    @classmethod
+    def get_pending_for_org(cls, organization):
+        """Get all pending invitations for an organization."""
+        from django.utils import timezone
+        return cls.objects.filter(
+            organization=organization,
+            is_accepted=False,
+            expires_at__gt=timezone.now()
+        ).select_related('invited_by')
 
 
 # ============================================================================
@@ -234,6 +464,25 @@ class InternalApp(BaseModel):
         if not self.slug:
             self.slug = self.generate_slug()
         super().save(*args, **kwargs)
+
+
+class AppFavorite(BaseModel):
+    """
+    Tracks which apps a user has favorited within an organization.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='app_favorites')
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='app_favorites')
+    app = models.ForeignKey(InternalApp, on_delete=models.CASCADE, related_name='favorites')
+    
+    class Meta:
+        unique_together = ['user', 'organization', 'app']
+        indexes = [
+            models.Index(fields=['user', 'organization']),
+        ]
+    
+    def __str__(self):
+        return f"{self.user.email} - {self.app.name}"
 
 
 class ResourceRegistryEntry(BaseModel):

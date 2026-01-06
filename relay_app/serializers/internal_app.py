@@ -2,7 +2,7 @@
 Internal App serializers
 """
 from rest_framework import serializers
-from ..models import InternalApp
+from ..models import InternalApp, AppFavorite
 
 
 class InternalAppSerializer(serializers.ModelSerializer):
@@ -72,4 +72,14 @@ class InternalAppCreateSerializer(serializers.ModelSerializer):
         validated_data['created_by'] = self.context['request'].user
         validated_data['organization'] = self.context['organization']
         return super().create(validated_data)
+
+
+class AppFavoriteSerializer(serializers.ModelSerializer):
+    """Serializer for app favorites."""
+    app_id = serializers.UUIDField(source='app.id', read_only=True)
+    
+    class Meta:
+        model = AppFavorite
+        fields = ['id', 'app_id', 'created_at']
+        read_only_fields = ['id', 'created_at']
 

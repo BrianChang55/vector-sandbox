@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>You're Invited to {{ organization_name }}</title>
+    <!--[if mso]>
+    <noscript>
+        <xml>
+            <o:OfficeDocumentSettings>
+                <o:PixelsPerInch>96</o:PixelsPerInch>
+            </o:OfficeDocumentSettings>
+        </xml>
+    </noscript>
+    <style>
+        table { border-collapse: collapse; }
+        .button-link { padding: 16px 40px !important; }
+    </style>
+    <![endif]-->
+</head>
+<body style="margin: 0; padding: 0; background-color: #FAFAFA; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;">
+    
+    <!-- Preheader text (hidden, shows in email preview) -->
+    <div style="display: none; max-height: 0; overflow: hidden;">
+        {{ inviter_name }} invited you to join {{ organization_name }}
+        &nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;
+    </div>
+
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #FAFAFA;">
+        <tr>
+            <td align="center" style="padding: 48px 24px;">
+                
+                <!-- Main Container -->
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width: 480px;">
+                    
+                    <!-- Logo -->
+                    <tr>
+                        <td align="center" style="padding-bottom: 40px;">
+                            <img src="https://i.ibb.co/wZ685Wvm/Group-2.png" alt="Internal Apps" width="40" height="40" style="width: 40px; height: 40px; border-radius: 8px; display: block;" />
+                        </td>
+                    </tr>
+                    
+                    <!-- Card -->
+                    <tr>
+                        <td>
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #FFFFFF; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08);">
+                                <tr>
+                                    <td style="padding: 48px 40px;">
+                                        
+                                        <!-- Title -->
+                                        <h1 style="margin: 0 0 12px 0; font-size: 22px; font-weight: 600; color: #111827; line-height: 1.3; letter-spacing: -0.02em; text-align: center;">
+                                            You're Invited
+                                        </h1>
+                                        
+                                        <!-- Subtitle -->
+                                        <p style="margin: 0 0 28px 0; font-size: 14px; line-height: 1.6; color: #6B7280; text-align: center;">
+                                            {{ inviter_name }} invited you to join {{ organization_name }} as {{ role }}.
+                                        </p>
+                                        
+                                        <!-- Button -->
+                                        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                                            <tr>
+                                                <td align="center">
+                                                    <!--[if mso]>
+                                                    <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word" href="{{ invite_url }}" style="height:44px;v-text-anchor:middle;width:180px;" arcsize="14%" stroke="f" fillcolor="#111827">
+                                                        <w:anchorlock/>
+                                                        <center style="color:#ffffff;font-family:sans-serif;font-size:14px;font-weight:600;">
+                                                            Accept Invitation
+                                                        </center>
+                                                    </v:roundrect>
+                                                    <![endif]-->
+                                                    <!--[if !mso]><!-->
+                                                    <a href="{{ invite_url }}" target="_blank" class="button-link" style="display: inline-block; padding: 10px 30px; background-color: #111827; color: #FFFFFF; text-decoration: none; font-size: 14px; font-weight: 400; border-radius: 6px;">
+                                                        Accept Invitation
+                                                    </a>
+                                                    <!--<![endif]-->
+                                                </td>
+                                            </tr>
+                                        </table>
+                                        
+                                        <!-- Expiry Notice -->
+                                        <p style="margin: 28px 0 0 0; font-size: 13px; line-height: 1.5; color: #9CA3AF; text-align: center;">
+                                            This invitation expires in 7 days
+                                        </p>
+                                        
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    
+                    <!-- Security Note -->
+                    <tr>
+                        <td style="padding: 32px 0 0 0;">
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                                <tr>
+                                    <td align="center">
+                                        <p style="margin: 0; font-size: 13px; line-height: 1.6; color: #9CA3AF;">
+                                            If you didn't expect this invitation, you can safely ignore it.
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    
+                    <!-- Fallback Link -->
+                    <tr>
+                        <td style="padding: 24px 0 0 0;">
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                                <tr>
+                                    <td align="center">
+                                        <p style="margin: 0 0 8px 0; font-size: 12px; color: #D1D5DB;">
+                                            Button not working? Copy this link:
+                                        </p>
+                                        <p style="margin: 0; font-size: 11px; color: #9CA3AF; word-break: break-all; max-width: 400px;">
+                                            {{ invite_url }}
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    
+                    <!-- Footer -->
+                    <tr>
+                        <td style="padding: 48px 0 0 0;">
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                                <tr>
+                                    <td align="center">
+                                        <p style="margin: 0; font-size: 12px; color: #D1D5DB;">
+                                            © 2025 Internal Apps
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    
+                </table>
+                
+            </td>
+        </tr>
+    </table>
+    
+</body>
+</html>

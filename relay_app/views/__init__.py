@@ -12,6 +12,7 @@ from . import (
     publish_views,
     auth_views,
     streaming_views,
+    member_views,
 )
 
 __all__ = [
@@ -25,4 +26,5 @@ __all__ = [
     'publish_views',
     'auth_views',
     'streaming_views',
+    'member_views',
 ]
