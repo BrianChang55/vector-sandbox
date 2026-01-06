@@ -590,6 +590,122 @@ export const dataStore = {
 export default dataStore;
 `
 
+  // Inject mcpTools.ts for MCP integration tools - uses postMessage bridge like dataStore
+  sandpackFiles['/lib/mcpTools.ts'] = `// MCP Tools Client - Uses postMessage bridge to parent window
+// This bypasses CORS/Private Network Access restrictions in Sandpack iframes
+
+// Config is baked in at build time
+const CONFIG = {
+  appId: '${appId}',
+  versionId: '${versionId}',
+  apiBaseUrl: '${RUNTIME_API_BASE_URL}',
+  appName: '${appName}',
+};
+
+console.log('[mcpTools] Initialized with postMessage bridge, appId:', CONFIG.appId);
+
+// Pending requests waiting for responses from parent
+const pendingRequests: Map<string, { resolve: (data: any) => void; reject: (error: Error) => void }> = new Map();
+
+// Generate unique request ID
+function generateRequestId(): string {
+  return \`mcp_\${Date.now()}_\${Math.random().toString(36).substr(2, 9)}\`;
+}
+
+// Listen for responses from parent window
+window.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'MCP_RESPONSE') {
+    const { requestId, success, data, error } = event.data;
+    console.log('[mcpTools] Received response for', requestId, success ? 'success' : 'error');
+    
+    const pending = pendingRequests.get(requestId);
+    if (pending) {
+      pendingRequests.delete(requestId);
+      if (success) {
+        pending.resolve(data);
+      } else {
+        pending.reject(new Error(error || 'MCP call failed'));
+      }
+    }
+  }
+});
+
+interface MCPToolResult<T = any> {
+  success: boolean;
+  data?: T;
+  error?: string;
+}
+
+export const mcpTools = {
+  /**
+   * Call an MCP tool by name
+   * @param toolName - The full tool name (e.g., "stripe_retrieve_balance")
+   * @param params - Tool-specific parameters
+   */
+  async call<T = any>(
+    toolName: string,
+    params: Record<string, any> = {}
+  ): Promise<MCPToolResult<T>> {
+    const requestId = generateRequestId();
+    console.log('[mcpTools] Sending request via postMessage:', requestId, toolName);
+    
+    return new Promise((resolve, reject) => {
+      pendingRequests.set(requestId, { 
+        resolve: (data) => resolve(data as MCPToolResult<T>),
+        reject 
+      });
+      
+      // Set timeout for request
+      setTimeout(() => {
+        if (pendingRequests.has(requestId)) {
+          pendingRequests.delete(requestId);
+          resolve({ success: false, error: 'Request timeout - parent window did not respond' });
+        }
+      }, 30000);
+      
+      // Send request to parent window
+      window.parent.postMessage({
+        type: 'MCP_REQUEST',
+        requestId,
+        appId: CONFIG.appId,
+        toolName,
+        params,
+      }, '*');
+    });
+  },
+
+  /**
+   * List all available MCP tools
+   */
+  async listTools(): Promise<any[]> {
+    const requestId = generateRequestId();
+    console.log('[mcpTools] Listing tools via postMessage:', requestId);
+    
+    return new Promise((resolve) => {
+      pendingRequests.set(requestId, { 
+        resolve: (data) => resolve(data?.tools || []),
+        reject: () => resolve([])
+      });
+      
+      setTimeout(() => {
+        if (pendingRequests.has(requestId)) {
+          pendingRequests.delete(requestId);
+          resolve([]);
+        }
+      }, 30000);
+      
+      window.parent.postMessage({
+        type: 'MCP_LIST_TOOLS',
+        requestId,
+        appId: CONFIG.appId,
+      }, '*');
+    });
+  },
+};
+
+export default mcpTools;
+`
+
   // Also inject config into runtime.ts for legacy compatibility
   sandpackFiles['/lib/runtime.ts'] = `// Runtime API Client - Config injected at build time
 // DO NOT MODIFY - this file is auto-generated with app-specific config
@@ -726,9 +842,9 @@ export function useQuery<T = any>(resourceId: string, querySpec?: QuerySpec, dep
       continue
     }
     
-    // CRITICAL: Skip lib/dataStore.ts and lib/runtime.ts - we provide these with proper config
+    // CRITICAL: Skip lib/dataStore.ts, lib/runtime.ts, and lib/mcpTools.ts - we provide these with proper config
     // AI-generated versions have bad fallbacks that cause CORS/URL issues
-    if (path === '/lib/dataStore.ts' || path === '/lib/runtime.ts') {
+    if (path === '/lib/dataStore.ts' || path === '/lib/runtime.ts' || path === '/lib/mcpTools.ts') {
       console.log('[Sandpack] Skipping AI-generated', path, '- using built-in template with proper config')
       continue
     }
@@ -1246,65 +1362,138 @@ export function SandpackPreview({
   // This bypasses CORS/Private Network Access restrictions
   useEffect(() => {
     const handleMessage = async (event: MessageEvent) => {
-      // Only handle DATASTORE_REQUEST messages
-      if (!event.data || event.data.type !== 'DATASTORE_REQUEST') {
+      if (!event.data || !event.data.type) {
         return
       }
 
-      const { requestId, appId: reqAppId, versionId: reqVersionId, operation, tableSlug, params } = event.data
-      console.log('[SandpackPreview] Received dataStore request:', requestId, operation, tableSlug)
+      // Handle DATASTORE_REQUEST messages
+      if (event.data.type === 'DATASTORE_REQUEST') {
+        const { requestId, appId: reqAppId, versionId: reqVersionId, operation, tableSlug, params } = event.data
+        console.log('[SandpackPreview] Received dataStore request:', requestId, operation, tableSlug)
 
-      try {
-        // Make the actual API call from the parent window (no CORS issues)
-        const url = `${RUNTIME_API_BASE_URL}/runtime/data/`
-        console.log('[SandpackPreview] Proxying request to:', url)
+        try {
+          const url = `${RUNTIME_API_BASE_URL}/runtime/data/`
+          console.log('[SandpackPreview] Proxying request to:', url)
 
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            appId: reqAppId || appId,
-            versionId: reqVersionId || versionId,
-            operation,
-            tableSlug,
-            params,
-          }),
-        })
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              appId: reqAppId || appId,
+              versionId: reqVersionId || versionId,
+              operation,
+              tableSlug,
+              params,
+            }),
+          })
 
-        const data = await response.json()
-        console.log('[SandpackPreview] Got response for:', requestId, response.ok ? 'success' : 'error')
+          const data = await response.json()
+          console.log('[SandpackPreview] Got response for:', requestId, response.ok ? 'success' : 'error')
 
-        if (!response.ok) {
-          // Send error back to iframe
+          event.source?.postMessage({
+            type: 'DATASTORE_RESPONSE',
+            requestId,
+            success: response.ok,
+            data: response.ok ? data : undefined,
+            error: !response.ok ? (data.error || `API error: ${response.status}`) : undefined,
+          }, { targetOrigin: '*' })
+        } catch (error) {
+          console.error('[SandpackPreview] API call failed:', requestId, error)
           event.source?.postMessage({
             type: 'DATASTORE_RESPONSE',
             requestId,
             success: false,
-            error: data.error || `API error: ${response.status}`,
-          }, { targetOrigin: '*' })
-        } else {
-          // Send success response back to iframe
-          event.source?.postMessage({
-            type: 'DATASTORE_RESPONSE',
-            requestId,
-            success: true,
-            data,
+            error: error instanceof Error ? error.message : 'Unknown error',
           }, { targetOrigin: '*' })
         }
-      } catch (error) {
-        console.error('[SandpackPreview] API call failed:', requestId, error)
-        // Send error back to iframe
-        event.source?.postMessage({
-          type: 'DATASTORE_RESPONSE',
-          requestId,
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        }, { targetOrigin: '*' })
+        return
+      }
+
+      // Handle MCP_REQUEST messages (for connector/integration tools)
+      if (event.data.type === 'MCP_REQUEST') {
+        const { requestId, appId: reqAppId, toolName, params } = event.data
+        console.log('[SandpackPreview] Received MCP request:', requestId, toolName)
+
+        try {
+          const url = `${RUNTIME_API_BASE_URL}/runtime/connectors/`
+          console.log('[SandpackPreview] Proxying MCP request to:', url)
+
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              appId: reqAppId || appId,
+              connectorId: '_meta',
+              toolId: 'mcp_call',
+              params: {
+                tool_name: toolName,
+                arguments: params || {},
+              },
+            }),
+          })
+
+          const data = await response.json()
+          console.log('[SandpackPreview] Got MCP response for:', requestId, response.ok ? 'success' : 'error')
+
+          event.source?.postMessage({
+            type: 'MCP_RESPONSE',
+            requestId,
+            success: response.ok && data.success !== false,
+            data: response.ok ? data : undefined,
+            error: !response.ok || data.success === false ? (data.error || `API error: ${response.status}`) : undefined,
+          }, { targetOrigin: '*' })
+        } catch (error) {
+          console.error('[SandpackPreview] MCP call failed:', requestId, error)
+          event.source?.postMessage({
+            type: 'MCP_RESPONSE',
+            requestId,
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error',
+          }, { targetOrigin: '*' })
+        }
+        return
+      }
+
+      // Handle MCP_LIST_TOOLS messages
+      if (event.data.type === 'MCP_LIST_TOOLS') {
+        const { requestId, appId: reqAppId } = event.data
+        console.log('[SandpackPreview] Received MCP list tools request:', requestId)
+
+        try {
+          const url = `${RUNTIME_API_BASE_URL}/runtime/connectors/`
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              appId: reqAppId || appId,
+              connectorId: '_meta',
+              toolId: 'mcp_tools',
+            }),
+          })
+
+          const data = await response.json()
+          event.source?.postMessage({
+            type: 'MCP_RESPONSE',
+            requestId,
+            success: response.ok,
+            data: response.ok ? data : undefined,
+            error: !response.ok ? (data.error || `API error: ${response.status}`) : undefined,
+          }, { targetOrigin: '*' })
+        } catch (error) {
+          console.error('[SandpackPreview] MCP list tools failed:', requestId, error)
+          event.source?.postMessage({
+            type: 'MCP_RESPONSE',
+            requestId,
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error',
+          }, { targetOrigin: '*' })
+        }
+        return
       }
     }
 
     window.addEventListener('message', handleMessage)
-    console.log('[SandpackPreview] PostMessage bridge listener installed')
+    console.log('[SandpackPreview] PostMessage bridge listener installed (dataStore + MCP)')
 
     return () => {
       window.removeEventListener('message', handleMessage)

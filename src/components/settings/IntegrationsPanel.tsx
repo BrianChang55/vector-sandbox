@@ -30,6 +30,7 @@ import {
   X,
   Zap,
 } from 'lucide-react'
+import { useAgentHandlerLink } from '@mergeapi/react-agent-handler-link'
 import {
   useIntegrationProviders,
   useConnectors,
@@ -348,112 +349,74 @@ interface ConnectorCardProps {
   viewMode: ViewMode
 }
 
-// Declare global type for Agent Handler Link
-declare global {
-  interface Window {
-    AgentHandlerLink?: {
-      initialize: (config: any) => void
-      openLink: (config: any) => void
-    }
-  }
-}
-
-// Load Agent Handler Link script once
-let agentHandlerLinkLoaded = false
-function loadAgentHandlerLink(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (agentHandlerLinkLoaded && window.AgentHandlerLink) {
-      resolve()
-      return
-    }
-    
-    // Check if script already exists
-    const existingScript = document.querySelector('script[src*="ah-cdn.merge.dev"]')
-    if (existingScript) {
-      agentHandlerLinkLoaded = true
-      resolve()
-      return
-    }
-    
-    const script = document.createElement('script')
-    script.src = 'https://ah-cdn.merge.dev/initialize.js'
-    script.async = true
-    script.onload = () => {
-      agentHandlerLinkLoaded = true
-      resolve()
-    }
-    script.onerror = () => reject(new Error('Failed to load Agent Handler Link'))
-    document.head.appendChild(script)
-  })
-}
+// ConnectorCard - Uses Merge Agent Handler Link React hook
+// Per docs: https://docs.ah.merge.dev/get-started/setup-link
+// React component: https://github.com/merge-api/react-agent-handler-link
 
 function ConnectorCard({ connector, providerId, onConnected, viewMode }: ConnectorCardProps) {
   const [expanded, setExpanded] = useState(false)
   const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [linkToken, setLinkToken] = useState<string | undefined>(undefined)
   const generateLinkToken = useGenerateLinkToken()
   const handleCallback = useHandleLinkCallback()
   
-  // Load Agent Handler Link script on mount
+  // Use the Merge Agent Handler Link React hook
+  const { open: openLink, isReady } = useAgentHandlerLink({
+    linkToken: linkToken || '',
+    onSuccess: async () => {
+      // Verify connection with the backend (which checks Merge API)
+      try {
+        const result = await handleCallback.mutateAsync({
+          providerId,
+          connectorId: connector.connector_id,
+        })
+        
+        if (result.success && result.is_connected) {
+          onConnected()
+        } else {
+          setError(result.message || 'Connection was not completed. Please try again.')
+        }
+      } catch (err: any) {
+        const errorMsg = err.response?.data?.error || err.response?.data?.message || 'Failed to verify connection'
+        setError(errorMsg)
+      }
+      setConnecting(false)
+      setLinkToken(undefined)
+    },
+    onExit: () => {
+      // User closed without completing
+      setConnecting(false)
+      setLinkToken(undefined)
+    },
+  })
+  
+  // Open link when it's ready and we have a token
   useEffect(() => {
-    loadAgentHandlerLink().catch(console.error)
-  }, [])
+    if (isReady && linkToken && connecting) {
+      openLink()
+    }
+  }, [isReady, linkToken, connecting, openLink])
   
   const handleConnect = useCallback(async () => {
     setConnecting(true)
     setError(null)
     try {
-      // Ensure script is loaded
-      await loadAgentHandlerLink()
-      
-      // Generate link token from backend
+      // Generate link token from backend using registered user
       const { link_token } = await generateLinkToken.mutateAsync({
         providerId,
         connectorId: connector.connector_id,
       })
       
-      if (!window.AgentHandlerLink) {
-        throw new Error('Agent Handler Link not loaded')
-      }
-      
-      // Initialize and open Agent Handler Link
-      window.AgentHandlerLink.initialize({
-        linkToken: link_token,
-        onSuccess: async () => {
-          // Verify connection with the backend (which checks Merge API)
-          try {
-            const result = await handleCallback.mutateAsync({
-              providerId,
-              connectorId: connector.connector_id,
-            })
-            
-            if (result.success && result.is_connected) {
-              onConnected()
-            } else {
-              setError(result.message || 'Connection was not completed. Please try again.')
-            }
-          } catch (err: any) {
-            const errorMsg = err.response?.data?.error || err.response?.data?.message || 'Failed to verify connection'
-            setError(errorMsg)
-          }
-          setConnecting(false)
-        },
-        onExit: () => {
-          // User closed without completing
-          setConnecting(false)
-        },
-        onReady: () => {
-          // Link is ready, open it
-          window.AgentHandlerLink?.openLink({ linkToken: link_token })
-        },
-      })
+      // Set the link token - this will trigger the useEffect to open the link
+      setLinkToken(link_token)
       
     } catch (err: any) {
       console.error('Failed to connect:', err)
       setError(err.response?.data?.error || err.message || 'Failed to start connection flow')
       setConnecting(false)
     }
-  }, [connector.connector_id, generateLinkToken, handleCallback, onConnected, providerId])
+  }, [connector.connector_id, generateLinkToken, providerId])
   
   // Get logo URL (prefer logo_url, fallback to icon_url)
   const logoUrl = connector.logo_url || connector.icon_url
