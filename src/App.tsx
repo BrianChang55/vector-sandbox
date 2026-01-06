@@ -65,7 +65,7 @@ function App() {
               }
             />
             <Route
-              path="/resources"
+              path="/integrations"
               element={
                 <AuthGuard>
                   <MainLayout>

@@ -174,7 +174,7 @@ function ProviderDashboard({ provider }: ProviderDashboardProps) {
             placeholder="Search integrations..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 transition-all"
+            className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder:text-gray-500 focus:outline-none focus:border-gray-300 transition-all"
           />
           {searchQuery && (
             <button
@@ -462,11 +462,7 @@ function ConnectorCard({ connector, providerId, onConnected, viewMode }: Connect
   
   if (viewMode === 'grid') {
     return (
-      <div className={`bg-white border rounded-lg p-4 transition-all ${
-        connector.is_connected 
-          ? 'border-green-200' 
-          : 'border-gray-200 hover:border-gray-300 hover:shadow-sm'
-      }`}>
+      <div className="bg-white border border-gray-200 rounded-lg p-4 transition-all hover:border-gray-300 hover:shadow-sm">
         <div className="flex items-start gap-3">
           <div className={`h-12 w-12 rounded-lg flex items-center justify-center flex-shrink-0 ${
             connector.is_connected ? 'bg-green-50' : 'bg-gray-100'
@@ -553,11 +549,7 @@ function ConnectorCard({ connector, providerId, onConnected, viewMode }: Connect
   
   // List view
   return (
-    <div className={`bg-white border rounded-lg overflow-hidden transition-all ${
-      connector.is_connected 
-        ? 'border-green-200' 
-        : 'border-gray-200 hover:border-gray-300 hover:shadow-sm'
-    }`}>
+    <div className="bg-white border border-gray-200 rounded-lg overflow-hidden transition-all hover:border-gray-300 hover:shadow-sm">
       <div 
         className="flex items-center gap-4 p-4 cursor-pointer"
         onClick={() => setExpanded(!expanded)}

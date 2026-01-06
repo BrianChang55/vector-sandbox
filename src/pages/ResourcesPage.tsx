@@ -192,44 +192,15 @@ export function ResourcesPage() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Tab Navigation */}
-      <div className="border-b border-gray-200 bg-white px-4">
-        <div className="flex items-center gap-6 h-14">
-          <button
-            onClick={() => setActiveTab('backends')}
-            className={cn(
-              'flex items-center gap-2 h-full border-b-2 text-sm font-medium transition-colors',
-              activeTab === 'backends'
-                ? 'border-gray-900 text-gray-900'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            )}
-          >
-            <Database className="h-4 w-4" />
-            Backends
-          </button>
-          <button
-            onClick={() => setActiveTab('integrations')}
-            className={cn(
-              'flex items-center gap-2 h-full border-b-2 text-sm font-medium transition-colors',
-              activeTab === 'integrations'
-                ? 'border-gray-900 text-gray-900'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            )}
-          >
-            <Plug className="h-4 w-4" />
-            Integrations
-          </button>
+      {/* Integrations Panel - Full view (Backend tab hidden for now) */}
+      <div className="flex-1 overflow-auto bg-gray-50 p-6">
+        <div className="max-w-5xl mx-auto">
+          <IntegrationsPanel orgId={selectedOrgId} />
         </div>
       </div>
 
-      {/* Tab Content */}
-      {activeTab === 'integrations' ? (
-        <div className="flex-1 overflow-auto bg-gray-50 p-6">
-          <div className="max-w-4xl mx-auto">
-            <IntegrationsPanel orgId={selectedOrgId} />
-          </div>
-        </div>
-      ) : (
+      {/* Backend tab content - hidden for now */}
+      {false && (
         <div className="flex flex-1 overflow-hidden">
           {/* Left panel: Backend connections */}
           <div className="w-72 border-r border-gray-200 bg-white flex flex-col">
@@ -388,6 +359,7 @@ export function ResourcesPage() {
       </div>
     </div>
       )}
+      {/* End hidden backend section */}
 
       {/* Connection Dialog */}
       <CustomDialog

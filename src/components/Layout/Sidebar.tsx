@@ -5,7 +5,7 @@
 import { Link, useLocation } from 'react-router-dom'
 import { useAppSelector } from '../../store/hooks'
 import { useOrganizations, useSwitchOrganization } from '../../hooks/useOrganizations'
-import { Layers, Database, Settings, ChevronDown, Check, Building2 } from 'lucide-react'
+import { Layers, Plug, Settings, ChevronDown, Check, Building2 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import {
   DropdownMenu,
@@ -16,7 +16,7 @@ import {
 
 const navItems = [
   { path: '/apps', label: 'Apps', icon: Layers },
-  { path: '/resources', label: 'Resources', icon: Database },
+  { path: '/integrations', label: 'Integrations', icon: Plug },
   { path: '/settings', label: 'Settings', icon: Settings },
 ]
 
