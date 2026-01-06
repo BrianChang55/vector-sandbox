@@ -152,6 +152,7 @@ urlpatterns = [
     path('versions/<uuid:pk>/rollback/', version_views.AppVersionViewSet.as_view({'post': 'rollback'}), name='version-rollback'),
     path('versions/<uuid:pk>/save-files/', version_views.AppVersionViewSet.as_view({'post': 'save_files'}), name='version-save-files'),
     path('versions/<uuid:version_id>/cancel/', streaming_views.CancelGenerationView.as_view(), name='version-cancel'),
+    path('versions/<uuid:version_id>/fix-errors/', streaming_views.FixErrorsView.as_view(), name='version-fix-errors'),
     path('resources/<uuid:pk>/', resource_registry_views.ResourceRegistryEntryViewSet.as_view({'get': 'retrieve', 'patch': 'partial_update'}), name='resource-detail'),
     
     # AI/Code Generation endpoints

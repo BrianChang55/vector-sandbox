@@ -591,6 +591,35 @@ class AppVersion(BaseModel):
         help_text='Error message if generation failed'
     )
     
+    # Validation status for TypeScript compilation
+    VALIDATION_PENDING = 'pending'
+    VALIDATION_PASSED = 'passed'
+    VALIDATION_FAILED = 'failed'
+    VALIDATION_SKIPPED = 'skipped'
+    
+    VALIDATION_STATUS_CHOICES = [
+        (VALIDATION_PENDING, 'Pending'),
+        (VALIDATION_PASSED, 'Passed'),
+        (VALIDATION_FAILED, 'Failed'),
+        (VALIDATION_SKIPPED, 'Skipped'),
+    ]
+    
+    validation_status = models.CharField(
+        max_length=20,
+        choices=VALIDATION_STATUS_CHOICES,
+        default=VALIDATION_PENDING,
+        help_text='TypeScript compilation validation status'
+    )
+    validation_errors_json = models.JSONField(
+        null=True,
+        blank=True,
+        help_text='JSON list of validation errors if failed'
+    )
+    fix_attempts = models.IntegerField(
+        default=0,
+        help_text='Number of auto-fix attempts made'
+    )
+    
     class Meta:
         unique_together = ['internal_app', 'version_number']
         ordering = ['-version_number']

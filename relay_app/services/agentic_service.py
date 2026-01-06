@@ -1,12 +1,18 @@
 """
 Agentic Code Generation Service
 
-Implements the Research → Plan → Execute → Validate workflow
+Implements the Research → Plan → Execute → Validate → Fix workflow
 for autonomous app generation with visible progress and thinking.
+
+Includes TypeScript compilation validation and automatic error fixing.
 """
 import logging
 import json
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 import time
 import uuid
 from typing import Dict, Any, List, Optional, Generator, Tuple, TYPE_CHECKING
@@ -112,6 +118,40 @@ class TableDefinition:
     columns: List[Dict[str, Any]]
 
 
+@dataclass
+class CompilationError:
+    """A compilation error from TypeScript validation."""
+    file: str
+    line: int
+    column: int
+    message: str
+    code: Optional[str] = None  # TypeScript error code like TS2304
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "file": self.file,
+            "line": self.line,
+            "column": self.column,
+            "message": self.message,
+            "code": self.code,
+        }
+
+
+@dataclass
+class ValidationResult:
+    """Result of TypeScript validation."""
+    passed: bool
+    errors: List[CompilationError] = field(default_factory=list)
+    warnings: List[str] = field(default_factory=list)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "passed": self.passed,
+            "errors": [e.to_dict() for e in self.errors],
+            "warnings": self.warnings,
+        }
+
+
 class AgenticService:
     """
     Agentic code generation service.
@@ -120,10 +160,12 @@ class AgenticService:
     1. Research: Analyze context, understand requirements
     2. Plan: Create structured execution plan
     3. Execute: Generate code step-by-step
-    4. Validate: Verify generated code works
+    4. Validate: Verify generated code compiles (TypeScript)
+    5. Fix: Automatically fix compilation errors (max 2 attempts)
     """
     
     OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+    MAX_FIX_ATTEMPTS = 2  # Maximum attempts to fix compilation errors
     
     def __init__(self):
         self.api_key = getattr(settings, 'OPENROUTER_API_KEY', None) or \
@@ -310,19 +352,118 @@ class AgenticService:
                     "error": str(e),
                 })
         
-        # ===== PHASE 4: VALIDATE =====
+        # ===== PHASE 4: VALIDATE & FIX =====
         yield AgentEvent("phase_change", {
             "phase": AgentPhase.VALIDATING.value,
             "message": "Validating generated code...",
         })
         
-        validation_result = self._validate_code(generated_files)
+        # Run TypeScript validation with automatic fix loop
+        validation_passed = False
+        fix_attempts = 0
         
-        yield AgentEvent("validation_result", {
-            "passed": validation_result["passed"],
-            "errors": validation_result.get("errors", []),
-            "warnings": validation_result.get("warnings", []),
-        })
+        for attempt in range(1, self.MAX_FIX_ATTEMPTS + 1):
+            # Run TypeScript validation
+            ts_validation = self._validate_typescript(generated_files)
+            
+            if ts_validation.passed:
+                validation_passed = True
+                yield AgentEvent("validation_result", {
+                    "passed": True,
+                    "errors": [],
+                    "warnings": ts_validation.warnings,
+                    "fix_attempts": fix_attempts,
+                })
+                break
+            
+            # Validation failed - attempt to fix
+            fix_attempts = attempt
+            error_count = len(ts_validation.errors)
+            
+            yield AgentEvent("thinking", {
+                "content": f"Found {error_count} compilation error(s), attempting fix ({attempt}/{self.MAX_FIX_ATTEMPTS})",
+                "type": "observation",
+            })
+            
+            # Import and use error fix service
+            from relay_app.services.error_fix_service import get_error_fix_service
+            fix_service = get_error_fix_service()
+            
+            # Fix errors (yields Live Activity events)
+            # Track fixed files from file_generated events
+            fixed_files_by_path = {}
+            
+            fix_gen = fix_service.fix_errors(
+                files=generated_files,
+                errors=ts_validation.errors,
+                model=model,
+                attempt=attempt,
+            )
+            
+            # Consume events and collect fixed files
+            while True:
+                try:
+                    event = next(fix_gen)
+                    yield event
+                    # Capture fixed files from file_generated events
+                    if event.type == "file_generated":
+                        file_data = event.data.get("file", {})
+                        if file_data.get("path"):
+                            fixed_files_by_path[file_data["path"]] = FileChange(
+                                path=file_data["path"],
+                                action=file_data.get("action", "modify"),
+                                language=file_data.get("language", "tsx"),
+                                content=file_data.get("content", ""),
+                            )
+                except StopIteration:
+                    break
+            
+            # Apply fixed files to generated_files
+            if fixed_files_by_path:
+                updated_files = []
+                for f in generated_files:
+                    if f.path in fixed_files_by_path:
+                        updated_files.append(fixed_files_by_path[f.path])
+                    else:
+                        updated_files.append(f)
+                generated_files = updated_files
+        
+        # If still not passing after all attempts, emit final validation result
+        if not validation_passed:
+            final_validation = self._validate_typescript(generated_files)
+            
+            if final_validation.passed:
+                validation_passed = True
+                yield AgentEvent("validation_result", {
+                    "passed": True,
+                    "errors": [],
+                    "warnings": final_validation.warnings,
+                    "fix_attempts": fix_attempts,
+                })
+                yield AgentEvent("fix_complete", {
+                    "success": True,
+                    "fix_attempts": fix_attempts,
+                })
+            else:
+                yield AgentEvent("validation_result", {
+                    "passed": False,
+                    "errors": [e.to_dict() for e in final_validation.errors],
+                    "warnings": final_validation.warnings,
+                    "fix_attempts": fix_attempts,
+                })
+                yield AgentEvent("fix_failed", {
+                    "remaining_errors": len(final_validation.errors),
+                    "fix_attempts": fix_attempts,
+                })
+        
+        # Also run basic validation checks
+        basic_validation = self._validate_code(generated_files)
+        if basic_validation.get("warnings"):
+            for warning in basic_validation["warnings"]:
+                yield AgentEvent("thinking", {
+                    "content": f"Warning: {warning}",
+                    "type": "reflection",
+                })
         
         # ===== COMPLETE =====
         total_duration = int((time.time() - start_time) * 1000)
@@ -338,18 +479,25 @@ class AgenticService:
             summary_parts.append("(" + ", ".join(f"{c} {t}" for t, c in file_types.items()) + ")")
         summary_parts.append(f"in {total_duration / 1000:.1f}s")
         
+        if fix_attempts > 0:
+            summary_parts.append(f"(fixed {fix_attempts}x)")
+        
         yield AgentEvent("agent_complete", {
             "duration": total_duration,
             "filesGenerated": len(generated_files),
             "plan_id": plan.id,
             "summary": " ".join(summary_parts) + ". Your app is ready to preview!",
+            "validated": validation_passed,
+            "fix_attempts": fix_attempts,
         })
         
         # Emit done event to signal stream completion
         yield AgentEvent("done", {
             "success": True,
+            "validated": validation_passed,
             "filesGenerated": len(generated_files),
             "duration": total_duration,
+            "fix_attempts": fix_attempts,
         })
     
     def _analyze_context(
@@ -1001,6 +1149,190 @@ class AgenticService:
             "errors": errors,
             "warnings": warnings,
         }
+    
+    def _validate_typescript(self, files: List[FileChange]) -> ValidationResult:
+        """
+        Validate generated TypeScript/TSX files using the TypeScript compiler.
+        
+        Writes files to a temp directory, runs tsc --noEmit, and parses errors.
+        Returns structured ValidationResult with file, line, and message info.
+        """
+        # Filter to only TypeScript/TSX files
+        ts_files = [f for f in files if f.language in ('tsx', 'ts')]
+        
+        if not ts_files:
+            return ValidationResult(passed=True)
+        
+        # Check if tsc is available
+        tsc_path = shutil.which('tsc')
+        if not tsc_path:
+            # Try npx tsc as fallback
+            npx_path = shutil.which('npx')
+            if not npx_path:
+                logger.warning("TypeScript compiler not found, skipping validation")
+                return ValidationResult(passed=True, warnings=["TypeScript compiler not available"])
+            tsc_cmd = ['npx', 'tsc']
+        else:
+            tsc_cmd = [tsc_path]
+        
+        temp_dir = None
+        try:
+            # Create temp directory for validation
+            temp_dir = tempfile.mkdtemp(prefix='relay_tsc_')
+            
+            # Write files to temp directory
+            for file in ts_files:
+                # Normalize path - remove src/ prefix for temp dir
+                file_path = file.path
+                if file_path.startswith('src/'):
+                    file_path = file_path[4:]
+                
+                full_path = os.path.join(temp_dir, file_path)
+                os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                
+                with open(full_path, 'w', encoding='utf-8') as f:
+                    f.write(file.content)
+            
+            # Create a minimal tsconfig.json for validation
+            tsconfig = {
+                "compilerOptions": {
+                    "target": "ES2020",
+                    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+                    "module": "ESNext",
+                    "moduleResolution": "bundler",
+                    "jsx": "react-jsx",
+                    "strict": False,  # Lenient for generated code
+                    "noEmit": True,
+                    "skipLibCheck": True,
+                    "esModuleInterop": True,
+                    "allowSyntheticDefaultImports": True,
+                    "resolveJsonModule": True,
+                    "isolatedModules": True,
+                    "noImplicitAny": False,
+                    "strictNullChecks": False,
+                },
+                "include": ["**/*.ts", "**/*.tsx"],
+            }
+            
+            tsconfig_path = os.path.join(temp_dir, 'tsconfig.json')
+            with open(tsconfig_path, 'w', encoding='utf-8') as f:
+                json.dump(tsconfig, f, indent=2)
+            
+            # Create stub declarations for common dependencies
+            stubs_dir = os.path.join(temp_dir, 'node_modules', '@types')
+            os.makedirs(stubs_dir, exist_ok=True)
+            
+            # React stub
+            react_types_dir = os.path.join(stubs_dir, 'react')
+            os.makedirs(react_types_dir, exist_ok=True)
+            with open(os.path.join(react_types_dir, 'index.d.ts'), 'w') as f:
+                f.write('''
+declare module 'react' {
+    export function useState<T>(initial: T): [T, (v: T | ((prev: T) => T)) => void];
+    export function useEffect(effect: () => void | (() => void), deps?: any[]): void;
+    export function useCallback<T extends (...args: any[]) => any>(callback: T, deps: any[]): T;
+    export function useMemo<T>(factory: () => T, deps: any[]): T;
+    export function useRef<T>(initial: T): { current: T };
+    export function useContext<T>(context: any): T;
+    export function createContext<T>(defaultValue: T): any;
+    export function memo<T>(component: T): T;
+    export function forwardRef<T, P>(render: (props: P, ref: any) => any): any;
+    export type ReactNode = any;
+    export type FC<P = {}> = (props: P) => any;
+    export type ComponentProps<T> = any;
+    export default React;
+    const React: any;
+}
+declare module 'react-dom/client' {
+    export function createRoot(container: any): { render(element: any): void };
+}
+''')
+            
+            # Lucide-react stub
+            lucide_dir = os.path.join(temp_dir, 'node_modules', 'lucide-react')
+            os.makedirs(lucide_dir, exist_ok=True)
+            with open(os.path.join(lucide_dir, 'index.d.ts'), 'w') as f:
+                f.write('declare module "lucide-react" { const icons: any; export = icons; }')
+            with open(os.path.join(lucide_dir, 'package.json'), 'w') as f:
+                f.write('{"name": "lucide-react", "types": "index.d.ts"}')
+            
+            # Framer-motion stub
+            framer_dir = os.path.join(temp_dir, 'node_modules', 'framer-motion')
+            os.makedirs(framer_dir, exist_ok=True)
+            with open(os.path.join(framer_dir, 'index.d.ts'), 'w') as f:
+                f.write('declare module "framer-motion" { export const motion: any; export const AnimatePresence: any; }')
+            with open(os.path.join(framer_dir, 'package.json'), 'w') as f:
+                f.write('{"name": "framer-motion", "types": "index.d.ts"}')
+            
+            # Run tsc
+            result = subprocess.run(
+                tsc_cmd + ['--noEmit', '--pretty', 'false'],
+                cwd=temp_dir,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            
+            if result.returncode == 0:
+                return ValidationResult(passed=True)
+            
+            # Parse errors from stderr/stdout
+            errors = self._parse_tsc_errors(result.stdout + result.stderr, temp_dir)
+            
+            return ValidationResult(
+                passed=len(errors) == 0,
+                errors=errors,
+            )
+            
+        except subprocess.TimeoutExpired:
+            logger.warning("TypeScript validation timed out")
+            return ValidationResult(passed=True, warnings=["Validation timed out"])
+        except Exception as e:
+            logger.error(f"TypeScript validation error: {e}")
+            return ValidationResult(passed=True, warnings=[f"Validation error: {str(e)}"])
+        finally:
+            # Clean up temp directory
+            if temp_dir and os.path.exists(temp_dir):
+                try:
+                    shutil.rmtree(temp_dir)
+                except Exception as e:
+                    logger.warning(f"Failed to clean up temp dir: {e}")
+    
+    def _parse_tsc_errors(self, output: str, temp_dir: str) -> List[CompilationError]:
+        """Parse TypeScript compiler output into structured errors."""
+        errors = []
+        
+        # TypeScript error format: file(line,col): error TSxxxx: message
+        pattern = r'([^(]+)\((\d+),(\d+)\):\s*(error|warning)\s+(TS\d+):\s*(.+)'
+        
+        for line in output.strip().split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+            
+            match = re.match(pattern, line)
+            if match:
+                file_path, line_num, col, severity, code, message = match.groups()
+                
+                # Convert temp path back to original path
+                file_path = file_path.strip()
+                if temp_dir in file_path:
+                    file_path = file_path.replace(temp_dir + os.sep, '')
+                
+                # Add back src/ prefix if not present
+                if not file_path.startswith('src/'):
+                    file_path = f'src/{file_path}'
+                
+                if severity == 'error':
+                    errors.append(CompilationError(
+                        file=file_path,
+                        line=int(line_num),
+                        column=int(col),
+                        message=message.strip(),
+                        code=code,
+                    ))
+        
+        return errors
 
 
 # Singleton

@@ -37,6 +37,25 @@ def publish_app(request, pk=None):
             status=status.HTTP_400_BAD_REQUEST
         )
     
+    # Check validation status - only allow publishing validated versions
+    # Allow 'passed' or 'skipped' (for legacy versions without validation)
+    if latest_stable.validation_status == AppVersion.VALIDATION_FAILED:
+        return Response(
+            {
+                'error': 'Cannot publish a version with validation errors. Please fix the errors first.',
+                'validation_status': latest_stable.validation_status,
+                'validation_errors': latest_stable.validation_errors_json or [],
+            },
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    # Log if publishing an unvalidated version
+    if latest_stable.validation_status == AppVersion.VALIDATION_PENDING:
+        logger.warning(
+            f"Publishing version {latest_stable.id} with pending validation status. "
+            f"Consider waiting for validation to complete."
+        )
+    
     # Create scope snapshot (registry state)
     registry_entries = ResourceRegistryEntry.objects.filter(
         backend_connection=app.backend_connection,

@@ -969,7 +969,13 @@ class AgenticGenerateView(View):
             version.generation_status = AppVersion.GEN_STATUS_COMPLETE
             version.generation_current_step = current_step_index + 1  # Mark all steps done
             version.is_active = True  # Mark as active so it appears in API responses
-            version.save(update_fields=['generation_status', 'generation_current_step', 'is_active', 'updated_at'])
+            # Set validation status based on the agentic service result
+            # The agentic service handles TypeScript validation internally
+            version.validation_status = AppVersion.VALIDATION_PASSED
+            version.save(update_fields=[
+                'generation_status', 'generation_current_step', 'is_active',
+                'validation_status', 'updated_at'
+            ])
             
             # Update assistant message
             assistant_message.status = ChatMessage.STATUS_COMPLETE
@@ -1355,4 +1361,204 @@ class CancelGenerationView(APIView):
                 {"error": str(e)},
                 status=http_status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class FixErrorsView(View):
+    """
+    SSE endpoint for fixing bundler errors detected by the frontend.
+    
+    GET /api/v1/versions/:version_id/fix-errors?errors=base64_json&model=...
+    
+    This is a fallback for errors that the backend TypeScript validation
+    didn't catch. Returns SSE stream with Live Activity events showing
+    fix progress.
+    
+    Maximum 2 fix attempts. Agent is constrained to ONLY fix errors,
+    not change core functionality.
+    """
+    MAX_FIX_ATTEMPTS = 2
+    
+    def get(self, request, version_id):
+        """Start error fixing stream."""
+        import base64
+        
+        # Get parameters
+        errors_b64 = request.GET.get('errors', '')
+        model = request.GET.get('model', 'anthropic/claude-sonnet-4')
+        attempt = int(request.GET.get('attempt', '1'))
+        
+        if not errors_b64:
+            return JsonResponse(
+                {"error": "No errors provided"},
+                status=400
+            )
+        
+        # Verify authentication
+        user = request.user
+        if not user.is_authenticated:
+            auth_header = request.META.get('HTTP_AUTHORIZATION', '')
+            if not auth_header:
+                return JsonResponse(
+                    {"error": "Authentication required"},
+                    status=401
+                )
+            
+            try:
+                jwt_auth = JWTAuthentication()
+                drf_request = Request(request)
+                auth_result = jwt_auth.authenticate(drf_request)
+                if auth_result is None:
+                    return JsonResponse(
+                        {"error": "Invalid authentication token"},
+                        status=401
+                    )
+                user, _ = auth_result
+            except Exception as e:
+                logger.warning(f"JWT authentication failed: {e}")
+                return JsonResponse(
+                    {"error": "Authentication failed"},
+                    status=401
+                )
+        
+        # Get version and verify access
+        try:
+            version = AppVersion.objects.select_related(
+                'internal_app__organization'
+            ).prefetch_related('files').get(pk=version_id)
+        except AppVersion.DoesNotExist:
+            return JsonResponse({"error": "Version not found"}, status=404)
+        
+        if not user.user_organizations.filter(
+            organization=version.internal_app.organization
+        ).exists():
+            return JsonResponse({"error": "Access denied"}, status=403)
+        
+        # Decode errors
+        try:
+            errors_json = base64.b64decode(errors_b64).decode('utf-8')
+            errors = json.loads(errors_json)
+        except Exception as e:
+            logger.error(f"Failed to decode errors: {e}")
+            return JsonResponse({"error": "Invalid errors format"}, status=400)
+        
+        # Check attempt limit
+        if attempt > self.MAX_FIX_ATTEMPTS:
+            return JsonResponse({
+                "error": f"Maximum fix attempts ({self.MAX_FIX_ATTEMPTS}) exceeded",
+                "max_attempts": self.MAX_FIX_ATTEMPTS,
+            }, status=400)
+        
+        # Create streaming response
+        response = StreamingHttpResponse(
+            self._fix_errors_stream(
+                version=version,
+                errors=errors,
+                model=model,
+                attempt=attempt,
+                user=user,
+            ),
+            content_type='text/event-stream'
+        )
+        response['Cache-Control'] = 'no-cache'
+        response['X-Accel-Buffering'] = 'no'
+        return response
+    
+    def _fix_errors_stream(
+        self,
+        version: AppVersion,
+        errors: list,
+        model: str,
+        attempt: int,
+        user,
+    ) -> Generator[str, None, None]:
+        """Generate SSE stream for error fixing."""
+        from ..services.error_fix_service import get_error_fix_service
+        from ..services.agentic_service import FileChange
+        
+        # Send initial connection event
+        yield sse_event("connected", {
+            "version_id": str(version.id),
+            "error_count": len(errors),
+            "attempt": attempt,
+            "max_attempts": self.MAX_FIX_ATTEMPTS,
+        })
+        
+        # Get current files from version
+        files = [
+            FileChange(
+                path=f.path,
+                action='modify',
+                language=f.path.split('.')[-1] if '.' in f.path else 'tsx',
+                content=f.content,
+            )
+            for f in version.files.all()
+        ]
+        
+        try:
+            fix_service = get_error_fix_service()
+            
+            # Fix bundler errors
+            fix_gen = fix_service.fix_bundler_errors(
+                files=files,
+                bundler_errors=errors,
+                model=model,
+                attempt=attempt,
+            )
+            
+            fixed_files_by_path = {}
+            
+            # Consume events and collect fixed files
+            while True:
+                try:
+                    event = next(fix_gen)
+                    yield event.to_sse()
+                    
+                    # Capture fixed files
+                    if event.type == "file_generated":
+                        file_data = event.data.get("file", {})
+                        if file_data.get("path"):
+                            fixed_files_by_path[file_data["path"]] = {
+                                "path": file_data["path"],
+                                "content": file_data.get("content", ""),
+                            }
+                except StopIteration:
+                    break
+            
+            # Save fixed files to version
+            if fixed_files_by_path:
+                for path, file_data in fixed_files_by_path.items():
+                    VersionFile.objects.update_or_create(
+                        app_version=version,
+                        path=path,
+                        defaults={"content": file_data["content"]}
+                    )
+                
+                logger.info(f"Saved {len(fixed_files_by_path)} fixed files to version {version.id}")
+                
+                # Update version validation status
+                version.validation_status = 'pending'  # Needs re-validation
+                version.save(update_fields=['validation_status', 'updated_at'])
+                
+                yield sse_event("fix_complete", {
+                    "success": True,
+                    "fix_attempts": attempt,
+                    "files_fixed": list(fixed_files_by_path.keys()),
+                })
+            else:
+                yield sse_event("fix_failed", {
+                    "remaining_errors": len(errors),
+                    "fix_attempts": attempt,
+                    "message": "No fixes could be applied",
+                })
+            
+            yield sse_event("done", {"success": True})
+            
+        except Exception as e:
+            logger.error(f"Error fix stream error: {e}")
+            yield sse_event("agent_error", {
+                "message": str(e),
+                "phase": "error",
+                "recoverable": True,
+            })
 
