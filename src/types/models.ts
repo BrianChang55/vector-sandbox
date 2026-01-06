@@ -307,3 +307,112 @@ export interface AppVersionWithSnapshot extends AppVersion {
   audit_logs?: VersionAuditLog[]
 }
 
+// ============================================================================
+// Integrations & Connectors Types
+// ============================================================================
+
+/**
+ * Integration Provider - Organization-level configuration for external integrations.
+ * The organization is registered as a single "user" with Merge Agent Handler.
+ * All org members share the connected integrations.
+ */
+export interface IntegrationProvider {
+  id: string
+  organization: string
+  organization_name: string
+  display_name: string
+  is_active: boolean
+  is_registered: boolean  // Whether org is registered with Merge
+  is_configured: boolean  // Whether Merge API credentials are configured in env
+  connector_count: number
+  connected_count: number // Number of connected integrations
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Connector - An external service that can be connected (e.g., Jira, Slack, Linear).
+ * Connection is at the organization level, not per-user.
+ * Data from Tool Pack API: https://docs.ah.merge.dev/api-reference/tool-packs/list-tool-packs
+ */
+export interface Connector {
+  id: string
+  connector_id: string  // Slug e.g., "jira", "slack", "linear"
+  name: string          // Display name e.g., "Jira", "Slack"
+  category: string      // Primary category e.g., "project_management", "communication"
+  categories: string[]  // All category tags e.g., ["Project Management", "Ticketing"]
+  logo_url: string | null  // Logo image URL
+  icon_url: string | null  // Backwards compat - same as logo_url
+  source_url: string | null  // Source website URL e.g., "https://linear.app"
+  description: string
+  is_enabled: boolean
+  is_connected: boolean      // Whether the org has connected this
+  connected_at: string | null // When the connection was established
+  connected_by: string | null // Email of user who connected
+  tool_count: number
+  tools: ConnectorTool[]
+}
+
+/**
+ * Tool available on a connector (e.g., create_issue, send_message).
+ */
+export interface ConnectorTool {
+  id: string
+  name: string
+  description: string
+  parameters: Record<string, ConnectorToolParameter>
+}
+
+/**
+ * Parameter definition for a connector tool.
+ */
+export interface ConnectorToolParameter {
+  type: string
+  description: string
+  required: boolean
+  enum?: string[]
+  default?: any
+}
+
+/**
+ * Organization's connection status to a specific connector.
+ */
+export interface OrgConnectorStatus {
+  connector_id: string
+  connector_name: string
+  is_connected: boolean
+  connected_at: string | null
+  connected_by: string | null  // Email of user who connected
+}
+
+/**
+ * Response from generating a link token for OAuth flow.
+ */
+export interface LinkTokenResponse {
+  link_token: string
+  expires_in: number
+}
+
+/**
+ * Response from syncing connectors.
+ */
+export interface SyncConnectorsResponse {
+  success: boolean
+  message: string
+  connector_count: number
+}
+
+/**
+ * Response from handling link callback.
+ * Connection is only marked successful if verified with Merge API.
+ */
+export interface LinkCallbackResponse {
+  success: boolean
+  connector_id: string
+  is_connected: boolean
+  connected_at?: string  // Only present if connection succeeded
+  connected_by?: string  // Only present if connection succeeded
+  message?: string       // Present if connection failed (e.g., "Connection not completed")
+  error?: string         // Present if there was a service error
+}
+

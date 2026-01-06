@@ -21,6 +21,7 @@ import {
   Loader2,
   Code2,
   Database,
+  Plug,
 } from 'lucide-react'
 
 import { useApp, useAppVersions, usePublishApp, useRollback } from '../hooks/useApps'
@@ -33,13 +34,14 @@ import { SandpackPreview } from '../components/builder/SandpackPreview'
 import { VersionsPanel } from '../components/builder/VersionsPanel'
 import { PublishPopover } from '../components/builder/PublishPopover'
 import { DataPanel } from '../components/data'
+import { AppConnectorsPanel } from '../components/connectors'
 import { Button } from '../components/ui/button'
 import { useToast, toast } from '../components/ui/toast'
 import { cn } from '../lib/utils'
 import type { FileChange } from '../types/agent'
 import { upsertFileChange } from '../services/agentService'
 
-type AppTab = 'builder' | 'data'
+type AppTab = 'builder' | 'data' | 'integrations'
 
 export function AppBuilderPage() {
   const { appId } = useParams<{ appId: string }>()
@@ -251,6 +253,18 @@ export function AppBuilderPage() {
               <Database className="h-3.5 w-3.5" />
               Data
             </button>
+            <button
+              onClick={() => setActiveTab('integrations')}
+              className={cn(
+                'flex items-center gap-1.5 px-3 h-7 rounded-md text-xs font-medium transition-colors',
+                activeTab === 'integrations'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              )}
+            >
+              <Plug className="h-3.5 w-3.5" />
+              Integrations
+            </button>
           </div>
         </div>
 
@@ -342,9 +356,12 @@ export function AppBuilderPage() {
               </div>
             )}
           </>
-        ) : (
+        ) : activeTab === 'data' ? (
           /* Data Tab - Full width data management */
           <DataPanel appId={appId!} className="flex-1" />
+        ) : (
+          /* Integrations Tab - External connectors */
+          <AppConnectorsPanel appId={appId!} className="flex-1" />
         )}
       </div>
     </div>

@@ -1,5 +1,5 @@
 /**
- * Resources page - Manage backend connections and resource registry
+ * Resources page - Manage backend connections, resource registry, and integrations
  */
 import { useState } from 'react'
 import { useAppSelector } from '../store/hooks'
@@ -8,9 +8,11 @@ import { useResources, useUpdateResource, useDiscoverResources } from '../hooks/
 import { Button } from '../components/ui/button'
 import { CustomDialog } from '../components/ui/dialog'
 import { useDialog } from '../components/ui/dialog-provider'
-import { Plus, Database, RefreshCw, ChevronRight, Check, X, TestTube2, Loader2 } from 'lucide-react'
+import { Plus, Database, RefreshCw, ChevronRight, Check, X, TestTube2, Loader2, Plug } from 'lucide-react'
 import { cn } from '../lib/utils'
+import { IntegrationsPanel } from '../components/settings/IntegrationsPanel'
 
+type ResourceTab = 'backends' | 'integrations'
 type AdapterType = 'supabase' | 'postgresql' | 'mysql'
 
 interface ConnectionFormData {
@@ -46,6 +48,9 @@ export function ResourcesPage() {
   const [selectedBackendId, setSelectedBackendId] = useState<string | null>(null)
   const { data: resources, isLoading: resourcesLoading } = useResources(selectedBackendId)
   const updateResource = useUpdateResource()
+  
+  // Tab state
+  const [activeTab, setActiveTab] = useState<ResourceTab>('backends')
   
   // Connection dialog state
   const [showConnectionDialog, setShowConnectionDialog] = useState(false)
@@ -186,15 +191,54 @@ export function ResourcesPage() {
   }
 
   return (
-    <div className="flex h-full">
-      {/* Left panel: Backend connections */}
-      <div className="w-72 border-r border-gray-200 bg-white flex flex-col">
-        <div className="px-4 py-4 min-h-[75px] border-b border-gray-200 flex items-center justify-between">
-          <h2 className="font-semibold text-sm text-gray-900">Backends</h2>
-          <Button size="sm" variant="ghost" onClick={() => setShowConnectionDialog(true)}>
-            <Plus className="h-4 w-4" />
-          </Button>
+    <div className="flex flex-col h-full">
+      {/* Tab Navigation */}
+      <div className="border-b border-gray-200 bg-white px-4">
+        <div className="flex items-center gap-6 h-14">
+          <button
+            onClick={() => setActiveTab('backends')}
+            className={cn(
+              'flex items-center gap-2 h-full border-b-2 text-sm font-medium transition-colors',
+              activeTab === 'backends'
+                ? 'border-gray-900 text-gray-900'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            )}
+          >
+            <Database className="h-4 w-4" />
+            Backends
+          </button>
+          <button
+            onClick={() => setActiveTab('integrations')}
+            className={cn(
+              'flex items-center gap-2 h-full border-b-2 text-sm font-medium transition-colors',
+              activeTab === 'integrations'
+                ? 'border-gray-900 text-gray-900'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            )}
+          >
+            <Plug className="h-4 w-4" />
+            Integrations
+          </button>
         </div>
+      </div>
+
+      {/* Tab Content */}
+      {activeTab === 'integrations' ? (
+        <div className="flex-1 overflow-auto bg-gray-50 p-6">
+          <div className="max-w-4xl mx-auto">
+            <IntegrationsPanel orgId={selectedOrgId} />
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-1 overflow-hidden">
+          {/* Left panel: Backend connections */}
+          <div className="w-72 border-r border-gray-200 bg-white flex flex-col">
+            <div className="px-4 py-4 min-h-[60px] border-b border-gray-200 flex items-center justify-between">
+              <h2 className="font-semibold text-sm text-gray-900">Backends</h2>
+              <Button size="sm" variant="ghost" onClick={() => setShowConnectionDialog(true)}>
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
         
         <div className="flex-1 overflow-y-auto">
           {backendsLoading ? (
@@ -342,6 +386,8 @@ export function ResourcesPage() {
           </div>
         )}
       </div>
+    </div>
+      )}
 
       {/* Connection Dialog */}
       <CustomDialog
