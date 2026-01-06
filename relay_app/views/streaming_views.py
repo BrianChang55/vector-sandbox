@@ -913,6 +913,20 @@ class AgenticGenerateView(View):
                 generation_status=AppVersion.GEN_STATUS_GENERATING,
             )
             
+            # CRITICAL: Copy existing files from the latest stable version
+            # This ensures schema-only updates don't lose existing code
+            if latest_stable_version:
+                copied_count = 0
+                for existing_file in latest_stable_version.files.all():
+                    VersionFile.objects.create(
+                        app_version=version,
+                        path=existing_file.path,
+                        content=existing_file.content or "",
+                    )
+                    copied_count += 1
+                if copied_count > 0:
+                    logger.info(f"Copied {copied_count} files from version {latest_stable_version.version_number} to draft version {version.version_number}")
+            
             # Link to message immediately
             assistant_message.version_created = version
             assistant_message.save()

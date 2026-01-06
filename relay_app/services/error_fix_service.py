@@ -314,11 +314,16 @@ class ErrorFixService:
     ) -> List[FileChange]:
         """Parse fixed files from LLM response."""
         fixed_files = []
+        seen_paths = set()
         
-        # Pattern to match file blocks
+        # Pattern to match file blocks - order matters
         patterns = [
+            # Pattern 1: ```filepath:path/to/file.ext (highest priority)
             r'```filepath:([^\n`]+)\n(.*?)```',
-            r'```([^\n`]+\.[a-zA-Z]+)\n(.*?)```',
+            # Pattern 2: ```src/path/to/file.ext (explicit src path)
+            r'```(src/[^\n`]+\.[a-zA-Z]+)\n(.*?)```',
+            # Pattern 3: ```path/to/file.ext (with extension, but not filepath:)
+            r'```([a-zA-Z][^\n`]*\.[a-zA-Z]+)\n(.*?)```',
         ]
         
         for pattern in patterns:
@@ -327,12 +332,16 @@ class ErrorFixService:
                 filepath = filepath.strip()
                 code = code.strip()
                 
-                # Skip if already found
-                if any(f.path == filepath for f in fixed_files):
-                    continue
+                # Remove any filepath: prefix that might have been captured
+                if filepath.startswith('filepath:'):
+                    filepath = filepath[9:].strip()
                 
                 # Skip language-only markers
                 if filepath.lower() in ('tsx', 'ts', 'js', 'jsx', 'css', 'json', 'typescript'):
+                    continue
+                
+                # Skip if path contains 'filepath:' (malformed)
+                if 'filepath:' in filepath:
                     continue
                 
                 if not code or len(code) < 10:
@@ -341,6 +350,11 @@ class ErrorFixService:
                 # Normalize path
                 if not filepath.startswith('src/'):
                     filepath = f"src/{filepath}"
+                
+                # Skip if already found
+                if filepath in seen_paths:
+                    continue
+                seen_paths.add(filepath)
                 
                 # Determine language
                 ext = filepath.split('.')[-1] if '.' in filepath else 'tsx'

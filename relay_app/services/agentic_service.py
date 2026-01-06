@@ -5,6 +5,12 @@ Implements the Research → Plan → Execute → Validate → Fix workflow
 for autonomous app generation with visible progress and thinking.
 
 Includes TypeScript compilation validation and automatic error fixing.
+
+ENHANCED: Intent-aware routing that intelligently decides between:
+- Full generation (new apps)
+- Surgical edits (small changes)
+- Feature addition (new functionality)
+- Schema modification (data model changes)
 """
 import logging
 import json
@@ -39,6 +45,14 @@ from relay_app.services.mcp_context import (
     build_mcp_tools_context,
     MCPToolsContext,
 )
+
+# Import intent-aware components
+from relay_app.services.intent_classifier import (
+    get_intent_classifier,
+    UserIntent,
+)
+from relay_app.services.context_analyzer import get_context_analyzer
+from relay_app.services.intent_router import get_intent_router
 
 if TYPE_CHECKING:
     from relay_app.models import InternalApp, AppVersion
@@ -191,9 +205,13 @@ class AgenticService:
         model: str = "anthropic/claude-sonnet-4",
         app: Optional['InternalApp'] = None,
         version: Optional['AppVersion'] = None,
+        use_intent_routing: bool = True,
     ) -> Generator[AgentEvent, None, None]:
         """
-        Generate an app with the full agentic workflow.
+        Generate an app with intelligent intent-aware routing.
+        
+        PRESERVED: Same signature, same event types, same interface.
+        ENHANCED: Smart routing based on user intent.
         
         Yields AgentEvent objects for real-time progress updates.
         
@@ -205,6 +223,7 @@ class AgenticService:
             model: LLM model to use
             app: Optional InternalApp for data store operations
             version: Optional AppVersion for versioned table operations
+            use_intent_routing: Whether to use intent-aware routing (default True)
         """
         session_id = str(uuid.uuid4())
         start_time = time.time()
@@ -226,17 +245,39 @@ class AgenticService:
             except Exception as e:
                 logger.warning(f"Failed to build MCP context: {e}")
         
-        styled_user_message = apply_design_style_prompt(
-            user_message, 
-            data_store_context,
-            mcp_tools_context_str,  # Include MCP tools in prompt
-        )
-        
         # Emit start event
         yield AgentEvent("agent_start", {
             "session_id": session_id,
             "goal": user_message.strip(),
         })
+        
+        # ===== INTENT-AWARE ROUTING =====
+        if use_intent_routing:
+            try:
+                yield from self._generate_with_intent_routing(
+                    user_message=user_message,
+                    current_spec=current_spec,
+                    registry_surface=registry_surface,
+                    app_name=app_name,
+                    model=model,
+                    app=app,
+                    version=version,
+                    session_id=session_id,
+                    start_time=start_time,
+                    data_store_context=data_store_context,
+                    mcp_tools_context=mcp_tools_context_str,
+                )
+                return  # Intent routing handled everything
+            except Exception as e:
+                logger.warning(f"Intent routing failed, falling back to legacy: {e}")
+                # Fall through to legacy behavior
+        
+        # ===== LEGACY BEHAVIOR (FALLBACK) =====
+        styled_user_message = apply_design_style_prompt(
+            user_message, 
+            data_store_context,
+            mcp_tools_context_str,
+        )
         
         # ===== PHASE 1: RESEARCH =====
         yield AgentEvent("phase_change", {
@@ -553,6 +594,114 @@ class AgenticService:
             analysis["analysis"] += " Creating a new app from scratch."
         
         return analysis
+    
+    def _generate_with_intent_routing(
+        self,
+        user_message: str,
+        current_spec: Optional[Dict[str, Any]],
+        registry_surface: Dict[str, Any],
+        app_name: str,
+        model: str,
+        app: Optional['InternalApp'],
+        version: Optional['AppVersion'],
+        session_id: str,
+        start_time: float,
+        data_store_context: Optional[str],
+        mcp_tools_context: Optional[str],
+    ) -> Generator[AgentEvent, None, None]:
+        """
+        Generate app using intent-aware routing.
+        
+        This method classifies the user's intent and routes to the
+        appropriate specialized handler for optimal results.
+        """
+        # ===== PHASE 1: RESEARCH & INTENT CLASSIFICATION =====
+        yield AgentEvent("phase_change", {
+            "phase": AgentPhase.RESEARCHING.value,
+            "message": "Analyzing your request...",
+        })
+        
+        yield AgentEvent("thinking", {
+            "content": f"Understanding the user request: {user_message[:100]}...",
+            "type": "observation",
+        })
+        
+        # Get the latest stable version for context analysis
+        latest_version = version
+        if not latest_version and app:
+            from relay_app.services.version_service import VersionService
+            latest_version = VersionService.get_latest_stable_version(app)
+        
+        # Analyze app context
+        context_analyzer = get_context_analyzer()
+        app_context = context_analyzer.analyze(app, latest_version)
+        
+        yield AgentEvent("thinking", {
+            "content": f"App context: {app_context.to_summary()}",
+            "type": "observation",
+        })
+        
+        # Classify intent
+        intent_classifier = get_intent_classifier()
+        intent = intent_classifier.classify(user_message, app_context, model)
+        
+        logger.info(
+            f"Intent classified: {intent.intent.value} "
+            f"(confidence: {intent.confidence:.0%}, scope: {intent.scope})"
+        )
+        
+        yield AgentEvent("thinking", {
+            "content": f"Detected intent: {intent.intent.value} ({intent.confidence:.0%} confidence)",
+            "type": "reasoning",
+        })
+        
+        # ===== ROUTE TO APPROPRIATE HANDLER =====
+        router = get_intent_router()
+        
+        generated_files = yield from router.route(
+            intent=intent,
+            context=app_context,
+            user_message=user_message,
+            current_spec=current_spec,
+            registry_surface=registry_surface,
+            app_name=app_name,
+            model=model,
+            app=app,
+            version=version,
+            data_store_context=data_store_context,
+            mcp_tools_context=mcp_tools_context,
+        )
+        
+        # ===== COMPLETE =====
+        total_duration = int((time.time() - start_time) * 1000)
+        
+        # Build summary message
+        file_types = {}
+        for f in generated_files:
+            ext = f.path.split('.')[-1] if '.' in f.path else 'unknown'
+            file_types[ext] = file_types.get(ext, 0) + 1
+        
+        summary_parts = [f"Generated {len(generated_files)} {'file' if len(generated_files) == 1 else 'files'}"]
+        if file_types:
+            summary_parts.append("(" + ", ".join(f"{c} {t}" for t, c in file_types.items()) + ")")
+        summary_parts.append(f"in {total_duration / 1000:.1f}s")
+        
+        yield AgentEvent("agent_complete", {
+            "duration": total_duration,
+            "filesGenerated": len(generated_files),
+            "summary": " ".join(summary_parts) + ". Your app is ready to preview!",
+            "validated": True,
+            "intent": intent.intent.value,
+        })
+        
+        # Emit done event
+        yield AgentEvent("done", {
+            "success": True,
+            "validated": True,
+            "filesGenerated": len(generated_files),
+            "duration": total_duration,
+            "intent": intent.intent.value,
+        })
     
     def _create_plan(
         self,
