@@ -12,7 +12,7 @@
  * 
  * Light enterprise theme matching the rest of the application.
  */
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { 
   ArrowLeft, 
@@ -40,6 +40,7 @@ import { Button } from '../components/ui/button'
 import { useToast, toast } from '../components/ui/toast'
 import { cn } from '../lib/utils'
 import type { FileChange } from '../types/agent'
+import type { BundlerError } from '../hooks/useSandpackValidation'
 import { upsertFileChange } from '../services/agentService'
 
 type AppTab = 'builder' | 'data' | 'integrations'
@@ -86,10 +87,16 @@ export function AppBuilderPage() {
   
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [isPublishing, setIsPublishing] = useState(false)
-  const [generatedFiles, setGeneratedFiles] = useState<FileChange[]>([])
+  const [streamingFiles, setStreamingFiles] = useState<FileChange[]>([]) // Files from active generation
+  const [isActivelyGenerating, setIsActivelyGenerating] = useState(false) // Track if generation is in progress
   const [publishError, setPublishError] = useState<string | null>(null)
   const [showVersionsSidebar, setShowVersionsSidebar] = useState(false)
   const [activeGeneratingVersionId, setActiveGeneratingVersionId] = useState<string | null>(null)
+  // Track whether auto-fix should be enabled (stays true for a window after generation completes)
+  const [autoFixEnabled, setAutoFixEnabled] = useState(false)
+  const autoFixTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Track bundler errors for auto-fix (passed to chat panel)
+  const [bundlerErrors, setBundlerErrors] = useState<BundlerError[] | undefined>(undefined)
   
   // Resizable chat panel
   const [chatPanelWidth, setChatPanelWidth] = useState(420)
@@ -133,37 +140,76 @@ export function AppBuilderPage() {
   const latestVersionGenerating = latestVersion?.generation_status && latestVersion.generation_status !== 'complete'
   const canPublish = !!selectedVersion && !isPublishing && !latestVersionGenerating
 
-  // Load existing version files into generatedFiles for Sandpack preview
-  // This runs when a version is selected (either on initial load or when switching versions)
-  useEffect(() => {
-    if (selectedVersion?.files && selectedVersion.files.length > 0) {
-      // Convert version files to FileChange format for SandpackPreview
-      const filesForPreview: FileChange[] = selectedVersion.files.reduce(
-        (acc: FileChange[], f: { path: string; content: string }) => {
-          const ext = f.path.split('.').pop()?.toLowerCase()
-          const language: FileChange['language'] =
-            ext === 'css'
-              ? 'css'
-              : ext === 'json'
-                ? 'json'
-                : ext === 'html'
-                  ? 'html'
-                  : ext === 'ts'
-                    ? 'ts'
-                    : 'tsx'
-
-          return upsertFileChange(acc, {
-            path: f.path,
-            content: f.content,
-            action: 'create',
-            language,
-          })
-        },
-        []
-      )
-      setGeneratedFiles(filesForPreview)
+  // Compute files for preview from selected version (synchronous, no lag)
+  const versionFiles = useMemo(() => {
+    const versionToLoad = versions?.find((v) => v.id === selectedVersionId) || versions?.[0]
+    
+    if (!versionToLoad?.files || versionToLoad.files.length === 0) {
+      return []
     }
-  }, [selectedVersion]) // Re-run when selected version object changes
+    
+    // Convert version files to FileChange format for SandpackPreview
+    return versionToLoad.files.reduce(
+      (acc: FileChange[], f: { path: string; content: string }) => {
+        const ext = f.path.split('.').pop()?.toLowerCase()
+        const language: FileChange['language'] =
+          ext === 'css'
+            ? 'css'
+            : ext === 'json'
+              ? 'json'
+              : ext === 'html'
+                ? 'html'
+                : ext === 'ts'
+                  ? 'ts'
+                  : 'tsx'
+
+        return upsertFileChange(acc, {
+          path: f.path,
+          content: f.content,
+          action: 'create',
+          language,
+        })
+      },
+      []
+    )
+  }, [selectedVersionId, versions])
+  
+  // Use streaming files during active generation, otherwise use version files
+  const generatedFiles = isActivelyGenerating ? streamingFiles : versionFiles
+
+  // Reset active generation flag when generation completes
+  useEffect(() => {
+    if (activeGeneratingVersionId === null && isActivelyGenerating) {
+      // Generation finished - wait for versions to refetch before switching to version files
+      // This prevents showing stale version files before the new version is fetched
+      const handleGenerationComplete = async () => {
+        await refetchVersions()
+        // Only switch to version files AFTER we've fetched the updated versions
+        setIsActivelyGenerating(false)
+        setStreamingFiles([])
+        
+        // Keep auto-fix enabled for 15 seconds after generation completes
+        // This gives time for Sandpack to bundle and detect errors
+        if (autoFixTimeoutRef.current) {
+          clearTimeout(autoFixTimeoutRef.current)
+        }
+        autoFixTimeoutRef.current = setTimeout(() => {
+          setAutoFixEnabled(false)
+          autoFixTimeoutRef.current = null
+        }, 15000)
+      }
+      handleGenerationComplete()
+    }
+  }, [activeGeneratingVersionId, isActivelyGenerating, refetchVersions])
+  
+  // Clean up timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (autoFixTimeoutRef.current) {
+        clearTimeout(autoFixTimeoutRef.current)
+      }
+    }
+  }, [])
 
   const handleVersionCreated = useCallback((versionId: string, _: number) => {
     dispatch(setSelectedVersion(versionId))
@@ -171,7 +217,15 @@ export function AppBuilderPage() {
   }, [dispatch, refetchVersions])
 
   const handleFilesGenerated = useCallback((files: FileChange[]) => {
-    setGeneratedFiles(files)
+    setIsActivelyGenerating(true)
+    setStreamingFiles(files)
+    // Enable auto-fix during generation
+    setAutoFixEnabled(true)
+    // Clear any existing timeout
+    if (autoFixTimeoutRef.current) {
+      clearTimeout(autoFixTimeoutRef.current)
+      autoFixTimeoutRef.current = null
+    }
   }, [])
 
   const handleRollback = useCallback(async (versionId: string, options?: { include_schema?: boolean }) => {
@@ -197,6 +251,15 @@ export function AppBuilderPage() {
 
   const handleVersionSelect = useCallback((versionId: string) => {
     dispatch(setSelectedVersion(versionId))
+    // Reset to show version files when manually selecting a version
+    setIsActivelyGenerating(false)
+    setStreamingFiles([])
+    // Disable auto-fix when loading a previous version (not a fresh generation)
+    setAutoFixEnabled(false)
+    if (autoFixTimeoutRef.current) {
+      clearTimeout(autoFixTimeoutRef.current)
+      autoFixTimeoutRef.current = null
+    }
   }, [dispatch])
 
   const handlePublish = async () => {
@@ -367,6 +430,8 @@ export function AppBuilderPage() {
                 onVersionCreated={handleVersionCreated}
                 onFilesGenerated={handleFilesGenerated}
                 onGeneratingVersionChange={setActiveGeneratingVersionId}
+                bundlerErrors={bundlerErrors}
+                currentVersionId={selectedVersionId || undefined}
                 className="h-full"
               />
               {/* Resize handle */}
@@ -386,9 +451,14 @@ export function AppBuilderPage() {
                   versionId={selectedVersionId || undefined}
                   appName={app.name}
                   className="h-full"
-                  onFilesChange={(files) => setGeneratedFiles(files)}
+                  onFilesChange={(files) => {
+                    setStreamingFiles(files)
+                    setIsActivelyGenerating(true) // Show edited files instead of version files
+                  }}
                   showVersionsSidebar={showVersionsSidebar}
                   onToggleVersionsSidebar={() => setShowVersionsSidebar(!showVersionsSidebar)}
+                  enableAutoFix={autoFixEnabled}
+                  onBundlerErrors={setBundlerErrors}
                 />
               ) : (
                 <PreviewPanel

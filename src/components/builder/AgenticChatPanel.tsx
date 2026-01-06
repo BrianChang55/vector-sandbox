@@ -30,7 +30,9 @@ import {
   fetchLatestGeneration,
   upsertFileChange,
   cancelGeneration,
+  startFixErrors,
 } from '../../services/agentService'
+import type { BundlerError } from '../../hooks/useSandpackValidation'
 import type { AgentEvent, PlanStep, FileChange, AgentState } from '../../types/agent'
 import { initialAgentState } from '../../types/agent'
 import { useChatSessions, useCreateChatSession, useChatMessages } from '../../hooks/useAI'
@@ -48,6 +50,10 @@ interface AgenticChatPanelProps {
   onVersionCreated: (versionId: string, versionNumber: number) => void
   onFilesGenerated?: (files: FileChange[]) => void
   onGeneratingVersionChange?: (versionId: string | null) => void
+  /** Bundler errors detected from Sandpack - triggers auto-fix */
+  bundlerErrors?: BundlerError[]
+  /** Current version ID for error fixing */
+  currentVersionId?: string
   className?: string
 }
 
@@ -397,6 +403,9 @@ function ProgressFeed({
   )
 }
 
+// Maximum fix attempts for bundler errors
+const MAX_FIX_ATTEMPTS = 2
+
 // Main component
 export function AgenticChatPanel({
   appId,
@@ -405,6 +414,8 @@ export function AgenticChatPanel({
   onVersionCreated,
   onFilesGenerated,
   onGeneratingVersionChange,
+  bundlerErrors,
+  currentVersionId,
   className = '',
 }: AgenticChatPanelProps) {
   const [messages, setMessages] = useState<LocalMessage[]>([])
@@ -416,6 +427,12 @@ export function AgenticChatPanel({
   const [accumulatedFiles, setAccumulatedFiles] = useState<FileChange[]>([])
   // Track the generating version ID so we can cancel it properly
   const [generatingVersionId, setGeneratingVersionId] = useState<string | null>(null)
+  
+  // Error fixing state
+  const [isFixingErrors, setIsFixingErrors] = useState(false)
+  const [fixAttempt, setFixAttempt] = useState(0)
+  const fixControllerRef = useRef<AbortController | null>(null)
+  const lastFixedErrorSignatureRef = useRef<string>('')
   
   // Notify parent component of generating version changes
   useEffect(() => {
@@ -636,6 +653,220 @@ export function AgenticChatPanel({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, agentState])
+
+  // Create error signature for deduplication
+  const createErrorSignature = useCallback((errors: BundlerError[]) => {
+    return errors
+      .map(e => `${e.file || ''}:${e.line || 0}:${e.message}`)
+      .sort()
+      .join('|')
+  }, [])
+
+  // Handle bundler errors - trigger fix and show in Live Activity
+  useEffect(() => {
+    if (
+      !bundlerErrors ||
+      bundlerErrors.length === 0 ||
+      !currentVersionId ||
+      isFixingErrors ||
+      isLoading || // Don't fix while generating
+      fixAttempt >= MAX_FIX_ATTEMPTS
+    ) {
+      return
+    }
+
+    // Check if these are new errors (avoid fixing the same errors again)
+    const signature = createErrorSignature(bundlerErrors)
+    if (signature === lastFixedErrorSignatureRef.current) {
+      return
+    }
+
+    // Start fixing errors
+    lastFixedErrorSignatureRef.current = signature
+    setIsFixingErrors(true)
+    setFixAttempt(prev => prev + 1)
+
+    console.log(`[AgenticChatPanel] Starting fix attempt ${fixAttempt + 1}/${MAX_FIX_ATTEMPTS}`, bundlerErrors)
+
+    // Add an assistant message for the fix activity
+    const fixMessageId = `fix-${Date.now()}`
+    setMessages(prev => [
+      ...prev,
+      {
+        id: fixMessageId,
+        role: 'assistant',
+        content: '',
+        status: 'streaming',
+        isAgentic: true,
+        progressUpdates: [{
+          id: `${Date.now()}-0`,
+          text: `Fixing ${bundlerErrors.length} compilation error${bundlerErrors.length !== 1 ? 's' : ''} (attempt ${fixAttempt + 1}/${MAX_FIX_ATTEMPTS})`,
+          timestamp: new Date().toISOString(),
+          variant: 'step',
+        }],
+        createdAt: new Date().toISOString(),
+      },
+    ])
+
+    const { controller } = startFixErrors(currentVersionId, bundlerErrors, {
+      model: selectedModel,
+      attempt: fixAttempt + 1,
+      onEvent: (event) => {
+        const data = event.data as EventData
+
+        // Collect fixed files from events
+        if (event.type === 'file_generated') {
+          const fileData = data.file
+          if (fileData) {
+            const fixedFile: FileChange = {
+              path: fileData.path,
+              action: (fileData.action as FileChange['action']) || 'modify',
+              language: (fileData.language as FileChange['language']) || 'tsx',
+              content: fileData.content,
+            }
+            
+            // Update accumulated files and notify parent
+            setAccumulatedFiles(prev => {
+              const updated = upsertFileChange(prev, fixedFile)
+              onFilesGenerated?.(updated)
+              return updated
+            })
+
+            // Add progress update
+            setMessages(prev => {
+              const lastIdx = prev.length - 1
+              if (lastIdx < 0) return prev
+              const lastMsg = prev[lastIdx]
+              if (lastMsg?.id !== fixMessageId) return prev
+
+              const existing = lastMsg.progressUpdates || []
+              return [
+                ...prev.slice(0, lastIdx),
+                {
+                  ...lastMsg,
+                  progressUpdates: [
+                    ...existing,
+                    {
+                      id: `${Date.now()}-${existing.length}`,
+                      text: `Fixed ${fileData.path.split('/').pop() || fileData.path}`,
+                      timestamp: new Date().toISOString(),
+                      variant: 'file' as ProgressVariant,
+                    },
+                  ],
+                },
+              ]
+            })
+          }
+        }
+
+        // Handle other fix events for progress updates
+        if (event.type === 'fix_progress' && data.message) {
+          setMessages(prev => {
+            const lastIdx = prev.length - 1
+            if (lastIdx < 0) return prev
+            const lastMsg = prev[lastIdx]
+            if (lastMsg?.id !== fixMessageId) return prev
+
+            const existing = lastMsg.progressUpdates || []
+            return [
+              ...prev.slice(0, lastIdx),
+              {
+                ...lastMsg,
+                progressUpdates: [
+                  ...existing,
+                  {
+                    id: `${Date.now()}-${existing.length}`,
+                    text: data.message,
+                    timestamp: new Date().toISOString(),
+                    variant: 'step' as ProgressVariant,
+                  },
+                ],
+              },
+            ]
+          })
+        }
+      },
+      onComplete: () => {
+        console.log('[AgenticChatPanel] Fix completed')
+        setIsFixingErrors(false)
+
+        // Update the fix message to complete
+        setMessages(prev => {
+          const lastIdx = prev.length - 1
+          if (lastIdx < 0) return prev
+          const lastMsg = prev[lastIdx]
+          if (lastMsg?.id !== fixMessageId) return prev
+
+          const existing = lastMsg.progressUpdates || []
+          return [
+            ...prev.slice(0, lastIdx),
+            {
+              ...lastMsg,
+              status: 'complete' as const,
+              content: 'Fixed compilation errors',
+              progressUpdates: [
+                ...existing,
+                {
+                  id: `${Date.now()}-${existing.length}`,
+                  text: 'Errors fixed successfully',
+                  timestamp: new Date().toISOString(),
+                  variant: 'preview' as ProgressVariant,
+                },
+              ],
+            },
+          ]
+        })
+      },
+      onError: (error) => {
+        console.error('[AgenticChatPanel] Fix error:', error)
+        setIsFixingErrors(false)
+
+        // Update the fix message to show error
+        setMessages(prev => {
+          const lastIdx = prev.length - 1
+          if (lastIdx < 0) return prev
+          const lastMsg = prev[lastIdx]
+          if (lastMsg?.id !== fixMessageId) return prev
+
+          const existing = lastMsg.progressUpdates || []
+          return [
+            ...prev.slice(0, lastIdx),
+            {
+              ...lastMsg,
+              status: 'error' as const,
+              error: error.message,
+              progressUpdates: [
+                ...existing,
+                {
+                  id: `${Date.now()}-${existing.length}`,
+                  text: `Fix failed: ${error.message}`,
+                  timestamp: new Date().toISOString(),
+                  variant: 'error' as ProgressVariant,
+                },
+              ],
+            },
+          ]
+        })
+      },
+    })
+
+    fixControllerRef.current = controller
+  }, [bundlerErrors, currentVersionId, isFixingErrors, isLoading, fixAttempt, selectedModel, createErrorSignature, onFilesGenerated])
+
+  // Reset fix attempt counter when errors are cleared (compilation succeeds)
+  useEffect(() => {
+    if (!bundlerErrors || bundlerErrors.length === 0) {
+      setFixAttempt(0)
+      lastFixedErrorSignatureRef.current = ''
+    }
+  }, [bundlerErrors])
+
+  // Cleanup fix controller on unmount
+  useEffect(() => {
+    return () => {
+      fixControllerRef.current?.abort()
+    }
+  }, [])
 
   // Handle agentic events - update messages with inline state
   const handleAgentEvent = useCallback(

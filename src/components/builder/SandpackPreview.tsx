@@ -28,7 +28,6 @@ import {
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { versionsApi } from '../../services/apiService'
-import { startFixErrors } from '../../services/agentService'
 import type { FileChange } from '../../types/agent'
 import type { BundlerError } from '../../hooks/useSandpackValidation'
 
@@ -46,12 +45,10 @@ interface SandpackPreviewProps {
   onFilesChange?: (files: FileChange[]) => void
   showVersionsSidebar?: boolean
   onToggleVersionsSidebar?: () => void
-  /** Callback when bundler errors are detected and fix is triggered */
+  /** Callback when bundler errors are detected (parent handles the fix) */
   onBundlerErrors?: (errors: BundlerError[]) => void
-  /** Callback when auto-fix generates new files */
-  onAutoFixFiles?: (files: FileChange[]) => void
-  /** Model to use for auto-fixing errors */
-  fixModel?: string
+  /** Enable error detection and reporting (only after live generation) */
+  enableAutoFix?: boolean
 }
 
 type ViewMode = 'preview' | 'code' | 'split'
@@ -991,33 +988,24 @@ function AutoRunOnTab({ viewMode }: { viewMode: ViewMode }) {
   return null
 }
 
-// Maximum fix attempts for bundler errors
-const MAX_FIX_ATTEMPTS = 2
-
 /**
- * SandpackErrorHandler - Detects bundler errors and triggers auto-fix
+ * SandpackErrorHandler - Detects bundler errors and reports them to parent
  * 
- * This component listens for Sandpack bundler errors and can trigger
- * the backend fix service to automatically repair the code.
+ * This component listens for Sandpack bundler errors and reports them
+ * via callback. The actual error fixing is handled by AgenticChatPanel.
  */
 function SandpackErrorHandler({
-  versionId,
-  model,
   onBundlerErrors,
-  onFixedFiles,
+  enableAutoFix = false,
 }: {
-  versionId: string
-  model?: string
   onBundlerErrors?: (errors: BundlerError[]) => void
-  onFixedFiles?: (files: FileChange[]) => void
+  /** Only report errors when enabled (after live generation, not when loading existing apps) */
+  enableAutoFix?: boolean
 }) {
   const { sandpack, listen } = useSandpack()
   const [errors, setErrors] = useState<BundlerError[]>([])
-  const [isFixing, setIsFixing] = useState(false)
-  const [fixAttempt, setFixAttempt] = useState(0)
   const [hasInitialized, setHasInitialized] = useState(false)
-  const fixControllerRef = useRef<AbortController | null>(null)
-  const lastErrorSignatureRef = useRef<string>('')
+  const lastReportedSignatureRef = useRef<string>('')
   
   // Create error signature for deduplication
   const createSignature = useCallback((errs: BundlerError[]) => {
@@ -1058,8 +1046,7 @@ function SandpackErrorHandler({
       // Clear errors on successful compilation
       if (msg.type === 'done' || (msg as { type: string }).type === 'success') {
         setErrors([])
-        setFixAttempt(0)
-        lastErrorSignatureRef.current = ''
+        lastReportedSignatureRef.current = ''
       }
       
       // Track bundler status
@@ -1096,87 +1083,31 @@ function SandpackErrorHandler({
     }
   }, [sandpack.error])
   
-  // Trigger fix when errors are detected and we haven't exceeded attempts
+  // Report errors to parent when detected (parent handles the fix)
   useEffect(() => {
     if (
       errors.length === 0 ||
       !hasInitialized ||
-      isFixing ||
-      !versionId ||
-      fixAttempt >= MAX_FIX_ATTEMPTS
+      !enableAutoFix
     ) {
       return
     }
     
-    // Check if these are new errors
+    // Check if these are new errors (avoid reporting duplicates)
     const signature = createSignature(errors)
-    if (signature === lastErrorSignatureRef.current) {
-      return // Same errors, don't retry
+    if (signature === lastReportedSignatureRef.current) {
+      return
     }
     
-    // Notify parent about errors
-    onBundlerErrors?.(errors)
-    
-    // Debounce to avoid rapid-fire fixes
+    // Debounce to ensure errors are stable before reporting
     const timeout = setTimeout(() => {
-      lastErrorSignatureRef.current = signature
-      setIsFixing(true)
-      setFixAttempt(prev => prev + 1)
-      
-      console.log(`[SandpackErrorHandler] Starting fix attempt ${fixAttempt + 1}/${MAX_FIX_ATTEMPTS}`, errors)
-      
-      const { controller } = startFixErrors(versionId, errors, {
-        model,
-        attempt: fixAttempt + 1,
-        onEvent: (event) => {
-          // Collect fixed files from events
-          if (event.type === 'file_generated') {
-            const data = event.data as { file?: { path: string; action?: string; language?: string; content?: string } }
-            const fileData = data.file
-            if (fileData && onFixedFiles) {
-              onFixedFiles([{
-                path: fileData.path,
-                action: (fileData.action as FileChange['action']) || 'modify',
-                language: (fileData.language as FileChange['language']) || 'tsx',
-                content: fileData.content,
-              }])
-            }
-          }
-        },
-        onComplete: () => {
-          console.log('[SandpackErrorHandler] Fix completed')
-          setIsFixing(false)
-        },
-        onError: (error) => {
-          console.error('[SandpackErrorHandler] Fix error:', error)
-          setIsFixing(false)
-        },
-      })
-      
-      fixControllerRef.current = controller
-    }, 1500) // Wait 1.5s to ensure errors are stable
+      lastReportedSignatureRef.current = signature
+      console.log('[SandpackErrorHandler] Reporting bundler errors to parent:', errors)
+      onBundlerErrors?.(errors)
+    }, 1500)
     
     return () => clearTimeout(timeout)
-  }, [errors, hasInitialized, isFixing, versionId, fixAttempt, model, createSignature, onBundlerErrors, onFixedFiles])
-  
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      fixControllerRef.current?.abort()
-    }
-  }, [])
-  
-  // Visual indicator when fixing
-  if (isFixing) {
-    return (
-      <div className="absolute top-2 right-2 z-30 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 shadow-sm">
-        <Loader2 className="h-4 w-4 animate-spin text-amber-600" />
-        <span className="text-xs font-medium text-amber-700">
-          Fixing errors ({fixAttempt}/{MAX_FIX_ATTEMPTS})...
-        </span>
-      </div>
-    )
-  }
+  }, [errors, hasInitialized, enableAutoFix, createSignature, onBundlerErrors])
   
   return null
 }
@@ -1499,8 +1430,7 @@ export function SandpackPreview({
   showVersionsSidebar = false,
   onToggleVersionsSidebar,
   onBundlerErrors,
-  onAutoFixFiles,
-  fixModel,
+  enableAutoFix = false,
 }: SandpackPreviewProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('preview')
   const [showConsole, setShowConsole] = useState(false)
@@ -1732,10 +1662,8 @@ export function SandpackPreview({
         <AutoRunOnTab viewMode={viewMode} />
         {versionId && (
           <SandpackErrorHandler
-            versionId={versionId}
-            model={fixModel}
             onBundlerErrors={onBundlerErrors}
-            onFixedFiles={onAutoFixFiles}
+            enableAutoFix={enableAutoFix}
           />
         )}
         {/* Flex container - uses absolute positioning to ensure footer stays pinned */}
