@@ -147,7 +147,6 @@ export async function fetchGenerationState(versionId: string): Promise<Generatio
 export async function cancelGeneration(versionId: string): Promise<void> {
   try {
     await api.post(`/versions/${versionId}/cancel/`)
-    console.log('[agentService] Cancelled generation for version:', versionId)
   } catch (error) {
     // Log but don't throw - cancellation is best-effort cleanup
     console.warn('[agentService] Failed to cancel generation:', error)

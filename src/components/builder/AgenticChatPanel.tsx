@@ -1102,7 +1102,6 @@ export function AgenticChatPanel({
     if (generatingVersionId) {
       try {
         await cancelGeneration(generatingVersionId)
-        console.log('[AgenticChatPanel] Cancelled generating version:', generatingVersionId)
       } catch (error) {
         console.warn('[AgenticChatPanel] Failed to cancel generating version:', error)
       }

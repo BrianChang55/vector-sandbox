@@ -233,7 +233,10 @@ export function SettingsPage() {
 
       {/* Right panel: Content */}
       <div className="flex-1 bg-gray-50 overflow-y-auto">
-        <div className="max-w-2xl mx-auto p-8">
+        <div className={cn(
+          "mx-auto p-8",
+          activeTab === 'integrations' ? 'max-w-5xl' : 'max-w-2xl'
+        )}>
           {/* Profile Tab */}
           {activeTab === 'profile' && (
             <div>

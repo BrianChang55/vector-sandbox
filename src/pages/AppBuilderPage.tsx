@@ -90,6 +90,36 @@ export function AppBuilderPage() {
   const [publishError, setPublishError] = useState<string | null>(null)
   const [showVersionsSidebar, setShowVersionsSidebar] = useState(false)
   const [activeGeneratingVersionId, setActiveGeneratingVersionId] = useState<string | null>(null)
+  
+  // Resizable chat panel
+  const [chatPanelWidth, setChatPanelWidth] = useState(420)
+  const [isResizing, setIsResizing] = useState(false)
+  const MIN_CHAT_WIDTH = 340
+  const MAX_CHAT_WIDTH = 640
+  
+  // Handle chat panel resize
+  const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    setIsResizing(true)
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    
+    const handleMouseMove = (e: MouseEvent) => {
+      const newWidth = Math.min(MAX_CHAT_WIDTH, Math.max(MIN_CHAT_WIDTH, e.clientX))
+      setChatPanelWidth(newWidth)
+    }
+    
+    const handleMouseUp = () => {
+      setIsResizing(false)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+    
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+  }, [])
 
   // Select latest version by default
   useEffect(() => {
@@ -318,11 +348,18 @@ export function AppBuilderPage() {
       </header>
 
       {/* Main Content */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden relative">
+        {/* Overlay to prevent iframe from capturing mouse events during resize */}
+        {isResizing && (
+          <div className="absolute inset-0 z-20 cursor-col-resize" />
+        )}
         {activeTab === 'builder' ? (
           <>
             {/* Left Panel - Chat (Agentic or Simple) */}
-            <div className="w-[420px] flex-shrink-0 border-r border-gray-200 bg-white h-full">
+            <div 
+              className="flex-shrink-0 border-r border-gray-200 bg-white h-full relative"
+              style={{ width: chatPanelWidth }}
+            >
               <AgenticChatPanel
                 appId={appId!}
                 sessionId={sessionId}
@@ -331,6 +368,12 @@ export function AppBuilderPage() {
                 onFilesGenerated={handleFilesGenerated}
                 onGeneratingVersionChange={setActiveGeneratingVersionId}
                 className="h-full"
+              />
+              {/* Resize handle */}
+              <div
+                onMouseDown={handleResizeMouseDown}
+                className="absolute top-0 right-0 w-[1px] h-full cursor-col-resize hover:bg-gray-900/50 active:bg-gray-900/70 transition-colors z-10"
+                title="Drag to resize"
               />
             </div>
 
