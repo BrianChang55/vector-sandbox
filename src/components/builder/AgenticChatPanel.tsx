@@ -902,12 +902,62 @@ export function AgenticChatPanel({
         }
 
         case 'validation_result': {
+          const errors = data.errors || []
+          const errorSummary = errors.slice(0, 2).map((e: string | { message?: string }) => 
+            typeof e === 'string' ? e : e.message || 'Unknown error'
+          ).join('; ')
           const label = data.passed
             ? 'Validation passed'
-            : `Validation failed: ${(data.errors || []).slice(0, 2).join('; ')}`
+            : `Validation failed: ${errorSummary}`
           appendProgressUpdate(
             data.passed ? `${label}: ready for preview` : `${label}: needs attention`,
             data.passed ? 'preview' : 'error'
+          )
+          break
+        }
+
+        // Error fixing events
+        case 'fix_started': {
+          const attempt = data.attempt || 1
+          const maxAttempts = data.max_attempts || 2
+          const errorCount = data.error_count || 0
+          const errorType = data.error_type || 'compilation'
+          appendProgressUpdate(
+            `Fixing ${errorCount} ${errorType} error${errorCount !== 1 ? 's' : ''} (attempt ${attempt}/${maxAttempts})`,
+            'step'
+          )
+          break
+        }
+
+        case 'fix_progress': {
+          if (data.message) {
+            appendProgressUpdate(`Fix in progress: ${data.message}`, 'step', { dedupeWindowMs: 60000 })
+          }
+          break
+        }
+
+        case 'fix_file_updated': {
+          const filePath = data.file_path || 'a file'
+          const fileName = filePath.split('/').pop() || filePath
+          appendProgressUpdate(`Fixed ${fileName}`, 'file')
+          break
+        }
+
+        case 'fix_complete': {
+          const attempts = data.fix_attempts || 1
+          appendProgressUpdate(
+            `Errors fixed successfully${attempts > 1 ? ` (${attempts} attempts)` : ''}`,
+            'preview'
+          )
+          break
+        }
+
+        case 'fix_failed': {
+          const remaining = data.remaining_errors || 0
+          const attempts = data.fix_attempts || 2
+          appendProgressUpdate(
+            `Could not fix all errors after ${attempts} attempts (${remaining} remaining)`,
+            'error'
           )
           break
         }

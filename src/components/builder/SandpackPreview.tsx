@@ -28,7 +28,9 @@ import {
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { versionsApi } from '../../services/apiService'
+import { startFixErrors } from '../../services/agentService'
 import type { FileChange } from '../../types/agent'
+import type { BundlerError } from '../../hooks/useSandpackValidation'
 
 // Get the API base URL for runtime injection into Sandpack
 // This should point to the actual backend, not the Sandpack iframe origin
@@ -44,6 +46,12 @@ interface SandpackPreviewProps {
   onFilesChange?: (files: FileChange[]) => void
   showVersionsSidebar?: boolean
   onToggleVersionsSidebar?: () => void
+  /** Callback when bundler errors are detected and fix is triggered */
+  onBundlerErrors?: (errors: BundlerError[]) => void
+  /** Callback when auto-fix generates new files */
+  onAutoFixFiles?: (files: FileChange[]) => void
+  /** Model to use for auto-fixing errors */
+  fixModel?: string
 }
 
 type ViewMode = 'preview' | 'code' | 'split'
@@ -983,6 +991,196 @@ function AutoRunOnTab({ viewMode }: { viewMode: ViewMode }) {
   return null
 }
 
+// Maximum fix attempts for bundler errors
+const MAX_FIX_ATTEMPTS = 2
+
+/**
+ * SandpackErrorHandler - Detects bundler errors and triggers auto-fix
+ * 
+ * This component listens for Sandpack bundler errors and can trigger
+ * the backend fix service to automatically repair the code.
+ */
+function SandpackErrorHandler({
+  versionId,
+  model,
+  onBundlerErrors,
+  onFixedFiles,
+}: {
+  versionId: string
+  model?: string
+  onBundlerErrors?: (errors: BundlerError[]) => void
+  onFixedFiles?: (files: FileChange[]) => void
+}) {
+  const { sandpack, listen } = useSandpack()
+  const [errors, setErrors] = useState<BundlerError[]>([])
+  const [isFixing, setIsFixing] = useState(false)
+  const [fixAttempt, setFixAttempt] = useState(0)
+  const [hasInitialized, setHasInitialized] = useState(false)
+  const fixControllerRef = useRef<AbortController | null>(null)
+  const lastErrorSignatureRef = useRef<string>('')
+  
+  // Create error signature for deduplication
+  const createSignature = useCallback((errs: BundlerError[]) => {
+    return errs
+      .map(e => `${e.file || ''}:${e.line || 0}:${e.message}`)
+      .sort()
+      .join('|')
+  }, [])
+  
+  // Listen for Sandpack errors
+  useEffect(() => {
+    const unsubscribe = listen((message) => {
+      const msg = message as { type: string; action?: string; title?: string; message?: string; path?: string; line?: number; column?: number }
+      
+      // Detect errors
+      if (msg.type === 'action' && msg.action === 'show-error') {
+        const error: BundlerError = {
+          title: msg.title || 'Error',
+          message: msg.message || 'Unknown bundler error',
+          file: msg.path,
+          line: msg.line,
+          column: msg.column,
+        }
+        
+        setErrors(prev => {
+          const exists = prev.some(e => 
+            e.file === error.file && 
+            e.line === error.line && 
+            e.message === error.message
+          )
+          if (exists) return prev
+          return [...prev, error]
+        })
+        
+        setHasInitialized(true)
+      }
+      
+      // Clear errors on successful compilation
+      if (msg.type === 'done' || (msg as { type: string }).type === 'success') {
+        setErrors([])
+        setFixAttempt(0)
+        lastErrorSignatureRef.current = ''
+      }
+      
+      // Track bundler status
+      if (msg.type === 'status') {
+        const status = (msg as unknown as { status: string }).status
+        if (status === 'idle' || status === 'done') {
+          setHasInitialized(true)
+        }
+      }
+      
+      // Clear on compile start
+      if (msg.type === 'start') {
+        setErrors([])
+      }
+    })
+    
+    return () => unsubscribe()
+  }, [listen])
+  
+  // Also check Sandpack's error state
+  useEffect(() => {
+    const sandpackError = sandpack.error
+    if (sandpackError) {
+      const error: BundlerError = {
+        title: 'Bundler Error',
+        message: sandpackError.message || 'Unknown error',
+      }
+      
+      setErrors(prev => {
+        const exists = prev.some(e => e.message === error.message)
+        if (exists) return prev
+        return [...prev, error]
+      })
+    }
+  }, [sandpack.error])
+  
+  // Trigger fix when errors are detected and we haven't exceeded attempts
+  useEffect(() => {
+    if (
+      errors.length === 0 ||
+      !hasInitialized ||
+      isFixing ||
+      !versionId ||
+      fixAttempt >= MAX_FIX_ATTEMPTS
+    ) {
+      return
+    }
+    
+    // Check if these are new errors
+    const signature = createSignature(errors)
+    if (signature === lastErrorSignatureRef.current) {
+      return // Same errors, don't retry
+    }
+    
+    // Notify parent about errors
+    onBundlerErrors?.(errors)
+    
+    // Debounce to avoid rapid-fire fixes
+    const timeout = setTimeout(() => {
+      lastErrorSignatureRef.current = signature
+      setIsFixing(true)
+      setFixAttempt(prev => prev + 1)
+      
+      console.log(`[SandpackErrorHandler] Starting fix attempt ${fixAttempt + 1}/${MAX_FIX_ATTEMPTS}`, errors)
+      
+      const { controller } = startFixErrors(versionId, errors, {
+        model,
+        attempt: fixAttempt + 1,
+        onEvent: (event) => {
+          // Collect fixed files from events
+          if (event.type === 'file_generated') {
+            const data = event.data as { file?: { path: string; action?: string; language?: string; content?: string } }
+            const fileData = data.file
+            if (fileData && onFixedFiles) {
+              onFixedFiles([{
+                path: fileData.path,
+                action: (fileData.action as FileChange['action']) || 'modify',
+                language: (fileData.language as FileChange['language']) || 'tsx',
+                content: fileData.content,
+              }])
+            }
+          }
+        },
+        onComplete: () => {
+          console.log('[SandpackErrorHandler] Fix completed')
+          setIsFixing(false)
+        },
+        onError: (error) => {
+          console.error('[SandpackErrorHandler] Fix error:', error)
+          setIsFixing(false)
+        },
+      })
+      
+      fixControllerRef.current = controller
+    }, 1500) // Wait 1.5s to ensure errors are stable
+    
+    return () => clearTimeout(timeout)
+  }, [errors, hasInitialized, isFixing, versionId, fixAttempt, model, createSignature, onBundlerErrors, onFixedFiles])
+  
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      fixControllerRef.current?.abort()
+    }
+  }, [])
+  
+  // Visual indicator when fixing
+  if (isFixing) {
+    return (
+      <div className="absolute top-2 right-2 z-30 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 shadow-sm">
+        <Loader2 className="h-4 w-4 animate-spin text-amber-600" />
+        <span className="text-xs font-medium text-amber-700">
+          Fixing errors ({fixAttempt}/{MAX_FIX_ATTEMPTS})...
+        </span>
+      </div>
+    )
+  }
+  
+  return null
+}
+
 function FileListPanel() {
   const { sandpack } = useSandpack()
   const files = useMemo(() => Object.keys(sandpack.files || {}).sort(), [sandpack.files])
@@ -1300,6 +1498,9 @@ export function SandpackPreview({
   onFilesChange,
   showVersionsSidebar = false,
   onToggleVersionsSidebar,
+  onBundlerErrors,
+  onAutoFixFiles,
+  fixModel,
 }: SandpackPreviewProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('preview')
   const [showConsole, setShowConsole] = useState(false)
@@ -1529,6 +1730,14 @@ export function SandpackPreview({
         <AutoRunPreview filesKey={filesKey} />
         <AutoRunOnEdit />
         <AutoRunOnTab viewMode={viewMode} />
+        {versionId && (
+          <SandpackErrorHandler
+            versionId={versionId}
+            model={fixModel}
+            onBundlerErrors={onBundlerErrors}
+            onFixedFiles={onAutoFixFiles}
+          />
+        )}
         {/* Flex container - uses absolute positioning to ensure footer stays pinned */}
         <div className="relative flex flex-col h-full min-h-0">
         {/* Header - fixed at top (optional) */}

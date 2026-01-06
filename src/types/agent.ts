@@ -99,6 +99,12 @@ export type AgentEventType =
   | 'agent_error'
   | 'done'
   | 'connected'
+  // Error fix events
+  | 'fix_started'
+  | 'fix_progress'
+  | 'fix_file_updated'
+  | 'fix_complete'
+  | 'fix_failed'
 
 // SSE Event structure
 export interface AgentEvent {
@@ -131,11 +137,19 @@ export type AgentEventData =
   | AgentCompleteData
   | AgentErrorData
   | DoneData
+  // Fix event data types
+  | FixStartedData
+  | FixProgressData
+  | FixFileUpdatedData
+  | FixCompleteData
+  | FixFailedData
 
 export interface DoneData {
   success: boolean
   filesGenerated?: number
   duration?: number
+  validated?: boolean
+  fix_attempts?: number
 }
 
 export interface AgentStartData {
@@ -227,10 +241,48 @@ export interface CodeChunkData {
   accumulated: number
 }
 
+// Compilation error structure from backend
+export interface CompilationError {
+  file: string
+  line: number
+  column: number
+  message: string
+  code?: string
+}
+
 export interface ValidationResultData {
   passed: boolean
-  errors: string[]
+  errors: (string | CompilationError)[]
   warnings: string[]
+  fix_attempts?: number
+}
+
+// Fix event data interfaces
+export interface FixStartedData {
+  attempt: number
+  max_attempts: number
+  error_count: number
+  error_type?: 'typescript' | 'bundler'
+}
+
+export interface FixProgressData {
+  attempt: number
+  message: string
+}
+
+export interface FixFileUpdatedData {
+  file_path: string
+  attempt: number
+}
+
+export interface FixCompleteData {
+  success: boolean
+  fix_attempts: number
+}
+
+export interface FixFailedData {
+  remaining_errors: number
+  fix_attempts: number
 }
 
 export interface PreviewReadyData {
@@ -246,6 +298,8 @@ export interface AgentCompleteData {
   duration?: number
   filesGenerated?: number
   summary?: string
+  validated?: boolean
+  fix_attempts?: number
 }
 
 export interface VersionDraftData {

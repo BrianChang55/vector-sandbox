@@ -274,6 +274,128 @@ export function startAgenticGeneration(
 }
 
 /**
+ * Options for the fix errors stream
+ */
+export interface FixErrorsOptions {
+  model?: string
+  attempt?: number
+  onEvent: AgentEventCallback
+  onComplete?: () => void
+  onError?: (error: Error) => void
+}
+
+/**
+ * Bundler error structure from Sandpack
+ */
+export interface BundlerError {
+  title: string
+  message: string
+  file?: string
+  line?: number
+  column?: number
+}
+
+/**
+ * Start error fixing stream for bundler errors
+ * 
+ * This is a fallback when Sandpack detects errors that the backend
+ * TypeScript validation didn't catch. Limited to 2 attempts.
+ */
+export function startFixErrors(
+  versionId: string,
+  errors: BundlerError[],
+  options: FixErrorsOptions
+): { controller: AbortController } {
+  const controller = new AbortController()
+  
+  // Base64 encode the errors for URL transmission
+  const errorsJson = JSON.stringify(errors)
+  const errorsB64 = btoa(errorsJson)
+  
+  const params = new URLSearchParams({
+    errors: errorsB64,
+    model: options.model || 'anthropic/claude-sonnet-4',
+    attempt: String(options.attempt || 1),
+  })
+
+  const url = `${api.defaults.baseURL}/versions/${versionId}/fix-errors/?${params.toString()}`
+  const token = localStorage.getItem('access_token')
+
+  if (token) {
+    fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'text/event-stream',
+      },
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+        }
+
+        const reader = response.body?.getReader()
+        if (!reader) {
+          throw new Error('No response body')
+        }
+
+        const decoder = new TextDecoder()
+        let buffer = ''
+
+        while (true) {
+          const { done, value } = await reader.read()
+
+          if (done) {
+            options.onComplete?.()
+            break
+          }
+
+          buffer += decoder.decode(value, { stream: true })
+
+          // Parse SSE events
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+
+          let eventType = ''
+          let eventData = ''
+
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              eventType = line.slice(7).trim()
+            } else if (line.startsWith('data: ')) {
+              eventData = line.slice(6)
+            } else if (line === '' && eventType && eventData) {
+              try {
+                const data = JSON.parse(eventData)
+                const event: AgentEvent = {
+                  type: eventType as AgentEventType,
+                  timestamp: new Date().toISOString(),
+                  data,
+                }
+                options.onEvent(event)
+              } catch (e) {
+                console.warn('Failed to parse SSE data:', eventData)
+              }
+              eventType = ''
+              eventData = ''
+            }
+          }
+        }
+      })
+      .catch((error) => {
+        if (error.name !== 'AbortError') {
+          options.onError?.(error)
+        }
+      })
+  } else {
+    options.onError?.(new Error('Authentication required'))
+  }
+
+  return { controller }
+}
+
+/**
  * Reducer for agent state updates from events
  */
 export function agentStateReducer(
