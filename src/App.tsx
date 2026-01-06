@@ -10,6 +10,8 @@ import { store } from './store'
 import { MainLayout } from './components/Layout/MainLayout'
 import { AuthGuard } from './components/auth/AuthGuard'
 import { LandingPage } from './pages/LandingPage'
+import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage'
+import { TermsOfServicePage } from './pages/TermsOfServicePage'
 import { LoginPage } from './pages/LoginPage'
 import { SignUpPage } from './pages/SignUpPage'
 import { GoogleOAuthCallbackPage } from './pages/GoogleOAuthCallbackPage'
@@ -32,6 +34,8 @@ function App() {
           <Routes>
             {/* Public routes */}
             <Route path="/" element={<LandingPage />} />
+            <Route path="/privacy" element={<PrivacyPolicyPage />} />
+            <Route path="/terms" element={<TermsOfServicePage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/signup" element={<SignUpPage />} />
             <Route path="/auth/google/callback" element={<GoogleOAuthCallbackPage />} />
