@@ -1,16 +1,12 @@
 /**
  * React Query hooks for Organization Members & Invitations
+ * 
+ * Uses centralized apiService for all API calls.
+ * @see {@link @/services/apiService} for API documentation.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '../services/api'
-import type {
-  OrgMember,
-  OrgInvite,
-  OrgRole,
-  MembersListResponse,
-  InviteDetails,
-  InviteAcceptResponse,
-} from '../types/models'
+import { membersApi } from '@/services/apiService'
+import type { OrgRole } from '../types/models'
 
 // ============================================================================
 // Members Hooks
@@ -24,8 +20,7 @@ export function useOrgMembers(orgId: string | null) {
     queryKey: ['org-members', orgId],
     queryFn: async () => {
       if (!orgId) return null
-      const response = await api.get<MembersListResponse>(`/orgs/${orgId}/members/`)
-      return response.data
+      return membersApi.list(orgId)
     },
     enabled: !!orgId,
   })
@@ -47,11 +42,7 @@ export function useUpdateMemberRole() {
       memberId: string
       role: OrgRole
     }) => {
-      const response = await api.patch<{ member: OrgMember; message: string }>(
-        `/orgs/${orgId}/members/${memberId}/`,
-        { role }
-      )
-      return response.data
+      return membersApi.updateRole(orgId, memberId, role)
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['org-members', variables.orgId] })
@@ -73,10 +64,7 @@ export function useRemoveMember() {
       orgId: string
       memberId: string
     }) => {
-      const response = await api.delete<{ message: string }>(
-        `/orgs/${orgId}/members/${memberId}/`
-      )
-      return response.data
+      return membersApi.remove(orgId, memberId)
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['org-members', variables.orgId] })
@@ -104,11 +92,7 @@ export function useInviteMember() {
       email: string
       role: OrgRole
     }) => {
-      const response = await api.post<{ invite: OrgInvite; message: string }>(
-        `/orgs/${orgId}/invites/`,
-        { email, role }
-      )
-      return response.data
+      return membersApi.invite(orgId, email, role)
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['org-members', variables.orgId] })
@@ -130,10 +114,7 @@ export function useCancelInvite() {
       orgId: string
       inviteId: string
     }) => {
-      const response = await api.delete<{ message: string }>(
-        `/orgs/${orgId}/invites/${inviteId}/`
-      )
-      return response.data
+      return membersApi.cancelInvite(orgId, inviteId)
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['org-members', variables.orgId] })
@@ -155,10 +136,7 @@ export function useResendInvite() {
       orgId: string
       inviteId: string
     }) => {
-      const response = await api.post<{ invite: OrgInvite; message: string }>(
-        `/orgs/${orgId}/invites/${inviteId}/resend/`
-      )
-      return response.data
+      return membersApi.resendInvite(orgId, inviteId)
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['org-members', variables.orgId] })
@@ -178,8 +156,7 @@ export function useVerifyInvite(token: string | null) {
     queryKey: ['invite-verify', token],
     queryFn: async () => {
       if (!token) return null
-      const response = await api.post<InviteDetails>('/auth/invite/verify', { token })
-      return response.data
+      return membersApi.verifyInvite(token)
     },
     enabled: !!token,
     retry: false,
@@ -194,8 +171,7 @@ export function useAcceptInvite() {
 
   return useMutation({
     mutationFn: async (token: string) => {
-      const response = await api.post<InviteAcceptResponse>('/auth/invite/accept', { token })
-      return response.data
+      return membersApi.acceptInvite(token)
     },
     onSuccess: () => {
       // Invalidate user organizations since they may have a new one
@@ -221,4 +197,3 @@ export function useCurrentUserRole(orgId: string | null) {
     isLoading,
   }
 }
-

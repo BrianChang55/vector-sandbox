@@ -2,17 +2,20 @@
  * Sidebar navigation (left rail)
  * Clean light enterprise theme with organization switcher
  */
+import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useAppSelector } from '../../store/hooks'
 import { useOrganizations, useSwitchOrganization } from '../../hooks/useOrganizations'
-import { Layers, Plug, Settings, ChevronDown, Check, Building2 } from 'lucide-react'
+import { Layers, Plug, Settings, ChevronDown, Check, Building2, Plus } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from '../ui/dropdown-menu'
+import { CreateOrganizationDialog } from './CreateOrganizationDialog'
 
 const navItems = [
   { path: '/apps', label: 'Apps', icon: Layers },
@@ -26,6 +29,7 @@ export function Sidebar() {
   const { data: organizations } = useOrganizations()
   const switchOrg = useSwitchOrganization()
   const selectedOrg = organizations?.find((org) => org.id === selectedOrgId)
+  const [createOrgOpen, setCreateOrgOpen] = useState(false)
 
   if (!selectedOrgId) {
     return null
@@ -36,7 +40,7 @@ export function Sidebar() {
       {/* Organization Switcher */}
       <div className="p-[11px] border-b border-gray-200">
         <DropdownMenu>
-          <DropdownMenuTrigger className="w-full">
+          <DropdownMenuTrigger className="w-full focus:outline-none">
             <div className="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-gray-50 transition-colors">
               {/* Organization Logo or Fallback */}
               {selectedOrg?.logo_url ? (
@@ -65,7 +69,7 @@ export function Sidebar() {
             align="start" 
             className="w-52 bg-white border-gray-200 shadow-lg"
           >
-            <div className="px-2 py-1.5 text-xs text-gray-500 font-medium uppercase tracking-wider">
+            <div className="px-2 py-1.5 text-[11px] text-gray-400 font-medium uppercase tracking-wide">
               Organizations
             </div>
             {organizations?.map((org) => (
@@ -93,6 +97,17 @@ export function Sidebar() {
                 )}
               </DropdownMenuItem>
             ))}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => setCreateOrgOpen(true)}
+              className="flex items-center gap-2 text-gray-700 hover:text-gray-900 
+                       hover:bg-gray-50 focus:bg-gray-50 cursor-pointer"
+            >
+              <div className="h-5 w-5 rounded bg-gray-100 flex items-center justify-center flex-shrink-0">
+                <Plus className="h-3 w-3 text-gray-500" />
+              </div>
+              <span className="truncate flex-1">Create Organization</span>
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -129,6 +144,12 @@ export function Sidebar() {
           </p>
         </div>
       </div>
+
+      {/* Create Organization Dialog */}
+      <CreateOrganizationDialog 
+        open={createOrgOpen} 
+        onOpenChange={setCreateOrgOpen} 
+      />
     </aside>
   )
 }

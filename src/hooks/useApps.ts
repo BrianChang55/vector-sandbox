@@ -1,25 +1,19 @@
 /**
  * React Query hooks for Internal Apps
+ * 
+ * Uses centralized apiService for all API calls.
+ * @see {@link @/services/apiService} for API documentation.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '../services/api'
-import type {
-  InternalApp,
-  AppVersion,
-  VersionStateSnapshot,
-  VersionAuditLog,
-  RollbackPreview,
-  VersionDiff,
-  PublishedAppResponse,
-} from '../types/models'
+import { appsApi, versionsApi, favoritesApi } from '@/services/apiService'
+import type { InternalApp, AppVersion } from '../types/models'
 
 export function useApps(orgId: string | null) {
   return useQuery({
     queryKey: ['apps', orgId],
     queryFn: async () => {
       if (!orgId) return []
-      const response = await api.get<InternalApp[]>(`/orgs/${orgId}/apps/`)
-      return response.data
+      return appsApi.list(orgId)
     },
     enabled: !!orgId,
   })
@@ -30,8 +24,7 @@ export function useApp(appId: string | null) {
     queryKey: ['app', appId],
     queryFn: async () => {
       if (!appId) return null
-      const response = await api.get<InternalApp>(`/apps/${appId}/`)
-      return response.data
+      return appsApi.get(appId)
     },
     enabled: !!appId,
   })
@@ -41,9 +34,8 @@ export function useCreateApp() {
   const queryClient = useQueryClient()
   
   return useMutation({
-    mutationFn: async ({ orgId, data }: { orgId: string; data: any }) => {
-      const response = await api.post<InternalApp>(`/orgs/${orgId}/apps/`, data)
-      return response.data
+    mutationFn: async ({ orgId, data }: { orgId: string; data: Partial<InternalApp> }) => {
+      return appsApi.create(orgId, data)
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['apps', variables.orgId] })
@@ -55,9 +47,8 @@ export function useUpdateApp() {
   const queryClient = useQueryClient()
   
   return useMutation({
-    mutationFn: async ({ appId, data }: { appId: string; data: any }) => {
-      const response = await api.patch<InternalApp>(`/apps/${appId}/`, data)
-      return response.data
+    mutationFn: async ({ appId, data }: { appId: string; data: Partial<InternalApp> }) => {
+      return appsApi.update(appId, data)
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['app', data.id] })
@@ -71,7 +62,7 @@ export function useDeleteApp() {
 
   return useMutation({
     mutationFn: async ({ appId }: { appId: string }) => {
-      await api.delete(`/apps/${appId}/`)
+      await appsApi.delete(appId)
       return appId
     },
     onSuccess: (appId) => {
@@ -88,10 +79,7 @@ export function useAppVersions(appId: string | null, options?: { includeFiles?: 
     queryKey: ['versions', appId, includeFiles],
     queryFn: async () => {
       if (!appId) return []
-      const response = await api.get<AppVersion[]>(
-        `/apps/${appId}/versions/${includeFiles ? '?include_files=true' : ''}`
-      )
-      return response.data
+      return versionsApi.list(appId, includeFiles)
     },
     enabled: !!appId,
     refetchOnWindowFocus: false,
@@ -103,8 +91,8 @@ export function useVersionFiles(versionId: string | null) {
     queryKey: ['version-files', versionId],
     queryFn: async () => {
       if (!versionId) return []
-      const response = await api.get<AppVersion>(`/versions/${versionId}/`)
-      return response.data.files || []
+      const version = await versionsApi.get(versionId)
+      return version.files || []
     },
     enabled: !!versionId,
   })
@@ -115,8 +103,7 @@ export function useAppVersion(versionId: string | null) {
     queryKey: ['version', versionId],
     queryFn: async () => {
       if (!versionId) return null
-      const response = await api.get<AppVersion>(`/versions/${versionId}/`)
-      return response.data
+      return versionsApi.get(versionId)
     },
     enabled: !!versionId,
   })
@@ -126,13 +113,8 @@ export function useAiEdit() {
   const queryClient = useQueryClient()
   
   return useMutation({
-    mutationFn: async ({ appId, intentMessage, specJson }: { appId: string; intentMessage: string; specJson: any }) => {
-      const response = await api.post<AppVersion>(`/apps/${appId}/versions/ai-edit/`, {
-        intent_message: intentMessage,
-        spec_json: specJson,
-        source: 'ai_edit',
-      })
-      return response.data
+    mutationFn: async ({ appId, intentMessage, specJson }: { appId: string; intentMessage: string; specJson: unknown }) => {
+      return versionsApi.aiEdit(appId, intentMessage, specJson)
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['versions', data.internal_app] })
@@ -145,11 +127,7 @@ export function useCodeEdit() {
   
   return useMutation({
     mutationFn: async ({ appId, filePath, content }: { appId: string; filePath: string; content: string }) => {
-      const response = await api.post<AppVersion>(`/apps/${appId}/versions/code-edit/`, {
-        file_path: filePath,
-        content,
-      })
-      return response.data
+      return versionsApi.codeEdit(appId, filePath, content)
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['versions', data.internal_app] })
@@ -169,10 +147,7 @@ export function useRollback() {
       versionId: string
       includeSchema?: boolean
     }) => {
-      const response = await api.post<AppVersion>(`/versions/${versionId}/rollback/`, {
-        include_schema: includeSchema,
-      })
-      return response.data
+      return versionsApi.rollback(versionId, { includeSchema }) as Promise<AppVersion>
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['versions', data.internal_app] })
@@ -189,11 +164,7 @@ export function useRollbackPreview(versionId: string | null, includeSchema = tru
     queryKey: ['rollback-preview', versionId, includeSchema],
     queryFn: async () => {
       if (!versionId) return null
-      const response = await api.post<RollbackPreview>(`/versions/${versionId}/rollback/`, {
-        dry_run: true,
-        include_schema: includeSchema,
-      })
-      return response.data
+      return versionsApi.rollbackPreview(versionId, includeSchema)
     },
     enabled: !!versionId,
     staleTime: 30000, // Cache for 30 seconds
@@ -208,8 +179,7 @@ export function useVersionSnapshot(versionId: string | null) {
     queryKey: ['version-snapshot', versionId],
     queryFn: async () => {
       if (!versionId) return null
-      const response = await api.get<VersionStateSnapshot>(`/versions/${versionId}/snapshot/`)
-      return response.data
+      return versionsApi.snapshot(versionId)
     },
     enabled: !!versionId,
   })
@@ -223,8 +193,7 @@ export function useVersionDiff(fromVersionId: string | null, toVersionId: string
     queryKey: ['version-diff', fromVersionId, toVersionId],
     queryFn: async () => {
       if (!fromVersionId || !toVersionId) return null
-      const response = await api.get<VersionDiff>(`/versions/${fromVersionId}/diff/${toVersionId}/`)
-      return response.data
+      return versionsApi.diff(fromVersionId, toVersionId)
     },
     enabled: !!fromVersionId && !!toVersionId,
   })
@@ -240,10 +209,7 @@ export function useAuditTrail(appId: string | null, options?: { limit?: number }
     queryKey: ['audit-trail', appId, limit],
     queryFn: async () => {
       if (!appId) return []
-      const response = await api.get<VersionAuditLog[]>(
-        `/apps/${appId}/versions/audit-trail/?limit=${limit}`
-      )
-      return response.data
+      return versionsApi.auditTrail(appId, limit)
     },
     enabled: !!appId,
   })
@@ -257,8 +223,7 @@ export function useVersionHistory(appId: string | null) {
     queryKey: ['version-history', appId],
     queryFn: async () => {
       if (!appId) return []
-      const response = await api.get<AppVersion[]>(`/apps/${appId}/versions/history/`)
-      return response.data
+      return versionsApi.history(appId)
     },
     enabled: !!appId,
   })
@@ -269,8 +234,7 @@ export function usePublishApp() {
   
   return useMutation({
     mutationFn: async (appId: string) => {
-      const response = await api.post<AppVersion>(`/apps/${appId}/publish/`)
-      return response.data
+      return appsApi.publish(appId)
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['app', data.internal_app] })
@@ -287,10 +251,7 @@ export function usePublishedApp(orgSlug: string | null, appSlug: string | null) 
     queryKey: ['published-app', orgSlug, appSlug],
     queryFn: async () => {
       if (!orgSlug || !appSlug) return null
-      const response = await api.get<PublishedAppResponse>(
-        `/published/${orgSlug}/${appSlug}/`
-      )
-      return response.data
+      return appsApi.getPublished(orgSlug, appSlug)
     },
     enabled: !!orgSlug && !!appSlug,
     staleTime: 60000, // Cache for 1 minute
@@ -301,15 +262,6 @@ export function usePublishedApp(orgSlug: string | null, appSlug: string | null) 
 // App Favorites
 // ============================================================================
 
-interface FavoritesResponse {
-  favorites: string[]
-}
-
-interface ToggleFavoriteResponse {
-  favorited: boolean
-  app_id: string
-}
-
 /**
  * Fetch user's favorite app IDs for an organization
  */
@@ -318,8 +270,8 @@ export function useAppFavorites(orgId: string | null) {
     queryKey: ['app-favorites', orgId],
     queryFn: async () => {
       if (!orgId) return new Set<string>()
-      const response = await api.get<FavoritesResponse>(`/orgs/${orgId}/favorites/`)
-      return new Set(response.data.favorites)
+      const favorites = await favoritesApi.list(orgId)
+      return new Set(favorites)
     },
     enabled: !!orgId,
     staleTime: 30000, // Cache for 30 seconds
@@ -334,10 +286,7 @@ export function useToggleFavorite() {
   
   return useMutation({
     mutationFn: async ({ orgId, appId }: { orgId: string; appId: string }) => {
-      const response = await api.post<ToggleFavoriteResponse>(`/orgs/${orgId}/favorites/`, {
-        app_id: appId,
-      })
-      return response.data
+      return favoritesApi.toggle(orgId, appId)
     },
     onMutate: async ({ orgId, appId }) => {
       // Cancel any outgoing refetches
@@ -371,4 +320,3 @@ export function useToggleFavorite() {
     },
   })
 }
-

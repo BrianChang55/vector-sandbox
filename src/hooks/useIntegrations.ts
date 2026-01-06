@@ -5,17 +5,13 @@
  * - The org is registered as a single "user" with Merge
  * - Connectors are connected once per organization
  * - All org members share the connected integrations
+ * 
+ * Uses centralized apiService for all API calls.
+ * @see {@link @/services/apiService} for API documentation.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '../services/api'
-import type {
-  IntegrationProvider,
-  Connector,
-  OrgConnectorStatus,
-  LinkTokenResponse,
-  SyncConnectorsResponse,
-  LinkCallbackResponse,
-} from '../types/models'
+import { integrationsApi } from '@/services/apiService'
+// Types are imported via apiService return types
 
 // ============================================================================
 // Integration Provider Hooks
@@ -29,8 +25,7 @@ export function useIntegrationProviders(orgId: string | null) {
     queryKey: ['integrations', orgId],
     queryFn: async () => {
       if (!orgId) return []
-      const response = await api.get<IntegrationProvider[]>(`/orgs/${orgId}/integrations/`)
-      return response.data
+      return integrationsApi.listProviders(orgId)
     },
     enabled: !!orgId,
   })
@@ -44,8 +39,7 @@ export function useIntegrationProvider(providerId: string | null) {
     queryKey: ['integration', providerId],
     queryFn: async () => {
       if (!providerId) return null
-      const response = await api.get<IntegrationProvider>(`/integrations/${providerId}/`)
-      return response.data
+      return integrationsApi.getProvider(providerId)
     },
     enabled: !!providerId,
   })
@@ -70,8 +64,7 @@ export function useCreateIntegrationProvider() {
         display_name?: string
       }
     }) => {
-      const response = await api.post<IntegrationProvider>(`/orgs/${orgId}/integrations/`, data)
-      return response.data
+      return integrationsApi.createProvider(orgId, data)
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['integrations', variables.orgId] })
@@ -98,8 +91,7 @@ export function useUpdateIntegrationProvider() {
         is_active: boolean
       }>
     }) => {
-      const response = await api.patch<IntegrationProvider>(`/integrations/${providerId}/`, data)
-      return response.data
+      return integrationsApi.updateProvider(providerId, data)
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['integration', data.id] })
@@ -116,7 +108,7 @@ export function useDeleteIntegrationProvider() {
   
   return useMutation({
     mutationFn: async (providerId: string) => {
-      await api.delete(`/integrations/${providerId}/`)
+      await integrationsApi.deleteProvider(providerId)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['integrations'] })
@@ -137,8 +129,7 @@ export function useConnectors(providerId: string | null) {
     queryKey: ['connectors', providerId],
     queryFn: async () => {
       if (!providerId) return []
-      const response = await api.get<{ connectors: Connector[] }>(`/integrations/${providerId}/connectors/`)
-      return response.data.connectors
+      return integrationsApi.listConnectors(providerId)
     },
     enabled: !!providerId,
   })
@@ -152,8 +143,7 @@ export function useSyncConnectors() {
   
   return useMutation({
     mutationFn: async (providerId: string) => {
-      const response = await api.post<SyncConnectorsResponse>(`/integrations/${providerId}/sync/`)
-      return response.data
+      return integrationsApi.syncConnectors(providerId)
     },
     onSuccess: (_, providerId) => {
       queryClient.invalidateQueries({ queryKey: ['connectors', providerId] })
@@ -175,10 +165,7 @@ export function useOrgConnectorStatus(providerId: string | null) {
     queryKey: ['org-connections', providerId],
     queryFn: async () => {
       if (!providerId) return []
-      const response = await api.get<{ connections: OrgConnectorStatus[] }>(
-        `/integrations/${providerId}/connections/`
-      )
-      return response.data.connections
+      return integrationsApi.getConnectionStatus(providerId)
     },
     enabled: !!providerId,
   })
@@ -196,11 +183,7 @@ export function useGenerateLinkToken() {
       providerId: string
       connectorId?: string 
     }) => {
-      const response = await api.post<LinkTokenResponse>(
-        `/integrations/${providerId}/link-token/`,
-        connectorId ? { connector_id: connectorId } : {}
-      )
-      return response.data
+      return integrationsApi.generateLinkToken(providerId, connectorId)
     },
   })
 }
@@ -220,11 +203,7 @@ export function useHandleLinkCallback() {
       providerId: string
       connectorId: string 
     }) => {
-      const response = await api.post<LinkCallbackResponse>(
-        `/integrations/${providerId}/link-callback/`,
-        { connector_id: connectorId }
-      )
-      return response.data
+      return integrationsApi.handleLinkCallback(providerId, connectorId)
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['org-connections', variables.providerId] })

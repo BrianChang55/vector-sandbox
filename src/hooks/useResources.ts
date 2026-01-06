@@ -1,8 +1,11 @@
 /**
  * React Query hooks for Resource Registry
+ * 
+ * Uses centralized apiService for all API calls.
+ * @see {@link @/services/apiService} for API documentation.
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '../services/api'
+import { resourcesApi } from '@/services/apiService'
 import type { ResourceRegistryEntry } from '../types/models'
 
 export function useResources(backendId: string | null) {
@@ -10,8 +13,7 @@ export function useResources(backendId: string | null) {
     queryKey: ['resources', backendId],
     queryFn: async () => {
       if (!backendId) return []
-      const response = await api.get<ResourceRegistryEntry[]>(`/backends/${backendId}/resources/`)
-      return response.data
+      return resourcesApi.list(backendId)
     },
     enabled: !!backendId,
   })
@@ -22,8 +24,7 @@ export function useUpdateResource() {
   
   return useMutation({
     mutationFn: async ({ resourceId, data }: { resourceId: string; data: Partial<ResourceRegistryEntry> }) => {
-      const response = await api.patch<ResourceRegistryEntry>(`/resources/${resourceId}/`, data)
-      return response.data
+      return resourcesApi.update(resourceId, data)
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['resources', data.backend_connection] })
@@ -36,12 +37,10 @@ export function useDiscoverResources() {
   
   return useMutation({
     mutationFn: async (backendId: string) => {
-      const response = await api.post(`/backends/${backendId}/discover/`)
-      return response.data
+      return resourcesApi.discover(backendId)
     },
     onSuccess: (_, backendId) => {
       queryClient.invalidateQueries({ queryKey: ['resources', backendId] })
     },
   })
 }
-

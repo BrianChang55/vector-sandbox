@@ -27,7 +27,7 @@ import {
   History,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
-import { api } from '../../services/api'
+import { versionsApi } from '../../services/apiService'
 import type { FileChange } from '../../types/agent'
 
 // Get the API base URL for runtime injection into Sandpack
@@ -1217,7 +1217,7 @@ function AutoSave({
           return
         }
 
-        await api.post(`/versions/${versionId}/save-files/`, { files: backendFiles })
+        await versionsApi.saveFiles(versionId, backendFiles)
         // Persist the current sandpack files locally so rehydration uses the saved snapshot
         onPersistLocalFiles(sandpack.files as Record<string, { code: string }>)
         if (onFilesChange) {

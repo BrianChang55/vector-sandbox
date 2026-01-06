@@ -1,9 +1,12 @@
 /**
  * Google OAuth utility - uses localStorage events for cross-window communication
  * This avoids COOP issues that break window.opener
+ * 
+ * Uses centralized apiService for all API calls.
+ * @see {@link @/services/apiService} for API documentation.
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001/api/v1'
+import { authApi } from '@/services/apiService'
 
 export interface OAuthResult {
   success: boolean
@@ -11,19 +14,8 @@ export interface OAuthResult {
 }
 
 export async function initiateGoogleOAuth(): Promise<OAuthResult> {
-  // Get OAuth URL from backend
-  const response = await fetch(`${API_BASE_URL}/auth/google`, {
-    method: 'GET',
-    credentials: 'include',
-  })
-
-  if (!response.ok) {
-    const error = await response.json()
-    throw new Error(error.error || 'Failed to initiate Google OAuth')
-  }
-
-  const data = await response.json()
-  const oauthUrl = data.oauth_url
+  // Get OAuth URL from backend using centralized API
+  const { oauth_url: oauthUrl } = await authApi.getGoogleOAuthUrl()
 
   // Clear any previous OAuth state
   localStorage.removeItem('oauth_complete')
@@ -89,4 +81,3 @@ export async function initiateGoogleOAuth(): Promise<OAuthResult> {
     window.addEventListener('storage', storageHandler)
   })
 }
-

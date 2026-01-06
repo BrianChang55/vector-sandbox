@@ -3,187 +3,100 @@
  * 
  * API client for App Data Store operations.
  * Manages tables and rows for internal app data storage.
+ * 
+ * This module re-exports functions from the centralized apiService.
+ * @see {@link @/services/apiService} for full API documentation.
  */
-import { api } from './api'
-import type {
-  DataTable,
-  DataRow,
-  QueryResult,
-  QuerySpec,
-  CreateTableRequest,
-  UpdateTableRequest,
-  InsertRowRequest,
-  BulkInsertRequest,
-  BulkInsertResponse,
-  BulkDeleteRequest,
-  BulkDeleteResponse,
-} from '@/types/dataStore'
+import { dataTablesApi } from './apiService'
 
 // ============================================================================
-// Table Operations
+// Table Operations - Re-exported from centralized apiService
 // ============================================================================
 
 /**
  * List all tables for an app
+ * @see {@link dataTablesApi.listTables}
  */
-export async function listTables(appId: string): Promise<DataTable[]> {
-  const response = await api.get<DataTable[]>(`/apps/${appId}/data/tables/`)
-  return response.data
-}
+export const listTables = dataTablesApi.listTables
 
 /**
  * Get a single table by slug
+ * @see {@link dataTablesApi.getTable}
  */
-export async function getTable(appId: string, tableSlug: string): Promise<DataTable> {
-  const response = await api.get<DataTable>(`/apps/${appId}/data/tables/${tableSlug}/`)
-  return response.data
-}
+export const getTable = dataTablesApi.getTable
 
 /**
  * Create a new table
+ * @see {@link dataTablesApi.createTable}
  */
-export async function createTable(appId: string, data: CreateTableRequest): Promise<DataTable> {
-  const response = await api.post<DataTable>(`/apps/${appId}/data/tables/`, data)
-  return response.data
-}
+export const createTable = dataTablesApi.createTable
 
 /**
  * Update a table
+ * @see {@link dataTablesApi.updateTable}
  */
-export async function updateTable(
-  appId: string,
-  tableSlug: string,
-  data: UpdateTableRequest
-): Promise<DataTable> {
-  const response = await api.patch<DataTable>(`/apps/${appId}/data/tables/${tableSlug}/`, data)
-  return response.data
-}
+export const updateTable = dataTablesApi.updateTable
 
 /**
  * Delete a table
+ * @see {@link dataTablesApi.deleteTable}
  */
-export async function deleteTable(appId: string, tableSlug: string): Promise<void> {
-  await api.delete(`/apps/${appId}/data/tables/${tableSlug}/`)
-}
+export const deleteTable = dataTablesApi.deleteTable
 
 // ============================================================================
-// Row Operations
+// Row Operations - Re-exported from centralized apiService
 // ============================================================================
 
 /**
  * Query rows with optional filtering, sorting, and pagination
+ * @see {@link dataTablesApi.queryRows}
  */
-export async function queryRows(
-  appId: string,
-  tableSlug: string,
-  querySpec?: QuerySpec
-): Promise<QueryResult> {
-  const response = await api.post<QueryResult>(
-    `/apps/${appId}/data/tables/${tableSlug}/query/`,
-    querySpec || {}
-  )
-  return response.data
-}
+export const queryRows = dataTablesApi.queryRows
 
 /**
  * List rows (simple version without filters)
+ * @see {@link dataTablesApi.listRows}
  */
-export async function listRows(
-  appId: string,
-  tableSlug: string,
-  limit = 50,
-  offset = 0
-): Promise<QueryResult> {
-  const response = await api.get<QueryResult>(
-    `/apps/${appId}/data/tables/${tableSlug}/rows/`,
-    { params: { limit, offset } }
-  )
-  return response.data
-}
+export const listRows = dataTablesApi.listRows
 
 /**
  * Get a single row by ID
+ * @see {@link dataTablesApi.getRow}
  */
-export async function getRow(
-  appId: string,
-  tableSlug: string,
-  rowId: string
-): Promise<DataRow> {
-  const response = await api.get<DataRow>(
-    `/apps/${appId}/data/tables/${tableSlug}/rows/${rowId}/`
-  )
-  return response.data
-}
+export const getRow = dataTablesApi.getRow
 
 /**
  * Insert a new row
+ * @see {@link dataTablesApi.insertRow}
  */
-export async function insertRow(
-  appId: string,
-  tableSlug: string,
-  data: InsertRowRequest
-): Promise<DataRow> {
-  const response = await api.post<DataRow>(
-    `/apps/${appId}/data/tables/${tableSlug}/rows/`,
-    data
-  )
-  return response.data
-}
+export const insertRow = dataTablesApi.insertRow
 
 /**
  * Update a row
+ * @see {@link dataTablesApi.updateRow}
  */
-export async function updateRow(
-  appId: string,
-  tableSlug: string,
-  rowId: string,
-  data: InsertRowRequest
-): Promise<DataRow> {
-  const response = await api.patch<DataRow>(
-    `/apps/${appId}/data/tables/${tableSlug}/rows/${rowId}/`,
-    data
-  )
-  return response.data
-}
+export const updateRow = dataTablesApi.updateRow
 
 /**
  * Delete a row
+ * @see {@link dataTablesApi.deleteRow}
  */
-export async function deleteRow(
-  appId: string,
-  tableSlug: string,
-  rowId: string
-): Promise<void> {
-  await api.delete(`/apps/${appId}/data/tables/${tableSlug}/rows/${rowId}/`)
-}
+export const deleteRow = dataTablesApi.deleteRow
 
 /**
  * Bulk insert rows
+ * @see {@link dataTablesApi.bulkInsertRows}
  */
-export async function bulkInsertRows(
-  appId: string,
-  tableSlug: string,
-  data: BulkInsertRequest
-): Promise<BulkInsertResponse> {
-  const response = await api.post<BulkInsertResponse>(
-    `/apps/${appId}/data/tables/${tableSlug}/rows/bulk/`,
-    data
-  )
-  return response.data
-}
+export const bulkInsertRows = dataTablesApi.bulkInsertRows
 
 /**
  * Bulk delete rows
+ * @see {@link dataTablesApi.bulkDeleteRows}
  */
-export async function bulkDeleteRows(
-  appId: string,
-  tableSlug: string,
-  data: BulkDeleteRequest
-): Promise<BulkDeleteResponse> {
-  const response = await api.delete<BulkDeleteResponse>(
-    `/apps/${appId}/data/tables/${tableSlug}/rows/bulk/`,
-    { data }
-  )
-  return response.data
-}
+export const bulkDeleteRows = dataTablesApi.bulkDeleteRows
 
+/**
+ * Export all rows from a table (handles pagination automatically)
+ * @see {@link dataTablesApi.exportAllRows}
+ */
+export const exportAllRows = dataTablesApi.exportAllRows

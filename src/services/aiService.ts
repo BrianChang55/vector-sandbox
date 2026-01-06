@@ -3,112 +3,78 @@
  * 
  * Handles streaming code generation with Server-Sent Events.
  * Similar to Cursor, Lovable, Replit vibe coding experience.
+ * 
+ * Non-streaming API calls use the centralized apiService.
+ * @see {@link @/services/apiService} for API documentation.
  */
 
 import { api } from './api'
+import { aiApi } from './apiService'
 
-// Types
-export interface AIModel {
-  id: string
-  name: string
-  description: string
-  category: 'premium' | 'standard' | 'economy'
-  context_length: number
-  supports_streaming: boolean
-  recommended_for: string[]
-  cost: {
-    input: number
-    output: number
-  }
-}
-
-export interface ModelsResponse {
-  models: AIModel[]
-  grouped: {
-    premium: AIModel[]
-    standard: AIModel[]
-    economy: AIModel[]
-  }
-  default: string
-}
-
-export interface ChatSession {
-  id: string
-  title: string
-  model_id: string
-  created_at: string
-  created_by?: string | null
-  message_count: number
-  last_message_at?: string | null
-}
-
-export interface ChatMessage {
-  id: string
-  role: 'user' | 'assistant' | 'system'
-  content: string
-  status: 'pending' | 'streaming' | 'complete' | 'error'
-  model_id?: string
-  created_at: string
-  duration_ms?: number | null
-  generated_files?: Record<string, string>
-  generated_spec_json?: any
-  version_created?: string
-  error_message?: string
-}
+// Re-export types from apiService for backwards compatibility
+export type {
+  AIModel,
+  ModelsResponse,
+  ChatSession,
+  ChatMessage,
+} from './apiService'
 
 export interface StreamEvent {
   type: 'connected' | 'session_created' | 'user_message' | 'assistant_start' | 
         'content' | 'thinking' | 'generation_complete' | 'version_created' | 
         'validation_warning' | 'version_error' | 'error' | 'done'
-  data: any
+  data: unknown
 }
 
 export type StreamCallback = (event: StreamEvent) => void
 
 /**
  * Get available AI models
+ * @see {@link aiApi.getModels}
  */
-export async function getAvailableModels(): Promise<ModelsResponse> {
-  const response = await api.get<ModelsResponse>('/models/')
-  return response.data
-}
+export const getAvailableModels = aiApi.getModels
 
 /**
  * Get chat sessions for an app
+ * @see {@link aiApi.getChatSessions}
  */
-export async function getChatSessions(appId: string): Promise<ChatSession[]> {
-  const response = await api.get<{ sessions: ChatSession[] }>(`/apps/${appId}/chat-sessions/`)
-  return response.data.sessions
-}
+export const getChatSessions = aiApi.getChatSessions
 
 /**
  * Create a new chat session
+ * @see {@link aiApi.createChatSession}
  */
-export async function createChatSession(
-  appId: string, 
-  title?: string, 
-  modelId?: string
-): Promise<ChatSession> {
-  const response = await api.post<ChatSession>(`/apps/${appId}/chat-sessions/`, {
-    title,
-    model_id: modelId,
-  })
-  return response.data
-}
+export const createChatSession = aiApi.createChatSession
 
 /**
  * Get messages for a chat session
+ * @see {@link aiApi.getChatMessages}
  */
-export async function getChatMessages(sessionId: string): Promise<ChatMessage[]> {
-  const response = await api.get<{ messages: ChatMessage[] }>(
-    `/chat-sessions/${sessionId}/messages/`
-  )
-  return response.data.messages
-}
+export const getChatMessages = aiApi.getChatMessages
+
+/**
+ * Generate code without streaming (fallback)
+ * @see {@link aiApi.generateCode}
+ */
+export const generateCode = aiApi.generateCode
+
+/**
+ * Apply generated code from a message
+ * @see {@link aiApi.applyGeneratedCode}
+ */
+export const applyGeneratedCode = aiApi.applyGeneratedCode
 
 /**
  * Generate code with streaming updates
- * Uses Server-Sent Events for real-time feedback
+ * Uses Server-Sent Events for real-time feedback.
+ * 
+ * Note: This function uses fetch directly for SSE streaming,
+ * as axios doesn't support streaming responses well.
+ * 
+ * @param appId - App ID
+ * @param message - User's prompt
+ * @param options - Streaming options including callbacks
+ * @returns AbortController to cancel the stream
  */
 export function generateCodeStreaming(
   appId: string,
@@ -230,45 +196,3 @@ export function generateCodeStreaming(
   
   return controller
 }
-
-/**
- * Generate code without streaming (fallback)
- */
-export async function generateCode(
-  appId: string,
-  message: string,
-  options: {
-    sessionId?: string
-    model?: string
-    mode?: 'appspec' | 'code'
-  } = {}
-): Promise<{
-  session_id: string
-  message_id: string
-  spec_json: any
-  version_id: string | null
-  version_number: number | null
-  duration_ms: number
-  validation_errors: string[] | null
-}> {
-  const response = await api.post(`/apps/${appId}/generate/`, {
-    message,
-    session_id: options.sessionId,
-    model: options.model,
-    mode: options.mode,
-  })
-  return response.data
-}
-
-/**
- * Apply generated code from a message
- */
-export async function applyGeneratedCode(messageId: string): Promise<{
-  version_id: string
-  version_number: number
-  files_generated: number
-}> {
-  const response = await api.post(`/messages/${messageId}/apply/`)
-  return response.data
-}
-

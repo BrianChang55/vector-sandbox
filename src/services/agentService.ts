@@ -6,6 +6,7 @@
  */
 
 import { api } from './api'
+import { versionsApi } from './apiService'
 import type {
   AgentEvent,
   AgentEventType,
@@ -143,10 +144,11 @@ export async function fetchGenerationState(versionId: string): Promise<Generatio
 
 /**
  * Cancel a generating version when the user aborts
+ * @see {@link versionsApi.cancel} in apiService for the underlying API call.
  */
 export async function cancelGeneration(versionId: string): Promise<void> {
   try {
-    await api.post(`/versions/${versionId}/cancel/`)
+    await versionsApi.cancel(versionId)
   } catch (error) {
     // Log but don't throw - cancellation is best-effort cleanup
     console.warn('[agentService] Failed to cancel generation:', error)

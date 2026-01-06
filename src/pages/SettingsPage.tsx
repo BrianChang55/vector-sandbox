@@ -4,7 +4,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useAppSelector, useAppDispatch } from '../store/hooks'
 import { logout } from '../store/slices/authSlice'
-import { useOrganizations, useUploadOrganizationLogo, useDeleteOrganizationLogo, useUpdateOrganization } from '../hooks/useOrganizations'
+import { useOrganizations, useUploadOrganizationLogo, useDeleteOrganizationLogo, useUpdateOrganization, useDeleteOrganization } from '../hooks/useOrganizations'
 import { useOrgMembers } from '../hooks/useMembers'
 import { Button } from '../components/ui/button'
 import { useDialog } from '../components/ui/dialog-provider'
@@ -33,7 +33,12 @@ export function SettingsPage() {
   const uploadLogo = useUploadOrganizationLogo()
   const deleteLogo = useDeleteOrganizationLogo()
   const updateOrganization = useUpdateOrganization()
+  const deleteOrganization = useDeleteOrganization()
   const { confirm, alert } = useDialog()
+  
+  // Delete organization confirmation state
+  const [showDeleteOrgDialog, setShowDeleteOrgDialog] = useState(false)
+  const [deleteConfirmName, setDeleteConfirmName] = useState('')
   
   const currentUserRole = membersData?.current_user_role
   const canManageIntegrations = currentUserRole === 'admin'
@@ -186,6 +191,39 @@ export function SettingsPage() {
           variant: 'destructive',
         })
       }
+    }
+  }
+
+  const handleDeleteOrganization = async () => {
+    if (!selectedOrgId || !currentOrg) return
+    
+    if (deleteConfirmName !== currentOrg.name) {
+      await alert({
+        title: 'Name Does Not Match',
+        description: 'Please type the exact organization name to confirm deletion.',
+        variant: 'destructive',
+      })
+      return
+    }
+    
+    try {
+      await deleteOrganization.mutateAsync({ 
+        orgId: selectedOrgId, 
+        confirmationName: deleteConfirmName 
+      })
+      setShowDeleteOrgDialog(false)
+      setDeleteConfirmName('')
+      await alert({
+        title: 'Organization Deleted',
+        description: `"${currentOrg.name}" has been permanently deleted.`,
+        variant: 'success',
+      })
+    } catch (error: any) {
+      await alert({
+        title: 'Failed to Delete',
+        description: error?.response?.data?.error || 'Failed to delete organization.',
+        variant: 'destructive',
+      })
     }
   }
 
@@ -402,6 +440,83 @@ export function SettingsPage() {
                       </p>
                     </div>
                   </div>
+
+                  {/* Delete Organization (Admin only) */}
+                  {currentUserRole === 'admin' && (
+                    <div className="bg-white rounded-lg border border-gray-200 p-6 flex items-center justify-between gap-6">
+                      <div>
+                        <h2 className="font-medium text-gray-900 mb-1">Delete Organization</h2>
+                        <p className="text-sm text-gray-500">
+                          Permanently delete this organization and all its data. This cannot be undone.
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setShowDeleteOrgDialog(true)}
+                        className="shrink-0 text-sm text-red-600 hover:text-red-700 hover:bg-gray-100 px-2 py-1 rounded"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Delete Organization Dialog */}
+                  {showDeleteOrgDialog && currentUserRole === 'admin' && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center">
+                      <div 
+                        className="absolute inset-0 bg-black/40"
+                        onClick={() => {
+                          setShowDeleteOrgDialog(false)
+                          setDeleteConfirmName('')
+                        }}
+                      />
+                      <div className="relative bg-white rounded-lg shadow-lg w-full max-w-sm p-5">
+                        <h3 className="text-base font-medium text-gray-900 mb-1">Delete Organization</h3>
+                        <p className="text-sm text-gray-500 mb-5">This cannot be undone.</p>
+                        
+                        <div className="mb-5">
+                          <label className="block text-sm text-gray-600 mb-2">
+                            Type <span className="font-medium text-gray-900">{currentOrg.name}</span> to confirm
+                          </label>
+                          <input
+                            type="text"
+                            value={deleteConfirmName}
+                            onChange={(e) => setDeleteConfirmName(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-200 rounded-md bg-white text-sm text-gray-900 focus:outline-none focus:border-gray-300"
+                            placeholder="Organization name"
+                            autoFocus
+                          />
+                        </div>
+                        
+                        <div className="flex gap-2 justify-end">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setShowDeleteOrgDialog(false)
+                              setDeleteConfirmName('')
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={handleDeleteOrganization}
+                            disabled={deleteConfirmName !== currentOrg.name || deleteOrganization.isPending}
+                          >
+                            {deleteOrganization.isPending ? (
+                              <>
+                                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                                Deleting
+                              </>
+                            ) : (
+                              'Delete'
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="bg-white rounded-lg border border-gray-200 p-6 text-center">

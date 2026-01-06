@@ -2,10 +2,13 @@
  * Export Menu Component
  * 
  * Provides CSV export functionality for table data.
+ * Uses centralized apiService for all API calls.
+ * @see {@link @/services/apiService} for API documentation.
  */
 import { useState } from 'react'
 import { Download, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { dataTablesApi } from '@/services/apiService'
 import type { DataTable } from '@/types/dataStore'
 
 interface ImportExportMenuProps {
@@ -22,40 +25,8 @@ export function ImportExportMenu({ appId, table }: ImportExportMenuProps) {
   const handleExport = async () => {
     setExporting(true)
     try {
-      // Fetch all rows with pagination (API limit is 1000 per request)
-      const allRows: any[] = []
-      let offset = 0
-      const batchSize = 1000
-      let hasMore = true
-
-      while (hasMore) {
-        const response = await fetch(
-          `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001/api/v1'}/apps/${appId}/data/tables/${table.slug}/query/`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${localStorage.getItem('access_token')}`,
-            },
-            body: JSON.stringify({ limit: batchSize, offset }),
-          }
-        )
-        
-        if (!response.ok) {
-          throw new Error('Failed to fetch data')
-        }
-
-        const result = await response.json()
-        const batchRows = result.rows || []
-        allRows.push(...batchRows)
-        
-        // Check if there are more rows to fetch
-        if (batchRows.length < batchSize) {
-          hasMore = false
-        } else {
-          offset += batchSize
-        }
-      }
+      // Use centralized API to fetch all rows with automatic pagination
+      const allRows = await dataTablesApi.exportAllRows(appId, table.slug)
 
       const headers = columns.map((c) => c.name)
       
@@ -66,7 +37,7 @@ export function ImportExportMenu({ appId, table }: ImportExportMenuProps) {
       csvRows.push(headers.map(escapeCsvField).join(','))
       
       // Data rows
-      allRows.forEach((row: any) => {
+      allRows.forEach((row) => {
         const rowValues = headers.map((h) => {
           const value = row.data[h]
           return escapeCsvField(formatCellValue(value))
@@ -86,7 +57,7 @@ export function ImportExportMenu({ appId, table }: ImportExportMenuProps) {
       link.click()
       document.body.removeChild(link)
       URL.revokeObjectURL(url)
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('CSV export failed:', err)
     } finally {
       setExporting(false)
