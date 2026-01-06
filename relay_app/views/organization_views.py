@@ -153,6 +153,43 @@ class OrganizationViewSet(viewsets.ModelViewSet):
             'message': 'Logo deleted successfully',
             'organization': OrganizationSerializer(org, context={'request': request}).data,
         })
+    
+    def destroy(self, request, *args, **kwargs):
+        """Delete organization (only admins, requires confirmation)."""
+        org = self.get_object()
+        
+        # Check if user is admin
+        user_org = UserOrganization.objects.filter(
+            user=request.user, 
+            organization=org,
+            role=UserOrganization.ROLE_ADMIN
+        ).first()
+        
+        if not user_org:
+            return Response(
+                {'error': 'Only admins can delete the organization'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Require confirmation by matching the organization name
+        confirmation_name = request.data.get('confirmation_name', '')
+        if confirmation_name != org.name:
+            return Response(
+                {'error': 'Organization name does not match. Please type the exact name to confirm deletion.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        org_name = org.name
+        org_id = str(org.id)
+        
+        # Delete the organization (cascades to related objects)
+        org.delete()
+        
+        logger.info(f"Organization {org_id} ({org_name}) deleted by user {request.user.id}")
+        
+        return Response({
+            'message': f'Organization "{org_name}" has been permanently deleted.',
+        }, status=status.HTTP_200_OK)
 
 
 class UserOrganizationViewSet(viewsets.ReadOnlyModelViewSet):
