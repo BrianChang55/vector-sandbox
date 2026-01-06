@@ -242,6 +242,12 @@ if not OPENROUTER_API_KEY and OPENAI_API_KEY:
 # Encryption Key for secrets (generate with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')
 ENCRYPTION_KEY = env('ENCRYPTION_KEY', default=None)
 
+# Merge Agent Handler Configuration
+# These credentials are used for all organizations (platform-wide integration)
+MERGE_TOOL_PACK_ID = env('MERGE_TOOL_PACK_ID', default='')
+MERGE_ACCESS_KEY = env('MERGE_ACCESS_KEY', default='')
+MERGE_API_TIMEOUT = env.float('MERGE_API_TIMEOUT', default=30.0)
+
 # Sentry Error Tracking
 SENTRY_DSN = env('SENTRY_DSN', default='')
 SENTRY_ENVIRONMENT = env('SENTRY_ENVIRONMENT', default='production' if not DEBUG else 'development')

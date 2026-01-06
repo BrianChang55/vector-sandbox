@@ -17,6 +17,8 @@ from .views import (
     streaming_views,
     app_data_views,
     data_runtime_views,
+    connector_views,
+    connector_runtime_views,
 )
 
 # Router for viewsets
@@ -166,5 +168,89 @@ urlpatterns = [
         'apps/<uuid:internal_app_pk>/data/tables/<slug:table_slug>/query/',
         app_data_views.AppDataQueryView.as_view(),
         name='app-data-query'
+    ),
+    
+    # =========================================================================
+    # Integrations & Connectors endpoints
+    # =========================================================================
+    
+    # Integration providers (organization-level)
+    path(
+        'orgs/<uuid:organization_pk>/integrations/',
+        connector_views.IntegrationProviderViewSet.as_view({
+            'get': 'list',
+            'post': 'create',
+        }),
+        name='integration-providers'
+    ),
+    path(
+        'orgs/<uuid:org_id>/integrations/status/',
+        connector_views.integration_status,
+        name='integration-status'
+    ),
+    path(
+        'integrations/<uuid:pk>/',
+        connector_views.IntegrationProviderViewSet.as_view({
+            'get': 'retrieve',
+            'patch': 'partial_update',
+            'delete': 'destroy',
+        }),
+        name='integration-provider-detail'
+    ),
+    
+    # Connector management
+    path(
+        'integrations/<uuid:pk>/sync/',
+        connector_views.sync_connectors,
+        name='integration-sync'
+    ),
+    path(
+        'integrations/<uuid:pk>/connectors/',
+        connector_views.list_connectors,
+        name='integration-connectors'
+    ),
+    path(
+        'integrations/<uuid:pk>/link-token/',
+        connector_views.generate_link_token,
+        name='integration-link-token'
+    ),
+    
+    # Organization connector status
+    path(
+        'integrations/<uuid:pk>/connections/',
+        connector_views.org_connector_status,
+        name='org-connector-status'
+    ),
+    path(
+        'integrations/<uuid:pk>/link-callback/',
+        connector_views.handle_link_callback,
+        name='integration-link-callback'
+    ),
+    path(
+        'integrations/<uuid:pk>/tool-pack/',
+        connector_views.get_tool_pack_info,
+        name='integration-tool-pack'
+    ),
+    path(
+        'integrations/<uuid:pk>/mcp/',
+        connector_views.get_mcp_config,
+        name='integration-mcp'
+    ),
+    path(
+        'integrations/<uuid:pk>/mcp/tools/',
+        connector_views.list_mcp_tools,
+        name='integration-mcp-tools'
+    ),
+    path(
+        'integrations/<uuid:pk>/mcp/call/',
+        connector_views.call_mcp_tool,
+        name='integration-mcp-call'
+    ),
+    
+    # Runtime proxy for generated apps (connectors)
+    path(
+        'runtime/connectors/',
+        connector_runtime_views.RuntimeConnectorProxyView.as_view(),
+        name='runtime-connectors'
     ),
 ]
