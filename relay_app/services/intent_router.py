@@ -38,7 +38,14 @@ class IntentRouter:
     
     Supports compound requests that execute multiple handlers in sequence.
     All handlers yield AgentEvent objects for streaming.
+    
+    Optional plan confirmation mode:
+    For high-scope changes, can emit a plan_confirmation_required event
+    that the client can use to ask the user for confirmation before proceeding.
     """
+    
+    # Thresholds for plan confirmation
+    CONFIDENCE_THRESHOLD_FOR_CONFIRMATION = 0.8  # Below this, suggest confirmation
     
     def __init__(self):
         # Initialize handlers
@@ -46,6 +53,9 @@ class IntentRouter:
         self.edit_handler = EditHandler()
         self.feature_handler = FeatureHandler()
         self.schema_handler = SchemaHandler()
+        
+        # Configuration
+        self.enable_plan_confirmation = True  # Can be toggled
     
     def route(
         self,
@@ -110,6 +120,10 @@ class IntentRouter:
                 "content": f"Detected intent: {self._get_intent_description(intent)}",
                 "type": "reasoning",
             })
+        
+        # Check if plan confirmation is recommended for high-impact changes
+        if self._should_request_confirmation(intent, context):
+            yield self.emit_plan_confirmation_required(intent, context)
         
         # Execute each intent in sequence
         for idx, current_intent in enumerate(intents_to_execute):
@@ -266,6 +280,111 @@ class IntentRouter:
             "SchemaHandler": "schema modification",
         }
         return descriptions.get(handler_name, handler_name)
+    
+    def _should_request_confirmation(
+        self,
+        intent: IntentResult,
+        context: AppContext,
+    ) -> bool:
+        """
+        Determine if plan confirmation should be requested.
+        
+        Returns True if:
+        - Intent scope is "full" (complete rebuild)
+        - Intent confidence is below threshold
+        - Intent is compound with 3+ operations
+        - Full rebuild requested on existing app with many files
+        """
+        if not self.enable_plan_confirmation:
+            return False
+        
+        # Low confidence → request confirmation
+        if intent.confidence < self.CONFIDENCE_THRESHOLD_FOR_CONFIRMATION:
+            return True
+        
+        # Full scope changes on existing app with many files
+        if intent.scope == "full" and context.has_existing_app and context.file_count > 5:
+            return True
+        
+        # Complex compound requests
+        if intent.is_compound and len(intent.secondary_intents) >= 2:
+            return True
+        
+        return False
+    
+    def _build_confirmation_details(
+        self,
+        intent: IntentResult,
+        context: AppContext,
+    ) -> Dict[str, Any]:
+        """Build details for the plan confirmation event."""
+        details = {
+            "primary_intent": intent.intent.value,
+            "confidence": intent.confidence,
+            "scope": intent.scope,
+            "reasoning": intent.reasoning,
+            "affected_files_estimate": len(intent.affected_files) or "multiple",
+        }
+        
+        if intent.is_compound:
+            details["is_compound"] = True
+            details["operations"] = [intent.intent.value] + [
+                s.intent.value for s in intent.secondary_intents
+            ]
+        
+        if context.has_existing_app:
+            details["existing_file_count"] = context.file_count
+            details["will_modify_existing"] = True
+        
+        return details
+    
+    def emit_plan_confirmation_required(
+        self,
+        intent: IntentResult,
+        context: AppContext,
+    ) -> AgentEvent:
+        """
+        Emit an event indicating plan confirmation is recommended.
+        
+        The client can use this to pause and ask the user to confirm
+        before proceeding with high-impact changes.
+        
+        Note: This is informational - the agent will continue unless
+        the client explicitly cancels. To implement hard confirmation,
+        the client should intercept this event and pause the stream.
+        """
+        return AgentEvent("plan_confirmation_suggested", {
+            "message": self._build_confirmation_message(intent, context),
+            "details": self._build_confirmation_details(intent, context),
+            "can_proceed": True,  # Agent will proceed unless cancelled
+        })
+    
+    def _build_confirmation_message(
+        self,
+        intent: IntentResult,
+        context: AppContext,
+    ) -> str:
+        """Build a human-readable confirmation message."""
+        if intent.scope == "full" and context.has_existing_app:
+            return (
+                f"This will rebuild the entire app ({context.file_count} existing files). "
+                "Existing code will be replaced."
+            )
+        
+        if intent.confidence < self.CONFIDENCE_THRESHOLD_FOR_CONFIRMATION:
+            return (
+                f"I'm {intent.confidence:.0%} confident about this interpretation. "
+                "Proceeding with: " + self._describe_compound_intent(intent) if intent.is_compound 
+                else intent.intent.value
+            )
+        
+        if intent.is_compound:
+            return (
+                f"This requires multiple operations: {self._describe_compound_intent(intent)}. "
+                "Each will be executed in sequence."
+            )
+        
+        return f"Proceeding with {intent.intent.value} ({intent.scope} scope)."
 
 
 # Singleton instance

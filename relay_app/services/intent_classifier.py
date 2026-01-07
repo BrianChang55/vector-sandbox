@@ -374,6 +374,15 @@ class IntentClassifier:
         components = ", ".join(context.entry_points[:5]) if context.entry_points else "None"
         tables = ", ".join([t.name for t in context.existing_tables[:5]]) if context.existing_tables else "None"
         
+        # Build detailed table columns for schema-aware classification
+        table_columns = ""
+        if context.existing_tables:
+            table_details = []
+            for t in context.existing_tables[:5]:
+                cols = ", ".join(t.columns[:10]) if t.columns else "unknown"
+                table_details.append(f"{t.name}: {cols}")
+            table_columns = "; ".join(table_details)
+        
         prompt = build_intent_classification_prompt(
             user_message=user_message,
             has_files=context.has_existing_app,
@@ -381,6 +390,7 @@ class IntentClassifier:
             components=components,
             tables=tables,
             has_data_store=len(context.existing_tables) > 0,
+            table_columns=table_columns,
         )
         
         try:

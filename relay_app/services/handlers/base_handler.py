@@ -59,6 +59,102 @@ class PlanStep:
     output: Optional[str] = None
 
 
+class StreamingValidator:
+    """
+    Validates code during streaming to catch issues early.
+    
+    Performs lightweight checks on accumulated content to detect:
+    - Excessive 'any' type usage
+    - Debug console.log statements
+    - TODO/FIXME placeholders
+    - Bracket imbalance
+    - Empty catch blocks
+    """
+    
+    def __init__(self):
+        self.warnings: List[str] = []
+        self.any_count = 0
+        self.console_log_count = 0
+        self.todo_count = 0
+        self._last_check_length = 0
+    
+    def check_chunk(self, chunk: str, accumulated: str) -> List[str]:
+        """
+        Check a new chunk for issues.
+        
+        Only performs expensive checks periodically to avoid overhead.
+        
+        Returns list of new warnings (if any).
+        """
+        new_warnings = []
+        
+        # Quick checks on the new chunk
+        if 'as any' in chunk:
+            self.any_count += chunk.count('as any')
+            if self.any_count > 3:
+                warning = f"Excessive 'as any' usage ({self.any_count}x) - consider proper types"
+                if warning not in self.warnings:
+                    self.warnings.append(warning)
+                    new_warnings.append(warning)
+        
+        if 'console.log' in chunk:
+            self.console_log_count += chunk.count('console.log')
+            if self.console_log_count > 2:
+                warning = f"Debug console.log statements ({self.console_log_count}x) - remove before production"
+                if warning not in self.warnings:
+                    self.warnings.append(warning)
+                    new_warnings.append(warning)
+        
+        if '// TODO' in chunk or '// FIXME' in chunk:
+            self.todo_count += 1
+            warning = "TODO/FIXME placeholder detected - ensure completion"
+            if warning not in self.warnings:
+                self.warnings.append(warning)
+                new_warnings.append(warning)
+        
+        # Periodic deeper checks (every 2000 chars)
+        if len(accumulated) - self._last_check_length > 2000:
+            self._last_check_length = len(accumulated)
+            
+            # Check for empty catch blocks
+            if 'catch' in accumulated and 'catch (e) {}' in accumulated.replace(' ', ''):
+                warning = "Empty catch block detected - add error handling"
+                if warning not in self.warnings:
+                    self.warnings.append(warning)
+                    new_warnings.append(warning)
+        
+        return new_warnings
+    
+    def final_check(self, content: str) -> List[str]:
+        """
+        Perform final validation checks on complete content.
+        
+        Returns list of final warnings.
+        """
+        final_warnings = []
+        
+        # Check bracket balance
+        open_braces = content.count('{')
+        close_braces = content.count('}')
+        if abs(open_braces - close_braces) > 2:
+            final_warnings.append(f"Bracket imbalance: {open_braces} open vs {close_braces} close")
+        
+        open_parens = content.count('(')
+        close_parens = content.count(')')
+        if abs(open_parens - close_parens) > 2:
+            final_warnings.append(f"Parenthesis imbalance: {open_parens} open vs {close_parens} close")
+        
+        # Check for incomplete code patterns
+        if '...' in content and 'rest' not in content.lower():
+            final_warnings.append("Ellipsis '...' found - may indicate incomplete code")
+        
+        return final_warnings
+    
+    def get_all_warnings(self) -> List[str]:
+        """Get all accumulated warnings."""
+        return self.warnings.copy()
+
+
 class BaseHandler(ABC):
     """
     Abstract base class for intent handlers.
@@ -243,6 +339,19 @@ class BaseHandler(ABC):
             "errors": errors or [],
             "warnings": warnings or [],
             "fix_attempts": fix_attempts,
+        })
+    
+    # ===== Streaming Validation =====
+    
+    def create_streaming_validator(self) -> StreamingValidator:
+        """Create a new streaming validator instance."""
+        return StreamingValidator()
+    
+    def emit_streaming_warning(self, warning: str) -> AgentEvent:
+        """Emit a warning detected during streaming."""
+        return AgentEvent("streaming_warning", {
+            "warning": warning,
+            "severity": "low",
         })
     
     # ===== LLM Utilities =====

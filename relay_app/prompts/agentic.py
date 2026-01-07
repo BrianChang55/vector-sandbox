@@ -7,6 +7,74 @@ runtime constraints so changes can be made in one place.
 
 from typing import Any, Dict, List, Optional, Sequence
 
+
+# =============================================================================
+# ANTI-OVER-ENGINEERING GUARDS
+# =============================================================================
+# Prevents the LLM from adding unnecessary complexity, features, or abstractions
+# that weren't explicitly requested by the user.
+
+OVER_EAGERNESS_GUARD = """
+## Anti-Over-Engineering Rules (CRITICAL)
+
+You MUST follow these rules to avoid over-engineering:
+
+1. **Only implement what is explicitly requested**
+   - A bug fix does NOT need surrounding code "cleaned up"
+   - A simple feature does NOT need extra configurability
+   - If user asks for a button, add a button - not a button factory
+
+2. **Do NOT add unrequested complexity**
+   - No error handling for scenarios that can't happen
+   - No helpers/utilities for one-time operations
+   - No abstractions for hypothetical future requirements
+   - No "just in case" validation or fallbacks
+
+3. **Minimize changes**
+   - The right amount of complexity is the MINIMUM needed
+   - Reuse existing code and patterns - follow DRY principle
+   - Don't refactor adjacent code unless explicitly asked
+   - Don't add features "while you're in there"
+
+4. **Stay focused**
+   - Complete only the requested task
+   - Don't suggest or implement related features
+   - Don't add documentation unless requested
+   - Don't add tests unless requested
+"""
+
+
+# =============================================================================
+# ANTI-AI-SLOP GUIDELINES
+# =============================================================================
+# Prevents generic, overused AI aesthetic patterns in UI generation.
+
+ANTI_AI_SLOP_GUIDE = """
+## Avoid Generic AI Aesthetics (CRITICAL)
+
+DO NOT USE these overused AI patterns:
+- Inter, Roboto, Arial, or generic system fonts
+- Purple/violet gradients on white backgrounds (the "AI cliché")
+- Predictable 3-column card layouts with equal spacing
+- Generic hero sections with centered text and a single CTA
+- Rounded corners on everything with no visual hierarchy
+- Blue (#3B82F6) as the only accent color
+- Generic placeholder text like "Lorem ipsum" or "Your description here"
+
+INSTEAD, use these distinctive approaches:
+- Commit to a cohesive color scheme: dominant + 1-2 sharp accents
+- Add micro-interactions: hover states with subtle transforms, transitions
+- Use CSS animations for polish: staggered fade-ins, subtle parallax
+- Create visual hierarchy through size, weight, and spacing contrast
+- Match the app's purpose with appropriate aesthetics:
+  - Business/enterprise: Clean grays, minimal color, professional
+  - Creative tools: Bold colors, expressive typography
+  - Data-heavy apps: Dense but organized, clear information hierarchy
+
+Remember: Generic = forgettable. Make intentional design choices.
+"""
+
+
 # Shared style guide injected into all design-aware prompts.
 DESIGN_STYLE_PROMPT = """This base style guide (enterprise, light theme, minimal):
 
@@ -111,10 +179,14 @@ DESIGN_STYLE_PROMPT = """This base style guide (enterprise, light theme, minimal
 ## Loading States
 - Spinner: Loader2 icon with animate-spin
 - Skeleton: animate-pulse with bg-gray-200 rounded blocks
-- Disabled during loading: opacity-60 pointer-events-none"""
+- Disabled during loading: opacity-60 pointer-events-none
+
+""" + ANTI_AI_SLOP_GUIDE
 
 # Base system prompt for codegen; design style is injected dynamically.
 CODEGEN_SYSTEM_PROMPT_TEMPLATE = """You are an expert React/TypeScript developer building internal business applications.
+
+{over_eagerness_guard}
 
 CRITICAL: For all data operations, you MUST use the Runtime API:
 
@@ -216,6 +288,8 @@ Available Data Resources:
 {existing_code}
 
 CRITICAL: Generate complete, working React code for this step.
+
+{over_eagerness_guard}
 
 ## DATA STORAGE INSTRUCTIONS
 
@@ -489,6 +563,8 @@ IMPORTANT: When creating apps that need persistent data:
 
 # System prompt for code generation with data store support
 CODEGEN_SYSTEM_PROMPT_WITH_DATASTORE = """You are an expert React/TypeScript developer building internal business applications with persistent data storage.
+
+{over_eagerness_guard}
 
 CRITICAL: For all data operations, you MUST use the Data Store API:
 
@@ -771,6 +847,7 @@ def build_step_prompt(
         app_name=context.get("app_name", "App"),
         resources_info=resources_info.strip(),
         existing_code=existing_code.strip(),
+        over_eagerness_guard=OVER_EAGERNESS_GUARD,
     )
 
 
@@ -780,10 +857,15 @@ def build_codegen_system_prompt(
     registry_surface: Dict[str, Any],
     has_data_store: bool = False
 ) -> str:
-    """Return the system prompt for code generation with injected design style."""
+    """Return the system prompt for code generation with injected design style and guards."""
     if has_data_store:
-        return CODEGEN_SYSTEM_PROMPT_WITH_DATASTORE.replace("{design_style}", DESIGN_STYLE_PROMPT)
-    return CODEGEN_SYSTEM_PROMPT_TEMPLATE.replace("{design_style}", DESIGN_STYLE_PROMPT)
+        prompt = CODEGEN_SYSTEM_PROMPT_WITH_DATASTORE.replace("{design_style}", DESIGN_STYLE_PROMPT)
+    else:
+        prompt = CODEGEN_SYSTEM_PROMPT_TEMPLATE.replace("{design_style}", DESIGN_STYLE_PROMPT)
+    
+    # Inject over-eagerness guard
+    prompt = prompt.replace("{over_eagerness_guard}", OVER_EAGERNESS_GUARD)
+    return prompt
 
 
 def build_final_app_prompt(

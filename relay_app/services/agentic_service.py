@@ -45,6 +45,7 @@ from relay_app.services.mcp_context import (
     build_mcp_tools_context,
     MCPToolsContext,
 )
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Import intent-aware components
 from relay_app.services.intent_classifier import (
@@ -196,6 +197,66 @@ class AgenticService:
             "X-Title": self.app_name,
         }
     
+    def _gather_context_parallel(
+        self,
+        app: Optional['InternalApp'],
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """
+        Gather data store and MCP context in parallel.
+        
+        Uses ThreadPoolExecutor for concurrent context building,
+        reducing latency when multiple context sources are available.
+        
+        Args:
+            app: The InternalApp to gather context for
+            
+        Returns:
+            Tuple of (data_store_context, mcp_tools_context)
+        """
+        if not app:
+            return None, None
+        
+        data_store_context = None
+        mcp_tools_context_str = None
+        
+        def build_data_context():
+            try:
+                return build_data_store_context(app)
+            except Exception as e:
+                logger.warning(f"Failed to build data store context: {e}")
+                return None
+        
+        def build_mcp_context():
+            try:
+                mcp_context = build_mcp_tools_context(app)
+                if mcp_context.has_tools:
+                    logger.info(f"MCP context: {len(mcp_context.tools)} tools available")
+                    return mcp_context.full_context
+                return None
+            except Exception as e:
+                logger.warning(f"Failed to build MCP context: {e}")
+                return None
+        
+        # Execute both context builders in parallel
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = {
+                executor.submit(build_data_context): 'data_store',
+                executor.submit(build_mcp_context): 'mcp_tools',
+            }
+            
+            for future in as_completed(futures):
+                context_type = futures[future]
+                try:
+                    result = future.result(timeout=10.0)
+                    if context_type == 'data_store':
+                        data_store_context = result
+                    else:
+                        mcp_tools_context_str = result
+                except Exception as e:
+                    logger.warning(f"Context gathering ({context_type}) failed: {e}")
+        
+        return data_store_context, mcp_tools_context_str
+    
     def generate_app(
         self,
         user_message: str,
@@ -228,22 +289,8 @@ class AgenticService:
         session_id = str(uuid.uuid4())
         start_time = time.time()
         
-        # Build data store context if app is provided
-        data_store_context = None
-        if app:
-            data_store_context = build_data_store_context(app)
-        
-        # Build MCP tools context if app has connected integrations
-        mcp_context: Optional[MCPToolsContext] = None
-        mcp_tools_context_str: Optional[str] = None
-        if app:
-            try:
-                mcp_context = build_mcp_tools_context(app)
-                if mcp_context.has_tools:
-                    mcp_tools_context_str = mcp_context.full_context
-                    logger.info(f"MCP context: {len(mcp_context.tools)} tools available")
-            except Exception as e:
-                logger.warning(f"Failed to build MCP context: {e}")
+        # Build context in parallel for better performance
+        data_store_context, mcp_tools_context_str = self._gather_context_parallel(app)
         
         # Emit start event
         yield AgentEvent("agent_start", {
@@ -290,9 +337,10 @@ class AgenticService:
             "type": "observation",
         })
         
-        # Analyze context with data store info and MCP tools
+        # Analyze context with data store info
+        # Note: MCP tools context is already included in styled_user_message
         context_analysis = self._analyze_context(
-            styled_user_message, current_spec, registry_surface, app_name, app, mcp_context
+            styled_user_message, current_spec, registry_surface, app_name, app, None
         )
         
         yield AgentEvent("thinking", {

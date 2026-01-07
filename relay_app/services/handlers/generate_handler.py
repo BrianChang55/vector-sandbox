@@ -280,6 +280,9 @@ class GenerateHandler(BaseHandler):
             full_content = ""
             chunk_count = 0
             
+            # Create streaming validator for real-time checks
+            validator = self.create_streaming_validator()
+            
             for chunk in self.stream_llm_response(
                 system_prompt=system_prompt,
                 user_prompt=prompt,
@@ -289,6 +292,11 @@ class GenerateHandler(BaseHandler):
                 full_content += chunk
                 chunk_count += 1
                 
+                # Real-time validation during streaming
+                streaming_warnings = validator.check_chunk(chunk, full_content)
+                for warning in streaming_warnings:
+                    yield self.emit_streaming_warning(warning)
+                
                 # Emit progress periodically
                 if chunk_count % 20 == 0:
                     yield self.emit_step_progress(
@@ -296,6 +304,11 @@ class GenerateHandler(BaseHandler):
                         min(90, chunk_count),
                         "Generating code...",
                     )
+            
+            # Final validation check
+            final_warnings = validator.final_check(full_content)
+            for warning in final_warnings:
+                yield self.emit_streaming_warning(warning)
             
             # Parse and emit table definitions if app and version provided
             if app and version:

@@ -36,6 +36,19 @@ INTENT_CLASSIFICATION_PROMPT = """Analyze this user request in the context of an
 - Existing components: {components}
 - Existing tables: {tables}
 - Has data store: {has_data_store}
+- Table columns: {table_columns}
+
+## Schema-Aware Classification
+
+When the user mentions data fields, tables, or columns:
+1. **Check if the field/table already exists** in the schema above
+2. If it exists → likely EDIT_CODE (display change) or ADD_FEATURE (new UI for existing data)
+3. If it doesn't exist → likely MODIFY_SCHEMA (need to create it first)
+4. Words like "add a column", "new field", "add property" → definitely MODIFY_SCHEMA
+
+Field Existence Check Examples:
+- User says "add due date" and tables show "todos: id, title, status" → MODIFY_SCHEMA (due_date doesn't exist)
+- User says "show status in a badge" and tables show "todos: id, title, status" → EDIT_CODE (status exists)
 
 ## Classification Instructions
 
@@ -137,8 +150,19 @@ def build_intent_classification_prompt(
     components: str,
     tables: str,
     has_data_store: bool,
+    table_columns: str = "",
 ) -> str:
-    """Build the intent classification prompt with context."""
+    """Build the intent classification prompt with context.
+    
+    Args:
+        user_message: The user's request
+        has_files: Whether the app has existing files
+        file_count: Number of existing files
+        components: Comma-separated list of component names
+        tables: Comma-separated list of table names
+        has_data_store: Whether the app has a data store
+        table_columns: Detailed table schema with columns (e.g., "todos: id, title, status")
+    """
     return INTENT_CLASSIFICATION_PROMPT.format(
         user_message=user_message,
         has_files=has_files,
@@ -146,5 +170,6 @@ def build_intent_classification_prompt(
         components=components or "None",
         tables=tables or "None",
         has_data_store=has_data_store,
+        table_columns=table_columns or "None",
     )
 

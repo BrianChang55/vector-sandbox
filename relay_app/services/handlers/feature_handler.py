@@ -18,26 +18,37 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# Import design style from prompts
-from relay_app.prompts.agentic import DESIGN_STYLE_PROMPT
+# Import design style and guards from prompts
+from relay_app.prompts.agentic import DESIGN_STYLE_PROMPT, OVER_EAGERNESS_GUARD
 
 
 FEATURE_SYSTEM_PROMPT = f"""You are an expert React/TypeScript developer adding new features to existing applications.
 
-CRITICAL RULES:
-1. PRESERVE all existing functionality - do not break or remove what's already there
-2. ADD the new feature seamlessly to the existing structure
-3. Follow the existing code style and patterns
-4. Create new components if needed, but integrate them properly
-5. Update imports and exports correctly
-6. Maintain TypeScript types consistency
+{OVER_EAGERNESS_GUARD}
 
-When adding features:
-- Analyze the existing app structure first
-- Create new components in the components/ directory
-- Update the main App.tsx to include the new feature
-- Ensure proper state management integration
-- Add any necessary utility functions
+## Feature Addition Rules (CRITICAL)
+
+1. **PRESERVE all existing functionality**
+   - Do NOT break or remove what's already there
+   - Do NOT refactor existing code while adding features
+   - Keep existing patterns and conventions
+
+2. **ADD the new feature cleanly**
+   - Create new components if needed, in the components/ directory
+   - Update the main App.tsx to include the new feature
+   - Ensure proper state management integration
+   - Follow the existing code style and patterns
+
+3. **Stay focused on the requested feature**
+   - Do NOT add related features that weren't requested
+   - Do NOT add "nice to have" extras
+   - Do NOT refactor or reorganize existing code
+   - Complete only what was asked for
+
+4. **Integration requirements**
+   - Update imports and exports correctly
+   - Maintain TypeScript types consistency
+   - Ensure the new feature works with existing components
 
 {DESIGN_STYLE_PROMPT}"""
 
@@ -75,15 +86,17 @@ FEATURE_GENERATION_PROMPT = """Add the following feature to the existing applica
 
 ## Feature Analysis
 {feature_analysis}
-
+{reusable_components}
+{codebase_style}
 ## Existing Code
 {existing_code}
 
 ## Instructions
-1. Create any new components needed
-2. Update the main App.tsx to integrate the new feature
-3. Preserve ALL existing functionality
-4. Follow the existing code style
+1. **Check for reusable components first** - extend existing components when possible
+2. Create new components ONLY if no existing component can be reused
+3. Update the main App.tsx to integrate the new feature
+4. Preserve ALL existing functionality
+5. Follow the existing code style exactly
 
 ## Output Format
 Output ALL files (new and modified):
@@ -99,7 +112,8 @@ Output ALL files (new and modified):
 CRITICAL: 
 - Output COMPLETE file contents, not partial updates
 - Include ALL existing code in modified files
-- Do not remove any existing functionality"""
+- Do not remove any existing functionality
+- Match existing code style (naming, patterns, etc.)"""
 
 
 class FeatureHandler(BaseHandler):
@@ -238,6 +252,7 @@ class FeatureHandler(BaseHandler):
                         feature_analysis=feature_analysis,
                         existing_code=existing_code,
                         model=model,
+                        context=context,
                         data_store_context=data_store_context,
                         mcp_tools_context=mcp_tools_context,
                     )
@@ -251,6 +266,7 @@ class FeatureHandler(BaseHandler):
                             feature_analysis=feature_analysis,
                             existing_code=existing_code,
                             model=model,
+                            context=context,
                             data_store_context=data_store_context,
                             mcp_tools_context=mcp_tools_context,
                         )
@@ -412,6 +428,7 @@ class FeatureHandler(BaseHandler):
         feature_analysis: Dict[str, Any],
         existing_code: Dict[str, str],
         model: str,
+        context: Optional['AppContext'] = None,
         data_store_context: Optional[str] = None,
         mcp_tools_context: Optional[str] = None,
     ) -> Generator[AgentEvent, None, List[FileChange]]:
@@ -430,12 +447,30 @@ class FeatureHandler(BaseHandler):
         import json
         feature_analysis_str = json.dumps(feature_analysis, indent=2)
         
+        # Build reusable components section
+        reusable_components = ""
+        codebase_style = ""
+        if context:
+            from relay_app.services.context_analyzer import get_context_analyzer
+            analyzer = get_context_analyzer()
+            
+            # Find reusable components
+            reusable_prompt = analyzer.build_reusable_components_prompt(context, user_message)
+            if reusable_prompt:
+                reusable_components = f"\n{reusable_prompt}\n"
+            
+            # Get codebase style
+            if context.codebase_style:
+                codebase_style = f"\n{context.codebase_style.to_prompt_context()}\n"
+        
         # Build prompt with additional context
         prompt_parts = [
             FEATURE_GENERATION_PROMPT.format(
                 user_message=user_message,
                 feature_analysis=feature_analysis_str,
                 existing_code=code_context or "No existing code provided",
+                reusable_components=reusable_components,
+                codebase_style=codebase_style,
             )
         ]
         
@@ -453,6 +488,9 @@ class FeatureHandler(BaseHandler):
             full_content = ""
             chunk_count = 0
             
+            # Create streaming validator for real-time checks
+            validator = self.create_streaming_validator()
+            
             for chunk in self.stream_llm_response(
                 system_prompt=FEATURE_SYSTEM_PROMPT,
                 user_prompt=prompt,
@@ -462,8 +500,18 @@ class FeatureHandler(BaseHandler):
                 full_content += chunk
                 chunk_count += 1
                 
+                # Real-time validation during streaming
+                streaming_warnings = validator.check_chunk(chunk, full_content)
+                for warning in streaming_warnings:
+                    yield self.emit_streaming_warning(warning)
+                
                 if chunk_count % 15 == 0:
                     yield self.emit_step_progress(0, min(85, chunk_count), "Generating feature...")
+            
+            # Final validation check
+            final_warnings = validator.final_check(full_content)
+            for warning in final_warnings:
+                yield self.emit_streaming_warning(warning)
             
             # Parse code files
             parsed_files = self.parse_code_blocks(full_content)

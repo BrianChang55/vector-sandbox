@@ -18,50 +18,70 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# Import design style from prompts
-from relay_app.prompts.agentic import DESIGN_STYLE_PROMPT
+# Import design style and guards from prompts
+from relay_app.prompts.agentic import DESIGN_STYLE_PROMPT, OVER_EAGERNESS_GUARD
 
 
 # Prompt for surgical edits
-EDIT_SYSTEM_PROMPT = f"""You are an expert React/TypeScript developer making targeted edits to existing code.
+EDIT_SYSTEM_PROMPT = f"""You are an expert React/TypeScript developer making targeted, surgical edits to existing code.
 
-CRITICAL RULES:
-1. You MUST preserve all existing functionality
-2. Only modify what is explicitly requested
-3. Keep the same file structure and imports
-4. Do not add unnecessary features
-5. Maintain the existing code style
+{OVER_EAGERNESS_GUARD}
 
-When editing:
-- Make the MINIMUM changes necessary
-- Preserve all other code exactly as-is
-- Output the COMPLETE modified file(s)
-- Use the same formatting and conventions
+## Surgical Edit Rules (CRITICAL)
+
+1. **Preserve Everything Except What's Requested**
+   - You MUST keep all existing functionality intact
+   - Do NOT "improve" or "clean up" adjacent code
+   - Do NOT add features "while you're at it"
+   - Do NOT refactor unless explicitly asked
+
+2. **Minimal Changes Only**
+   - Change ONLY the specific lines needed
+   - Keep existing variable names, patterns, and style
+   - Maintain the exact same imports unless changes require new ones
+   - Do NOT reorganize or restructure code
+
+3. **Match Existing Style Exactly**
+   - Use the same indentation (tabs vs spaces)
+   - Use the same quote style (single vs double)
+   - Use the same semicolon conventions
+   - Match the existing naming conventions
+
+4. **Output Requirements**
+   - Output the COMPLETE modified file(s)
+   - Include ALL existing code unchanged
+   - Only the specific requested changes should differ
 
 {DESIGN_STYLE_PROMPT}"""
 
 
-EDIT_PROMPT_TEMPLATE = """Make the following change to the existing code:
+EDIT_PROMPT_TEMPLATE = """Make the following TARGETED change to the existing code.
 
 ## User Request
 {user_message}
 
-## Files to Modify
+## Current File Contents
 {files_context}
 
-## Instructions
-1. Read the existing code carefully
-2. Identify the exact location(s) to modify
-3. Make ONLY the requested changes
-4. Output the COMPLETE modified file(s)
+## Surgical Edit Instructions
+
+1. **Analyze the request**: Identify exactly what needs to change
+2. **Locate the target**: Find the specific line(s) or section(s) to modify
+3. **Make minimal changes**: Change ONLY what's needed to fulfill the request
+4. **Preserve everything else**: Keep all other code exactly as-is
 
 ## Output Format
-For each file you modify, use this format:
+For each file you modify, use this EXACT format:
 ```filepath:path/to/file.tsx
-// Complete file content with your changes
+// Complete file content with your surgical changes applied
 ```
 
-CRITICAL: Output the COMPLETE file content, not just the changed parts."""
+## Critical Reminders
+- Output the COMPLETE file content, not just changed parts
+- Do NOT add new features or "improvements"
+- Do NOT refactor or reorganize code
+- Do NOT change styling unless specifically requested
+- If unsure about something, leave it unchanged"""
 
 
 class EditHandler(BaseHandler):
@@ -219,7 +239,10 @@ class EditHandler(BaseHandler):
         context: 'AppContext',
         user_message: str,
     ) -> List[str]:
-        """Identify which files need to be modified."""
+        """Identify which files need to be modified.
+        
+        Uses cascade detection to find all potentially affected files.
+        """
         target_files = []
         
         # First, use files identified by intent classifier
@@ -229,6 +252,20 @@ class EditHandler(BaseHandler):
                     target_files.append(path)
         
         if target_files:
+            # Use cascade detection to find additional affected files
+            from relay_app.services.context_analyzer import get_context_analyzer
+            analyzer = get_context_analyzer()
+            
+            cascade_affected = set()
+            for primary_file in target_files:
+                affected = analyzer.find_cascade_affected_files(context, primary_file, max_depth=1)
+                cascade_affected.update(affected)
+            
+            # Add cascade files that aren't already in target_files
+            for path in cascade_affected:
+                if path not in target_files and path in context.file_paths:
+                    target_files.append(path)
+            
             return target_files
         
         # Try to find files based on keywords in the message
@@ -324,6 +361,9 @@ class EditHandler(BaseHandler):
             full_content = ""
             chunk_count = 0
             
+            # Create streaming validator for real-time checks
+            validator = self.create_streaming_validator()
+            
             for chunk in self.stream_llm_response(
                 system_prompt=EDIT_SYSTEM_PROMPT,
                 user_prompt=prompt,
@@ -333,8 +373,18 @@ class EditHandler(BaseHandler):
                 full_content += chunk
                 chunk_count += 1
                 
+                # Real-time validation during streaming
+                streaming_warnings = validator.check_chunk(chunk, full_content)
+                for warning in streaming_warnings:
+                    yield self.emit_streaming_warning(warning)
+                
                 if chunk_count % 10 == 0:
                     yield self.emit_step_progress(0, min(80, chunk_count), "Generating edits...")
+            
+            # Final validation check
+            final_warnings = validator.final_check(full_content)
+            for warning in final_warnings:
+                yield self.emit_streaming_warning(warning)
             
             # Parse the edited files
             edited_files = self.parse_code_blocks(full_content)

@@ -28,6 +28,37 @@ class FileInfo:
 
 
 @dataclass
+class CodebaseStyle:
+    """
+    Style fingerprint of the codebase.
+    
+    Used to ensure generated code matches existing patterns.
+    """
+    naming_convention: str = "camelCase"  # camelCase, snake_case, PascalCase
+    component_pattern: str = "functional"  # functional, arrow, class
+    state_management: str = "useState"  # useState, useReducer, context, redux
+    uses_semicolons: bool = True
+    quote_style: str = "single"  # single, double
+    indent_style: str = "spaces"  # spaces, tabs
+    common_imports: List[str] = field(default_factory=list)
+    existing_utilities: List[str] = field(default_factory=list)
+    
+    def to_prompt_context(self) -> str:
+        """Generate a prompt snippet describing the codebase style."""
+        parts = [
+            "## Detected Codebase Style (MATCH THIS)",
+            f"- Naming: {self.naming_convention}",
+            f"- Components: {self.component_pattern} functions",
+            f"- State: {self.state_management}",
+            f"- Semicolons: {'Yes' if self.uses_semicolons else 'No'}",
+            f"- Quotes: {self.quote_style}",
+        ]
+        if self.existing_utilities:
+            parts.append(f"- Existing utilities: {', '.join(self.existing_utilities[:5])}")
+        return "\n".join(parts)
+
+
+@dataclass
 class TableInfo:
     """Information about a data table."""
     slug: str
@@ -50,7 +81,9 @@ class AppContext:
     existing_files: List[FileInfo] = field(default_factory=list)
     existing_tables: List[TableInfo] = field(default_factory=list)
     component_graph: Dict[str, List[str]] = field(default_factory=dict)
+    reverse_graph: Dict[str, List[str]] = field(default_factory=dict)  # Files that import each file
     entry_points: List[str] = field(default_factory=list)
+    codebase_style: Optional[CodebaseStyle] = None
     
     # Quick lookups
     file_paths: Set[str] = field(default_factory=set)
@@ -135,11 +168,15 @@ class ContextAnalyzer:
         # Analyze tables
         tables = self._analyze_tables(app)
         
-        # Build component graph
+        # Build component graph and reverse graph
         component_graph = self._build_component_graph(files)
+        reverse_graph = self._build_reverse_graph(component_graph)
         
         # Identify entry points
         entry_points = self._find_entry_points(files)
+        
+        # Analyze codebase style
+        codebase_style = self._analyze_codebase_style(version, files)
         
         return AppContext(
             has_existing_app=len(files) > 0,
@@ -147,7 +184,9 @@ class ContextAnalyzer:
             existing_files=files,
             existing_tables=tables,
             component_graph=component_graph,
+            reverse_graph=reverse_graph,
             entry_points=entry_points,
+            codebase_style=codebase_style,
             file_paths=set(f.path for f in files),
             component_names=set(f.exports[0] for f in files if f.exports and f.is_component),
             table_slugs=set(t.slug for t in tables),
@@ -430,6 +469,270 @@ class ContextAnalyzer:
             logger.warning(f"Error getting file contents: {e}")
         
         return contents
+    
+    def _build_reverse_graph(self, component_graph: Dict[str, List[str]]) -> Dict[str, List[str]]:
+        """
+        Build reverse dependency graph.
+        
+        Maps each file to the list of files that import it.
+        Used for cascade-affected-files detection.
+        """
+        reverse = {}
+        
+        for file_path, imports in component_graph.items():
+            for imported_file in imports:
+                if imported_file not in reverse:
+                    reverse[imported_file] = []
+                reverse[imported_file].append(file_path)
+        
+        return reverse
+    
+    def _analyze_codebase_style(
+        self,
+        version: 'AppVersion',
+        files: List[FileInfo],
+    ) -> Optional[CodebaseStyle]:
+        """
+        Analyze the codebase to detect coding style patterns.
+        
+        Examines a sample of files to determine:
+        - Naming conventions
+        - Component patterns
+        - State management approach
+        - Quote and semicolon styles
+        """
+        if not files:
+            return None
+        
+        try:
+            # Get content of a few representative files
+            sample_paths = [f.path for f in files if f.is_component][:3]
+            if not sample_paths and files:
+                sample_paths = [f.path for f in files[:3]]
+            
+            contents = self.get_file_contents(version, sample_paths)
+            if not contents:
+                return None
+            
+            # Analyze combined content
+            all_content = "\n".join(contents.values())
+            
+            # Detect component pattern
+            component_pattern = "functional"
+            if "class " in all_content and "extends" in all_content:
+                component_pattern = "class"
+            elif "const " in all_content and " = (" in all_content and "=>" in all_content:
+                component_pattern = "arrow"
+            
+            # Detect state management
+            state_management = "useState"
+            if "useReducer" in all_content:
+                state_management = "useReducer"
+            elif "createContext" in all_content or "useContext" in all_content:
+                state_management = "context"
+            elif "useSelector" in all_content or "useDispatch" in all_content:
+                state_management = "redux"
+            
+            # Detect semicolons
+            lines_with_semicolon = all_content.count(";\n")
+            lines_without = all_content.count("\n") - lines_with_semicolon
+            uses_semicolons = lines_with_semicolon > lines_without * 0.5
+            
+            # Detect quote style
+            single_quotes = all_content.count("'")
+            double_quotes = all_content.count('"')
+            quote_style = "single" if single_quotes > double_quotes else "double"
+            
+            # Find existing utilities
+            utilities = []
+            utility_patterns = ['utils/', 'lib/', 'helpers/', 'hooks/']
+            for f in files:
+                for pattern in utility_patterns:
+                    if pattern in f.path:
+                        utilities.extend(f.exports)
+            
+            # Detect common imports
+            common_imports = []
+            import_counts = {}
+            for f in files:
+                for imp in f.imports:
+                    if not imp.startswith('.'):
+                        import_counts[imp] = import_counts.get(imp, 0) + 1
+            common_imports = sorted(import_counts.keys(), key=lambda x: -import_counts[x])[:5]
+            
+            return CodebaseStyle(
+                component_pattern=component_pattern,
+                state_management=state_management,
+                uses_semicolons=uses_semicolons,
+                quote_style=quote_style,
+                common_imports=common_imports,
+                existing_utilities=utilities[:10],
+            )
+            
+        except Exception as e:
+            logger.warning(f"Error analyzing codebase style: {e}")
+            return None
+    
+    def find_cascade_affected_files(
+        self,
+        context: AppContext,
+        primary_file: str,
+        max_depth: int = 2,
+    ) -> List[str]:
+        """
+        Find all files affected by changes to a primary file.
+        
+        Uses the component dependency graph to find:
+        1. Files that import the primary file (consumers)
+        2. Files that the primary file imports (dependencies)
+        
+        Args:
+            context: The app context with component graph
+            primary_file: The file being modified
+            max_depth: How many levels of imports to traverse
+            
+        Returns:
+            List of file paths that may be affected
+        """
+        affected = {primary_file}
+        
+        # Files that import the primary file (may need prop/interface updates)
+        if primary_file in context.reverse_graph:
+            for consumer in context.reverse_graph[primary_file]:
+                affected.add(consumer)
+        
+        # Files that the primary file imports (understand dependencies)
+        if primary_file in context.component_graph:
+            for dependency in context.component_graph[primary_file]:
+                affected.add(dependency)
+        
+        # Second level: files that import the consumers
+        if max_depth > 1:
+            first_level = list(affected)
+            for file_path in first_level:
+                if file_path in context.reverse_graph:
+                    for consumer in context.reverse_graph[file_path]:
+                        affected.add(consumer)
+        
+        return list(affected)
+    
+    def find_reusable_components(
+        self,
+        context: AppContext,
+        feature_request: str,
+    ) -> List[Dict[str, Any]]:
+        """
+        Find existing components that could be reused for a feature.
+        
+        Analyzes the feature request and matches against existing
+        component names and exports.
+        
+        Args:
+            context: The app context
+            feature_request: The user's feature request
+            
+        Returns:
+            List of dicts with 'path', 'exports', 'relevance' keys
+        """
+        # Extract keywords from the feature request
+        keywords = self._extract_feature_keywords(feature_request)
+        if not keywords:
+            return []
+        
+        reusable = []
+        
+        for f in context.existing_files:
+            if not f.is_component:
+                continue
+            
+            # Calculate relevance score
+            relevance = 0
+            matched_keywords = []
+            
+            # Check file path
+            path_lower = f.path.lower()
+            for kw in keywords:
+                if kw in path_lower:
+                    relevance += 2
+                    matched_keywords.append(kw)
+            
+            # Check exports
+            for export in f.exports:
+                export_lower = export.lower()
+                for kw in keywords:
+                    if kw in export_lower:
+                        relevance += 3
+                        if kw not in matched_keywords:
+                            matched_keywords.append(kw)
+            
+            if relevance > 0:
+                reusable.append({
+                    'path': f.path,
+                    'exports': f.exports,
+                    'relevance': relevance,
+                    'matched_keywords': matched_keywords,
+                })
+        
+        # Sort by relevance
+        reusable.sort(key=lambda x: -x['relevance'])
+        
+        return reusable[:5]  # Return top 5 matches
+    
+    def _extract_feature_keywords(self, feature_request: str) -> List[str]:
+        """Extract meaningful keywords from a feature request."""
+        # Common UI component keywords
+        component_keywords = {
+            'table', 'list', 'form', 'input', 'button', 'modal', 'dialog',
+            'card', 'header', 'footer', 'sidebar', 'menu', 'nav', 'navigation',
+            'dropdown', 'select', 'checkbox', 'radio', 'toggle', 'switch',
+            'tabs', 'tab', 'panel', 'accordion', 'tooltip', 'popover',
+            'search', 'filter', 'sort', 'pagination', 'loading', 'spinner',
+            'alert', 'toast', 'notification', 'badge', 'avatar', 'icon',
+            'chart', 'graph', 'dashboard', 'grid', 'layout', 'container',
+        }
+        
+        # Tokenize and filter
+        words = re.findall(r'\b[a-z]+\b', feature_request.lower())
+        keywords = [w for w in words if w in component_keywords or len(w) > 4]
+        
+        # Deduplicate while preserving order
+        seen = set()
+        unique = []
+        for kw in keywords:
+            if kw not in seen:
+                seen.add(kw)
+                unique.append(kw)
+        
+        return unique[:10]  # Limit to 10 keywords
+    
+    def build_reusable_components_prompt(
+        self,
+        context: AppContext,
+        feature_request: str,
+    ) -> Optional[str]:
+        """
+        Build a prompt section listing reusable components.
+        
+        Returns None if no reusable components are found.
+        """
+        reusable = self.find_reusable_components(context, feature_request)
+        if not reusable:
+            return None
+        
+        lines = [
+            "## Existing Components You Can Reuse",
+            "",
+            "IMPORTANT: Prefer extending or composing these existing components over creating new ones.",
+            "",
+        ]
+        
+        for comp in reusable:
+            exports = ', '.join(comp['exports'][:3])
+            lines.append(f"- `{comp['path']}`: exports {exports}")
+            if comp['matched_keywords']:
+                lines.append(f"  (matches: {', '.join(comp['matched_keywords'])})")
+        
+        return "\n".join(lines)
 
 
 # Singleton instance
