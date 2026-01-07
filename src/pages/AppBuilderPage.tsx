@@ -234,8 +234,10 @@ export function AppBuilderPage() {
         versionId,
         includeSchema: options?.include_schema ?? true,
       })
+      // Must await refetch so the new version is in the array before selecting it
+      // Otherwise versionFiles memo falls back to the old first version
+      await refetchVersions()
       dispatch(setSelectedVersion(newVersion.id))
-      refetchVersions()
       toastHelpers.success(
         `Rolled back to version ${newVersion.version_number}`,
         'A new version has been created based on the selected historical version.'
@@ -459,6 +461,7 @@ export function AppBuilderPage() {
                   onToggleVersionsSidebar={() => setShowVersionsSidebar(!showVersionsSidebar)}
                   enableAutoFix={autoFixEnabled}
                   onBundlerErrors={setBundlerErrors}
+                  isStreaming={isActivelyGenerating}
                 />
               ) : (
                 <PreviewPanel

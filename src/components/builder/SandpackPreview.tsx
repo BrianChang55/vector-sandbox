@@ -49,6 +49,8 @@ interface SandpackPreviewProps {
   onBundlerErrors?: (errors: BundlerError[]) => void
   /** Enable error detection and reporting (only after live generation) */
   enableAutoFix?: boolean
+  /** Whether files are being actively streamed (vs loaded from saved version) */
+  isStreaming?: boolean
 }
 
 type ViewMode = 'preview' | 'code' | 'split'
@@ -1431,6 +1433,7 @@ export function SandpackPreview({
   onToggleVersionsSidebar,
   onBundlerErrors,
   enableAutoFix = false,
+  isStreaming = false,
 }: SandpackPreviewProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('preview')
   const [showConsole, setShowConsole] = useState(false)
@@ -1438,8 +1441,9 @@ export function SandpackPreview({
   const [showStartupLoading, setShowStartupLoading] = useState(true)
   
   // Track file count to know when to reset Sandpack
-  // Only reset when file count changes (new generation) or versionId changes
-  const [sandpackKey, setSandpackKey] = useState(() => `${versionId}-${files.length}`)
+  // Reset when file count changes, versionId changes, OR streaming mode changes
+  // The streaming mode change ensures we load version files after generation completes
+  const [sandpackKey, setSandpackKey] = useState(() => `${versionId}-${files.length}-${isStreaming}`)
   const [initializedFiles, setInitializedFiles] = useState<Record<string, string>>({})
   // Persist saved files without forcing Sandpack to remount (which clears tabs)
   const persistedFilesRef = useRef<Record<string, string>>({})
@@ -1450,17 +1454,17 @@ export function SandpackPreview({
     return converted
   }, [files, appId, versionId, appName])
   
-  // Only reset Sandpack when version changes or file count increases (new generation)
-  // This preserves user edits when just switching tabs
+  // Reset Sandpack when version changes, file count increases, or streaming mode changes
+  // This preserves user edits when just switching tabs, but ensures new version loads after generation
   useEffect(() => {
-    const newKey = `${versionId}-${files.length}`
+    const newKey = `${versionId}-${files.length}-${isStreaming}`
     if (newKey !== sandpackKey) {
       setSandpackKey(newKey)
       setInitializedFiles(sandpackFiles)
       // Reset persisted snapshot when the generation baseline changes
       persistedFilesRef.current = {}
     }
-  }, [versionId, files.length, sandpackFiles, sandpackKey])
+  }, [versionId, files.length, isStreaming, sandpackFiles, sandpackKey])
 
   // Keep initializedFiles in sync after a successful autosave so rehydration uses the just-saved snapshot
   const handlePersistLocalFiles = useCallback(
