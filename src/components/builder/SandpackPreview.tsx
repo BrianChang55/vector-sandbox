@@ -939,17 +939,166 @@ function PreviewStatus() {
   )
 }
 
-function StartupLoadingOverlay({ show }: { show: boolean }) {
-  if (!show) return null
+/**
+ * Loading state types for unified overlay
+ */
+type LoadingPhase = 'generating' | 'bundling' | 'ready'
+
+/**
+ * Unified loading overlay with smooth transitions between phases
+ * Prevents jarring flashes between "Generating" and "Loading preview" states
+ */
+function UnifiedLoadingOverlay({ 
+  phase, 
+  fileCount,
+  onTransitionComplete 
+}: { 
+  phase: LoadingPhase
+  fileCount: number
+  onTransitionComplete?: () => void 
+}) {
+  const [displayPhase, setDisplayPhase] = useState<LoadingPhase>(phase)
+  const [isVisible, setIsVisible] = useState(phase !== 'ready')
+  const [hasAnimatedIn, setHasAnimatedIn] = useState(false)
+  const phaseStartTimeRef = useRef(Date.now())
+  const MIN_PHASE_DURATION = 400 // Minimum time to show each phase to prevent flashing
+  
+  // Mark as animated in after first render
+  useEffect(() => {
+    if (phase !== 'ready' && !hasAnimatedIn) {
+      // Small delay to ensure the overlay is fully rendered before marking as animated
+      const t = setTimeout(() => setHasAnimatedIn(true), 50)
+      return () => clearTimeout(t)
+    }
+  }, [phase, hasAnimatedIn])
+  
+  // Handle phase transitions with minimum duration
+  useEffect(() => {
+    if (phase === displayPhase) return
+    
+    const elapsed = Date.now() - phaseStartTimeRef.current
+    const remaining = Math.max(0, MIN_PHASE_DURATION - elapsed)
+    
+    // If transitioning to 'ready', we need to fade out
+    if (phase === 'ready') {
+      const fadeOutTimer = setTimeout(() => {
+        setIsVisible(false)
+        // Small delay before fully hiding to allow fade animation
+        setTimeout(() => {
+          setDisplayPhase('ready')
+          setHasAnimatedIn(false)
+          onTransitionComplete?.()
+        }, 300)
+      }, remaining)
+      return () => clearTimeout(fadeOutTimer)
+    }
+    
+    // For other transitions (generating → bundling), update after minimum duration
+    const transitionTimer = setTimeout(() => {
+      setDisplayPhase(phase)
+      phaseStartTimeRef.current = Date.now()
+    }, remaining)
+    
+    return () => clearTimeout(transitionTimer)
+  }, [phase, displayPhase, onTransitionComplete])
+  
+  // Reset visibility when phase changes from ready to something else
+  useEffect(() => {
+    if (phase !== 'ready' && displayPhase === 'ready') {
+      setDisplayPhase(phase)
+      setIsVisible(true)
+      phaseStartTimeRef.current = Date.now()
+    }
+  }, [phase, displayPhase])
+  
+  if (!isVisible && displayPhase === 'ready') return null
+  
+  const isGenerating = displayPhase === 'generating'
+  
   return (
-    <div className="absolute inset-0 z-20 flex items-center justify-center bg-white/80 backdrop-blur-[1px]">
-      <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 shadow-sm">
-        <Loader2 className="h-4 w-4 animate-spin text-gray-700" />
-        <span className="text-xs font-medium text-gray-700">Preparing preview…</span>
+    <motion.div 
+      className="absolute inset-0 z-30 flex items-center justify-center bg-gray-50"
+      // Start fully visible to prevent flash-through of content beneath
+      // Only animate opacity when fading OUT (isVisible becomes false)
+      initial={false}
+      animate={{ opacity: isVisible ? 1 : 0 }}
+      transition={{ duration: 0.25, ease: 'easeOut' }}
+    >
+      <div className="text-center">
+        {/* Clean minimal loader */}
+        <div className="h-12 w-12 mx-auto mb-5 rounded-lg bg-white border border-gray-200 flex items-center justify-center">
+          <Loader2 className="h-5 w-5 text-gray-500 animate-spin" />
+        </div>
+        
+        {/* Text with crossfade */}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={isGenerating ? 'generating' : 'bundling'}
+            initial={hasAnimatedIn ? { opacity: 0 } : false}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+          >
+            <h3 className="text-sm font-medium text-gray-900 mb-1">
+              {isGenerating ? 'Building' : 'Loading preview'}
+            </h3>
+            <p className="text-xs text-gray-500">
+              {isGenerating 
+                ? 'Generating components...' 
+                : 'Loading application...'}
+            </p>
+          </motion.div>
+        </AnimatePresence>
+        
+        {/* File count - only show when generating */}
+        {isGenerating && fileCount > 0 && (
+          <div className="mt-4 inline-flex items-center gap-1.5 text-xs text-gray-500">
+            <CheckCircle2 className="h-3 w-3 text-green-600" />
+            <span>{fileCount} file{fileCount !== 1 ? 's' : ''}</span>
+          </div>
+        )}
       </div>
-    </div>
+    </motion.div>
   )
 }
+
+/**
+ * Reports bundler ready state to parent component
+ * Lives inside SandpackProvider, calls onReady when bundling completes
+ */
+function BundlerReadyReporter({ onReady }: { onReady: (ready: boolean) => void }) {
+  const { sandpack, listen } = useSandpack()
+  
+  useEffect(() => {
+    // Listen for Sandpack messages to detect when bundling is done
+    const unsubscribe = listen((message) => {
+      const msg = message as { type: string }
+      
+      if (msg.type === 'start') {
+        onReady(false)
+      }
+      
+      // 'done' means bundling is complete and preview is ready
+      if (msg.type === 'done') {
+        onReady(true)
+      }
+    })
+    
+    return () => unsubscribe()
+  }, [listen, onReady])
+  
+  // Also check sandpack status as backup
+  useEffect(() => {
+    if (sandpack.status === 'idle') {
+      // Small delay to ensure iframe has rendered
+      const t = setTimeout(() => onReady(true), 100)
+      return () => clearTimeout(t)
+    }
+  }, [sandpack.status, onReady])
+  
+  return null
+}
+
 
 function AutoRunPreview({ filesKey }: { filesKey: string }) {
   const { sandpack } = useSandpack()
@@ -1437,34 +1586,67 @@ export function SandpackPreview({
 }: SandpackPreviewProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('preview')
   const [showConsole, setShowConsole] = useState(false)
-  const filesKey = useMemo(() => hashFiles(files), [files])
-  const [showStartupLoading, setShowStartupLoading] = useState(true)
+  
+  // Track when Sandpack is ready (used for overlay outside SandpackProvider)
+  const [isBundlerReady, setIsBundlerReady] = useState(false)
+
+  // OPTIMIZATION: Defer file updates to Sandpack during streaming
+  // This prevents constant re-bundling of incomplete code during generation
+  // We only update Sandpack files when:
+  // 1. Streaming completes (isStreaming goes from true to false)
+  // 2. A new version is selected manually (not streaming)
+  const [committedFiles, setCommittedFiles] = useState<FileChange[]>(() => 
+    isStreaming ? [] : files
+  )
+  const wasStreamingRef = useRef(isStreaming)
+  
+  // Commit files to Sandpack only when streaming completes or on initial load
+  useEffect(() => {
+    const wasStreaming = wasStreamingRef.current
+    wasStreamingRef.current = isStreaming
+    
+    // If streaming just completed, commit the final files
+    if (wasStreaming && !isStreaming) {
+      setCommittedFiles(files)
+      return
+    }
+    
+    // If not streaming (e.g., loading a saved version), update immediately
+    if (!isStreaming) {
+      setCommittedFiles(files)
+    }
+    // When streaming, we intentionally do NOT update committedFiles
+    // This keeps the previous preview (or generating overlay) stable
+  }, [files, isStreaming])
+  
+  const filesKey = useMemo(() => hashFiles(committedFiles), [committedFiles])
   
   // Track file count to know when to reset Sandpack
-  // Reset when file count changes, versionId changes, OR streaming mode changes
-  // The streaming mode change ensures we load version files after generation completes
-  const [sandpackKey, setSandpackKey] = useState(() => `${versionId}-${files.length}-${isStreaming}`)
+  // Only use committed files for sandpack key to avoid thrashing during streaming
+  const [sandpackKey, setSandpackKey] = useState(() => `${versionId}-${committedFiles.length}`)
   const [initializedFiles, setInitializedFiles] = useState<Record<string, string>>({})
   // Persist saved files without forcing Sandpack to remount (which clears tabs)
   const persistedFilesRef = useRef<Record<string, string>>({})
   
-  // Convert files to Sandpack format - but only update when we want to reset
+  // Convert committed files to Sandpack format - only updates when committed files change
   const sandpackFiles = useMemo(() => {
-    const converted = convertToSandpackFiles(files, appId, versionId, appName)
+    const converted = convertToSandpackFiles(committedFiles, appId, versionId, appName)
     return converted
-  }, [files, appId, versionId, appName])
+  }, [committedFiles, appId, versionId, appName])
   
-  // Reset Sandpack when version changes, file count increases, or streaming mode changes
+  // Reset Sandpack when version changes or committed file count changes
   // This preserves user edits when just switching tabs, but ensures new version loads after generation
   useEffect(() => {
-    const newKey = `${versionId}-${files.length}-${isStreaming}`
+    const newKey = `${versionId}-${committedFiles.length}`
     if (newKey !== sandpackKey) {
       setSandpackKey(newKey)
       setInitializedFiles(sandpackFiles)
       // Reset persisted snapshot when the generation baseline changes
       persistedFilesRef.current = {}
+      // Immediately show loading overlay when switching (before Sandpack remounts)
+      setIsBundlerReady(false)
     }
-  }, [versionId, files.length, isStreaming, sandpackFiles, sandpackKey])
+  }, [versionId, committedFiles.length, sandpackFiles, sandpackKey])
 
   // Keep initializedFiles in sync after a successful autosave so rehydration uses the just-saved snapshot
   const handlePersistLocalFiles = useCallback(
@@ -1486,12 +1668,6 @@ export function SandpackPreview({
     const keys = Object.keys(filesToUse)
     return keys[0] || '/App.tsx'
   }, [filesToUse])
-
-  useEffect(() => {
-    setShowStartupLoading(true)
-    const t = window.setTimeout(() => setShowStartupLoading(false), 3000)
-    return () => window.clearTimeout(t)
-  }, [filesKey])
 
   // PostMessage bridge: Listen for API requests from Sandpack iframe and proxy them
   // This bypasses CORS/Private Network Access restrictions
@@ -1661,6 +1837,9 @@ export function SandpackPreview({
         }}
         theme="light"
       >
+        {/* Report bundler ready state to parent (for overlay outside SandpackProvider) */}
+        <BundlerReadyReporter onReady={setIsBundlerReady} />
+        {/* Auto-run preview - files are already deferred during streaming so this is safe */}
         <AutoRunPreview filesKey={filesKey} />
         <AutoRunOnEdit />
         <AutoRunOnTab viewMode={viewMode} />
@@ -1747,7 +1926,12 @@ export function SandpackPreview({
         <div className="flex-1 min-h-0 overflow-hidden">
           {viewMode === 'preview' && (
             <div className="relative h-full min-h-0 overflow-auto">
-              <StartupLoadingOverlay show={showStartupLoading} />
+              {/* Unified loading overlay - smooth transitions between generating and bundling states */}
+              <UnifiedLoadingOverlay 
+                phase={isStreaming ? 'generating' : !isBundlerReady ? 'bundling' : 'ready'} 
+                fileCount={files.length} 
+              />
+              {/* Preview pane - always rendered for faster load, overlay covers it while loading */}
               <SandpackPreviewPane
                 className="h-full"
                 showNavigator={false}
@@ -1756,7 +1940,6 @@ export function SandpackPreview({
                 style={{
                   height: '100%',
                   width: '100%',
-                  visibility: showStartupLoading ? 'hidden' : 'visible',
                 }}
               />
             </div>
@@ -1803,7 +1986,12 @@ export function SandpackPreview({
               </div>
               <div className="w-1/2 h-full min-h-0 flex flex-col overflow-hidden">
                 <div className="relative flex-1 min-h-0 overflow-auto">
-                  <StartupLoadingOverlay show={showStartupLoading} />
+                  {/* Unified loading overlay - smooth transitions between generating and bundling states */}
+                  <UnifiedLoadingOverlay 
+                    phase={isStreaming ? 'generating' : !isBundlerReady ? 'bundling' : 'ready'} 
+                    fileCount={files.length} 
+                  />
+                  {/* Preview pane - always rendered for faster load, overlay covers it while loading */}
                   <SandpackPreviewPane
                     className="h-full"
                     showNavigator={false}
@@ -1812,7 +2000,6 @@ export function SandpackPreview({
                     style={{
                       height: '100%',
                       width: '100%',
-                      visibility: showStartupLoading ? 'hidden' : 'visible',
                     }}
                   />
                 </div>
@@ -1843,10 +2030,19 @@ export function SandpackPreview({
           {/* Status bar - pinned to bottom */}
           <div className="flex items-center justify-between px-4 py-2 border-t border-gray-200 bg-white
                         text-[10px] text-gray-500">
-            <span>{files.length} files generated</span>
+            <span>{files.length} files {isStreaming ? 'generating...' : 'generated'}</span>
             <span className="flex items-center gap-1">
-              <Eye className="h-2.5 w-2.5" />
-              Live Preview
+              {isStreaming ? (
+                <>
+                  <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                  Generating
+                </>
+              ) : (
+                <>
+                  <Eye className="h-2.5 w-2.5" />
+                  Live Preview
+                </>
+              )}
             </span>
           </div>
         </div>
