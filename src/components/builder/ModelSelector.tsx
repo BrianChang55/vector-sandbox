@@ -105,11 +105,11 @@ export function ModelSelector({
           {/* Dropdown */}
           <div
             className={cn(
-              'absolute left-0 w-80 bg-white border border-gray-200 rounded-xl shadow-lg z-50 overflow-hidden',
+              'absolute left-0 w-80 bg-white border border-gray-200 rounded-lg shadow-lg z-50 overflow-hidden',
               placementClasses
             )}
           >
-            <div className="p-2 max-h-96 overflow-y-auto">
+            <div className="p-2 max-h-116 overflow-y-auto">
               {(['premium', 'standard', 'economy'] as const).map((category) => {
                 const categoryModels = grouped[category] || []
 
@@ -133,7 +133,7 @@ export function ModelSelector({
                               : 'hover:bg-gray-50 border border-transparent'
                           )}
                         >
-                          <div className="flex-1 text-left">
+                          <div className="flex-1 py-1 text-left">
                             <div className="flex items-center gap-2">
                               <span className={cn('font-medium text-gray-900', s.itemText)}>
                                 {model.name}
@@ -145,14 +145,6 @@ export function ModelSelector({
                             <p className={cn('text-gray-700 mt-0.5', size === 'sm' ? 'text-[11px]' : 'text-xs')}>
                               {model.description}
                             </p>
-                            <div className="flex items-center gap-3 mt-1.5">
-                              <span className={cn('text-gray-600', s.meta)}>
-                                {(model.context_length / 1000).toFixed(0)}K context
-                              </span>
-                              <span className={cn('text-gray-600', s.meta)}>
-                                ${model.cost.input}/${model.cost.output} per 1M tokens
-                              </span>
-                            </div>
                           </div>
                         </button>
                       ))}

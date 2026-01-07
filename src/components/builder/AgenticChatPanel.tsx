@@ -914,7 +914,7 @@ export function AgenticChatPanel({
 
         case 'thinking':
           if (data.content) {
-            appendProgressUpdate(`Thinking: ${data.content}`, 'thinking', {
+            appendProgressUpdate(`Thinking. ${data.content}`, 'thinking', {
               dedupeWindowMs: 6000,
             })
           }
