@@ -3,6 +3,8 @@ Generate Handler
 
 Full app generation from scratch - refactored from the original agentic_service.
 This handler is used when the user intent is GENERATE_NEW.
+
+OPTIMIZED: Uses parallel execution for independent plan steps when possible.
 """
 import json
 import logging
@@ -11,6 +13,7 @@ import uuid
 from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
 from .base_handler import BaseHandler, AgentEvent, FileChange, PlanStep
+from .parallel_executor import create_parallel_executor, ParallelStepExecutor
 
 if TYPE_CHECKING:
     from relay_app.models import InternalApp, AppVersion
@@ -28,7 +31,21 @@ class GenerateHandler(BaseHandler):
     - No existing app exists
     - User explicitly asks to build/create/generate
     - Intent is classified as GENERATE_NEW
+    
+    OPTIMIZED: Uses parallel execution for independent plan steps.
     """
+    
+    def __init__(self):
+        super().__init__()
+        # Create parallel executor for step execution (max 3 concurrent steps)
+        self._parallel_executor: Optional[ParallelStepExecutor] = None
+    
+    @property
+    def parallel_executor(self) -> ParallelStepExecutor:
+        """Lazy-load the parallel executor."""
+        if self._parallel_executor is None:
+            self._parallel_executor = create_parallel_executor(max_workers=3)
+        return self._parallel_executor
     
     def execute(
         self,
@@ -96,48 +113,18 @@ class GenerateHandler(BaseHandler):
         # ===== PHASE 2: EXECUTE =====
         yield self.emit_phase_change("executing", "Building your app...")
         
-        for i, step in enumerate(plan_steps):
-            step_start = time.time()
-            
-            yield self.emit_step_started(step, i)
-            yield self.emit_step_start(step, i)
-            yield self.emit_thinking(step.title, "decision")
-            
-            try:
-                # Execute the step
-                for event in self._execute_step(
-                    step=step,
-                    step_index=i,
-                    user_message=styled_user_message,
-                    context=plan_context,
-                    existing_files=generated_files,
-                    registry_surface=registry_surface,
-                    model=model,
-                    app=app,
-                    version=version,
-                    data_store_context=data_store_context,
-                    mcp_tools_context=mcp_tools_context,
-                ):
-                    yield event
-                    if event.type == "file_generated":
-                        file_data = event.data.get("file", {})
-                        generated_files.append(FileChange(
-                            path=file_data.get("path", ""),
-                            action=file_data.get("action", "create"),
-                            language=file_data.get("language", "tsx"),
-                            content=file_data.get("content", ""),
-                        ))
-                
-                step.status = "complete"
-                step.duration = int((time.time() - step_start) * 1000)
-                
-                yield self.emit_step_completed(step, i, step.duration)
-                yield self.emit_step_complete(i, "complete", step.duration)
-                
-            except Exception as e:
-                logger.error(f"Step execution error: {e}")
-                step.status = "error"
-                yield self.emit_step_complete(i, "error", int((time.time() - step_start) * 1000))
+        # Use parallel execution for independent steps
+        generated_files = yield from self._execute_steps_parallel(
+            plan_steps=plan_steps,
+            user_message=styled_user_message,
+            context=plan_context,
+            registry_surface=registry_surface,
+            model=model,
+            app=app,
+            version=version,
+            data_store_context=data_store_context,
+            mcp_tools_context=mcp_tools_context,
+        )
         
         # ===== PHASE 3: VALIDATE =====
         yield self.emit_phase_change("validating", "Validating generated code...")
@@ -186,6 +173,94 @@ class GenerateHandler(BaseHandler):
             "connectors_summary": mcp_summary,
             "has_mcp_tools": bool(mcp_tools_context),
         }
+    
+    def _execute_steps_parallel(
+        self,
+        plan_steps: List[PlanStep],
+        user_message: str,
+        context: Dict[str, Any],
+        registry_surface: Dict[str, Any],
+        model: str,
+        app: Optional['InternalApp'] = None,
+        version: Optional['AppVersion'] = None,
+        data_store_context: Optional[str] = None,
+        mcp_tools_context: Optional[str] = None,
+    ) -> Generator[AgentEvent, None, List[FileChange]]:
+        """
+        Execute plan steps with parallel execution for independent steps.
+        
+        Uses the ParallelStepExecutor to analyze dependencies and execute
+        independent steps concurrently while maintaining event ordering.
+        
+        Args:
+            plan_steps: List of steps to execute
+            user_message: The styled user message
+            context: Plan context dictionary
+            registry_surface: Available resources
+            model: LLM model to use
+            app: Optional InternalApp for data store
+            version: Optional AppVersion for versioned operations
+            data_store_context: Data store context string
+            mcp_tools_context: MCP tools context string
+            
+        Yields:
+            AgentEvent objects in proper order
+            
+        Returns:
+            List of all generated files
+        """
+        # Create a step executor closure that captures the context
+        def step_executor(
+            step: PlanStep,
+            step_index: int,
+            existing_files: List[FileChange],
+        ) -> Generator[AgentEvent, None, None]:
+            """Execute a single step with full context."""
+            step_start = time.time()
+            
+            # Emit step start events
+            yield self.emit_step_started(step, step_index)
+            yield self.emit_step_start(step, step_index)
+            yield self.emit_thinking(step.title, "decision")
+            
+            try:
+                # Execute the step
+                for event in self._execute_step(
+                    step=step,
+                    step_index=step_index,
+                    user_message=user_message,
+                    context=context,
+                    existing_files=existing_files,
+                    registry_surface=registry_surface,
+                    model=model,
+                    app=app,
+                    version=version,
+                    data_store_context=data_store_context,
+                    mcp_tools_context=mcp_tools_context,
+                ):
+                    yield event
+                
+                step.status = "complete"
+                step.duration = int((time.time() - step_start) * 1000)
+                
+                yield self.emit_step_completed(step, step_index, step.duration)
+                yield self.emit_step_complete(step_index, "complete", step.duration)
+                
+            except Exception as e:
+                logger.error(f"Step execution error: {e}")
+                step.status = "error"
+                step.duration = int((time.time() - step_start) * 1000)
+                yield self.emit_step_complete(step_index, "error", step.duration)
+                raise
+        
+        # Use the parallel executor to run steps
+        generated_files = yield from self.parallel_executor.execute_steps(
+            steps=plan_steps,
+            step_executor=step_executor,
+            initial_files=[],
+        )
+        
+        return generated_files
     
     def _create_plan(
         self,
