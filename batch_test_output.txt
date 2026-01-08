@@ -1,0 +1,317 @@
+INFO 2026-01-07 22:04:19,291 __main__ Starting batch validation tests...
+INFO 2026-01-07 22:04:19,291 __main__ Running 10 test cases...
+
+INFO 2026-01-07 22:04:19,291 __main__ 
+[Test 1/10]
+INFO 2026-01-07 22:04:19,291 __main__ 
+============================================================
+INFO 2026-01-07 22:04:19,291 __main__ Running test: Expense Tracker
+INFO 2026-01-07 22:04:19,291 __main__ ============================================================
+INFO 2026-01-07 22:04:20,248 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:04:26,649 __main__ Plan created with 4 steps
+INFO 2026-01-07 22:04:26,650 __main__ Executing step 1: Define Expense Data Table
+INFO 2026-01-07 22:04:27,624 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:04:59,825 __main__   Generated 2 files
+INFO 2026-01-07 22:04:59,826 __main__ Executing step 2: Build Expense Form Component
+INFO 2026-01-07 22:05:00,864 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:05:50,035 __main__   Generated 3 files
+INFO 2026-01-07 22:05:50,035 __main__ Executing step 3: Build Expense List and Total Display
+INFO 2026-01-07 22:05:51,382 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:06:32,494 __main__   Generated 3 files
+INFO 2026-01-07 22:06:32,496 __main__ Executing step 4: Integrate Components into Main App
+INFO 2026-01-07 22:06:33,446 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:06:52,579 __main__   Generated 1 files
+INFO 2026-01-07 22:06:52,580 __main__ 
+Total files generated: 9
+INFO 2026-01-07 22:06:52,580 __main__   - src/App.tsx
+INFO 2026-01-07 22:06:52,580 __main__   - src/lib/dataStore.ts
+INFO 2026-01-07 22:06:52,580 __main__   - src/components/ExpenseForm.tsx
+INFO 2026-01-07 22:06:52,580 __main__   - src/components/Toast.tsx
+INFO 2026-01-07 22:06:52,580 __main__   - src/App.tsx
+INFO 2026-01-07 22:06:52,580 __main__   - src/components/ExpenseList.tsx
+INFO 2026-01-07 22:06:52,580 __main__   - src/components/ExpenseTotal.tsx
+INFO 2026-01-07 22:06:52,581 __main__   - src/App.tsx
+INFO 2026-01-07 22:06:52,581 __main__   - src/App.tsx
+INFO 2026-01-07 22:06:52,979 __main__ ✗ Expense Tracker: FAILED (4 errors)
+INFO 2026-01-07 22:06:52,979 __main__     src/components/ExpenseList.tsx:20 - Untyped function calls may not accept type arguments. [TS2347]
+INFO 2026-01-07 22:06:52,979 __main__     src/components/ExpenseList.tsx:26 - Expected 1 arguments, but got 2. [TS2554]
+INFO 2026-01-07 22:06:52,979 __main__     src/components/ExpenseList.tsx:30 - Expected 1 arguments, but got 2. [TS2554]
+INFO 2026-01-07 22:06:52,979 __main__     src/components/Toast.tsx:145 - Type '{ key: string; toast: ToastData; onClose: (id: string) => void; }' is not assignable to type 'ToastProps'. [TS2322]
+INFO 2026-01-07 22:06:52,979 __main__ 
+[Test 2/10]
+INFO 2026-01-07 22:06:52,980 __main__ 
+============================================================
+INFO 2026-01-07 22:06:52,980 __main__ Running test: BMI Calculator
+INFO 2026-01-07 22:06:52,980 __main__ ============================================================
+INFO 2026-01-07 22:06:53,766 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:06:58,908 __main__ Plan created with 2 steps
+INFO 2026-01-07 22:06:58,909 __main__ Executing step 1: Build BMI Calculator Form
+INFO 2026-01-07 22:07:00,036 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:07:35,890 __main__   Generated 1 files
+INFO 2026-01-07 22:07:35,890 __main__ Executing step 2: Implement BMI Logic & Results Display
+INFO 2026-01-07 22:07:37,060 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:08:24,418 __main__   Generated 1 files
+INFO 2026-01-07 22:08:24,419 __main__ 
+Total files generated: 2
+INFO 2026-01-07 22:08:24,419 __main__   - src/App.tsx
+INFO 2026-01-07 22:08:24,419 __main__   - src/App.tsx
+INFO 2026-01-07 22:08:24,792 __main__ ✓ BMI Calculator: PASSED
+INFO 2026-01-07 22:08:24,792 __main__ 
+[Test 3/10]
+INFO 2026-01-07 22:08:24,792 __main__ 
+============================================================
+INFO 2026-01-07 22:08:24,792 __main__ Running test: Note Taking App
+INFO 2026-01-07 22:08:24,792 __main__ ============================================================
+INFO 2026-01-07 22:08:25,610 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:08:31,127 __main__ Plan created with 3 steps
+INFO 2026-01-07 22:08:31,127 __main__ Executing step 1: Define Notes Data Table
+INFO 2026-01-07 22:08:32,277 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:08:36,980 __main__   Generated 0 files
+INFO 2026-01-07 22:08:36,980 __main__ Executing step 2: Build Note Management Components
+INFO 2026-01-07 22:08:37,880 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:09:17,618 __main__   Generated 4 files
+INFO 2026-01-07 22:09:17,619 __main__ Executing step 3: Build Main App Layout
+INFO 2026-01-07 22:09:18,585 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:10:09,502 __main__   Generated 5 files
+INFO 2026-01-07 22:10:09,503 __main__ 
+Total files generated: 9
+INFO 2026-01-07 22:10:09,503 __main__   - src/components/AddNoteForm.tsx
+INFO 2026-01-07 22:10:09,503 __main__   - src/components/NotesList.tsx
+INFO 2026-01-07 22:10:09,503 __main__   - src/components/DeleteConfirmModal.tsx
+INFO 2026-01-07 22:10:09,503 __main__   - src/App.tsx
+INFO 2026-01-07 22:10:09,503 __main__   - src/components/AddNoteForm.tsx
+INFO 2026-01-07 22:10:09,503 __main__   - src/components/Toast.tsx
+INFO 2026-01-07 22:10:09,503 __main__   - src/components/NotesList.tsx
+INFO 2026-01-07 22:10:09,503 __main__   - src/App.tsx
+INFO 2026-01-07 22:10:09,503 __main__   - src/lib/dataStore.ts
+INFO 2026-01-07 22:10:09,884 __main__ ✗ Note Taking App: FAILED (3 errors)
+INFO 2026-01-07 22:10:09,884 __main__     src/App.tsx:60 - Type '{ key: number; message: string; type: "success" | "error"; onClose: () => void; }' is not assignable to type 'ToastProps'. [TS2322]
+INFO 2026-01-07 22:10:09,884 __main__     src/components/DeleteConfirmModal.tsx:15 - Property 'target' does not exist on type 'MouseEvent<Element>'. [TS2339]
+INFO 2026-01-07 22:10:09,884 __main__     src/components/DeleteConfirmModal.tsx:15 - Property 'currentTarget' does not exist on type 'MouseEvent<Element>'. [TS2339]
+INFO 2026-01-07 22:10:09,884 __main__ 
+[Test 4/10]
+INFO 2026-01-07 22:10:09,884 __main__ 
+============================================================
+INFO 2026-01-07 22:10:09,884 __main__ Running test: Quote Generator
+INFO 2026-01-07 22:10:09,884 __main__ ============================================================
+INFO 2026-01-07 22:10:10,720 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:10:16,243 __main__ Plan created with 2 steps
+INFO 2026-01-07 22:10:16,244 __main__ Executing step 1: Build Quote Generator Component
+INFO 2026-01-07 22:10:17,616 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:10:37,018 __main__   Generated 1 files
+INFO 2026-01-07 22:10:37,019 __main__ Executing step 2: Style Quote Display Interface
+INFO 2026-01-07 22:10:37,992 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:11:03,586 __main__   Generated 1 files
+INFO 2026-01-07 22:11:03,587 __main__ 
+Total files generated: 2
+INFO 2026-01-07 22:11:03,587 __main__   - src/App.tsx
+INFO 2026-01-07 22:11:03,587 __main__   - src/App.tsx
+INFO 2026-01-07 22:11:03,934 __main__ ✓ Quote Generator: PASSED
+INFO 2026-01-07 22:11:03,934 __main__ 
+[Test 5/10]
+INFO 2026-01-07 22:11:03,934 __main__ 
+============================================================
+INFO 2026-01-07 22:11:03,934 __main__ Running test: Color Picker
+INFO 2026-01-07 22:11:03,934 __main__ ============================================================
+INFO 2026-01-07 22:11:05,243 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:11:10,647 __main__ Plan created with 3 steps
+INFO 2026-01-07 22:11:10,649 __main__ Executing step 1: Build RGB Slider Components
+INFO 2026-01-07 22:11:11,900 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:11:35,548 __main__   Generated 2 files
+INFO 2026-01-07 22:11:35,549 __main__ Executing step 2: Build Color Picker Interface
+INFO 2026-01-07 22:11:36,481 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:11:59,385 __main__   Generated 1 files
+INFO 2026-01-07 22:11:59,386 __main__ Executing step 3: Polish UI and Add Interactions
+INFO 2026-01-07 22:12:00,440 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:12:51,636 __main__   Generated 4 files
+INFO 2026-01-07 22:12:51,636 __main__ 
+Total files generated: 7
+INFO 2026-01-07 22:12:51,636 __main__   - src/components/RGBSlider.tsx
+INFO 2026-01-07 22:12:51,636 __main__   - src/App.tsx
+INFO 2026-01-07 22:12:51,637 __main__   - src/App.tsx
+INFO 2026-01-07 22:12:51,637 __main__   - src/components/RGBSlider.tsx
+INFO 2026-01-07 22:12:51,637 __main__   - src/components/ColorPreview.tsx
+INFO 2026-01-07 22:12:51,637 __main__   - src/components/Toast.tsx
+INFO 2026-01-07 22:12:51,637 __main__   - src/App.tsx
+INFO 2026-01-07 22:12:51,978 __main__ ✓ Color Picker: PASSED
+INFO 2026-01-07 22:12:51,978 __main__ 
+[Test 6/10]
+INFO 2026-01-07 22:12:51,978 __main__ 
+============================================================
+INFO 2026-01-07 22:12:51,978 __main__ Running test: Unit Converter
+INFO 2026-01-07 22:12:51,978 __main__ ============================================================
+INFO 2026-01-07 22:12:53,276 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:12:58,697 __main__ Plan created with 3 steps
+INFO 2026-01-07 22:12:58,697 __main__ Executing step 1: Build Conversion Input Component
+INFO 2026-01-07 22:12:59,989 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:13:20,062 __main__   Generated 2 files
+INFO 2026-01-07 22:13:20,062 __main__ Executing step 2: Build Conversion Buttons & Results
+INFO 2026-01-07 22:13:21,078 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:13:55,073 __main__   Generated 4 files
+INFO 2026-01-07 22:13:55,074 __main__ Executing step 3: Implement Conversion Logic & App Layout
+INFO 2026-01-07 22:13:56,066 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:14:22,803 __main__   Generated 3 files
+INFO 2026-01-07 22:14:22,803 __main__ 
+Total files generated: 9
+INFO 2026-01-07 22:14:22,803 __main__   - src/components/ConversionInput.tsx
+INFO 2026-01-07 22:14:22,803 __main__   - src/App.tsx
+INFO 2026-01-07 22:14:22,803 __main__   - src/components/ConversionButtons.tsx
+INFO 2026-01-07 22:14:22,803 __main__   - src/components/ConversionResult.tsx
+INFO 2026-01-07 22:14:22,803 __main__   - src/utils/conversions.ts
+INFO 2026-01-07 22:14:22,804 __main__   - src/App.tsx
+INFO 2026-01-07 22:14:22,804 __main__   - src/components/ConversionInput.tsx
+INFO 2026-01-07 22:14:22,804 __main__   - src/components/ConversionButtons.tsx
+INFO 2026-01-07 22:14:22,804 __main__   - src/App.tsx
+INFO 2026-01-07 22:14:23,174 __main__ ✗ Unit Converter: FAILED (3 errors)
+INFO 2026-01-07 22:14:23,174 __main__     src/App.tsx:4 - Duplicate identifier 'ConversionResult'. [TS2300]
+INFO 2026-01-07 22:14:23,174 __main__     src/App.tsx:5 - Duplicate identifier 'ConversionResult'. [TS2300]
+INFO 2026-01-07 22:14:23,174 __main__     src/App.tsx:11 - 'ConversionResult' refers to a value, but is being used as a type here. Did you mean 'typeof ConversionResult'? [TS2749]
+INFO 2026-01-07 22:14:23,174 __main__ 
+[Test 7/10]
+INFO 2026-01-07 22:14:23,174 __main__ 
+============================================================
+INFO 2026-01-07 22:14:23,174 __main__ Running test: Flashcard App
+INFO 2026-01-07 22:14:23,174 __main__ ============================================================
+INFO 2026-01-07 22:14:24,082 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:14:30,582 __main__ Plan created with 4 steps
+INFO 2026-01-07 22:14:30,583 __main__ Executing step 1: Define Flashcard Data Schema
+INFO 2026-01-07 22:14:31,662 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:15:42,759 __main__   Generated 5 files
+INFO 2026-01-07 22:15:42,759 __main__ Executing step 2: Build Data Store Client
+INFO 2026-01-07 22:15:44,819 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:16:07,508 __main__   Generated 1 files
+INFO 2026-01-07 22:16:07,508 __main__ Executing step 3: Create Flashcard Management Components
+INFO 2026-01-07 22:16:08,750 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:17:08,433 __main__   Generated 5 files
+INFO 2026-01-07 22:17:08,434 __main__ Executing step 4: Build Study Mode Interface
+INFO 2026-01-07 22:17:09,787 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:18:27,498 __main__   Generated 6 files
+INFO 2026-01-07 22:18:27,498 __main__ 
+Total files generated: 17
+INFO 2026-01-07 22:18:27,498 __main__   - src/App.tsx
+INFO 2026-01-07 22:18:27,498 __main__   - src/components/FlashcardList.tsx
+INFO 2026-01-07 22:18:27,498 __main__   - src/components/AddFlashcardModal.tsx
+INFO 2026-01-07 22:18:27,498 __main__   - src/components/StudyMode.tsx
+INFO 2026-01-07 22:18:27,499 __main__   - src/lib/dataStore.ts
+INFO 2026-01-07 22:18:27,499 __main__   - src/lib/flashcardStore.ts
+INFO 2026-01-07 22:18:27,499 __main__   - src/components/FlashcardForm.tsx
+INFO 2026-01-07 22:18:27,499 __main__   - src/components/FlashcardList.tsx
+INFO 2026-01-07 22:18:27,499 __main__   - src/components/FlashcardEditModal.tsx
+INFO 2026-01-07 22:18:27,499 __main__   - src/components/FlashcardManager.tsx
+INFO 2026-01-07 22:18:27,499 __main__   - src/components/Toast.tsx
+INFO 2026-01-07 22:18:27,499 __main__   - src/lib/dataStore.ts
+INFO 2026-01-07 22:18:27,499 __main__   - src/components/StudyMode.tsx
+INFO 2026-01-07 22:18:27,499 __main__   - src/components/FlashcardForm.tsx
+INFO 2026-01-07 22:18:27,499 __main__   - src/components/FlashcardList.tsx
+INFO 2026-01-07 22:18:27,499 __main__   - src/components/Toast.tsx
+INFO 2026-01-07 22:18:27,499 __main__   - src/App.tsx
+INFO 2026-01-07 22:18:27,938 __main__ ✗ Flashcard App: FAILED (4 errors)
+INFO 2026-01-07 22:18:27,938 __main__     src/components/FlashcardEditModal.tsx:41 - Property 'target' does not exist on type 'MouseEvent<Element>'. [TS2339]
+INFO 2026-01-07 22:18:27,938 __main__     src/components/FlashcardEditModal.tsx:41 - Property 'currentTarget' does not exist on type 'MouseEvent<Element>'. [TS2339]
+INFO 2026-01-07 22:18:27,938 __main__     src/components/FlashcardManager.tsx:75 - Type '{ onFlashcardAdded: () => void; }' is not assignable to type 'FlashcardFormProps'. [TS2322]
+INFO 2026-01-07 22:18:27,938 __main__     src/components/FlashcardManager.tsx:79 - Type '{ flashcards: Flashcard[]; onFlashcardUpdated: () => void; onFlashcardDeleted: (id: string) => Promise<void>; }' is not assignable to type 'FlashcardListProps'. [TS2322]
+INFO 2026-01-07 22:18:27,938 __main__ 
+[Test 8/10]
+INFO 2026-01-07 22:18:27,938 __main__ 
+============================================================
+INFO 2026-01-07 22:18:27,938 __main__ Running test: Habit Tracker
+INFO 2026-01-07 22:18:27,938 __main__ ============================================================
+INFO 2026-01-07 22:18:28,687 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:18:34,790 __main__ Plan created with 3 steps
+INFO 2026-01-07 22:18:34,791 __main__ Executing step 1: Define Data Tables
+INFO 2026-01-07 22:18:35,709 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:18:51,357 __main__   Generated 2 files
+INFO 2026-01-07 22:18:51,358 __main__ Executing step 2: Generate Data Store Client
+INFO 2026-01-07 22:18:52,392 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:19:10,844 __main__   Generated 1 files
+INFO 2026-01-07 22:19:10,845 __main__ Executing step 3: Build Habit Tracker Interface
+INFO 2026-01-07 22:19:12,158 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:19:56,493 __main__   Generated 1 files
+INFO 2026-01-07 22:19:56,494 __main__ 
+Total files generated: 4
+INFO 2026-01-07 22:19:56,494 __main__   - src/lib/dataStore.ts
+INFO 2026-01-07 22:19:56,494 __main__   - src/App.tsx
+INFO 2026-01-07 22:19:56,494 __main__   - src/lib/dataStore.ts
+INFO 2026-01-07 22:19:56,494 __main__   - src/App.tsx
+INFO 2026-01-07 22:19:56,919 __main__ ✓ Habit Tracker: PASSED
+INFO 2026-01-07 22:19:56,919 __main__ 
+[Test 9/10]
+INFO 2026-01-07 22:19:56,919 __main__ 
+============================================================
+INFO 2026-01-07 22:19:56,919 __main__ Running test: Password Generator
+INFO 2026-01-07 22:19:56,919 __main__ ============================================================
+INFO 2026-01-07 22:19:57,927 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:20:04,197 __main__ Plan created with 3 steps
+INFO 2026-01-07 22:20:04,197 __main__ Executing step 1: Build Password Generator Interface
+INFO 2026-01-07 22:20:05,506 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:20:38,991 __main__   Generated 1 files
+INFO 2026-01-07 22:20:38,991 __main__ Executing step 2: Implement Password Generation Logic
+INFO 2026-01-07 22:20:40,271 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:21:24,507 __main__   Generated 1 files
+INFO 2026-01-07 22:21:24,507 __main__ Executing step 3: Apply Enterprise Styling & Polish
+INFO 2026-01-07 22:21:26,523 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:22:15,215 __main__   Generated 1 files
+INFO 2026-01-07 22:22:15,216 __main__ 
+Total files generated: 3
+INFO 2026-01-07 22:22:15,216 __main__   - src/App.tsx
+INFO 2026-01-07 22:22:15,216 __main__   - src/App.tsx
+INFO 2026-01-07 22:22:15,216 __main__   - src/App.tsx
+INFO 2026-01-07 22:22:15,585 __main__ ✓ Password Generator: PASSED
+INFO 2026-01-07 22:22:15,585 __main__ 
+[Test 10/10]
+INFO 2026-01-07 22:22:15,585 __main__ 
+============================================================
+INFO 2026-01-07 22:22:15,585 __main__ Running test: Tip Calculator
+INFO 2026-01-07 22:22:15,585 __main__ ============================================================
+INFO 2026-01-07 22:22:17,930 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:22:22,736 __main__ Plan created with 2 steps
+INFO 2026-01-07 22:22:22,737 __main__ Executing step 1: Build Tip Calculator Component
+INFO 2026-01-07 22:22:25,593 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:22:51,039 __main__   Generated 1 files
+INFO 2026-01-07 22:22:51,039 __main__ Executing step 2: Apply Enterprise Styling
+INFO 2026-01-07 22:22:52,514 httpx HTTP Request: POST https://openrouter.ai/api/v1/chat/completions "HTTP/1.1 200 OK"
+INFO 2026-01-07 22:23:13,933 __main__   Generated 1 files
+INFO 2026-01-07 22:23:13,934 __main__ 
+Total files generated: 2
+INFO 2026-01-07 22:23:13,934 __main__   - src/App.tsx
+INFO 2026-01-07 22:23:13,934 __main__   - src/App.tsx
+INFO 2026-01-07 22:23:14,290 __main__ ✓ Tip Calculator: PASSED
+
+================================================================================
+BATCH TEST RESULTS
+================================================================================
+Total Tests: 10
+Passed: 6
+Failed: 4
+Pass Rate: 60.0%
+Total Errors: 14
+
+Errors by TypeScript Code:
+  TS2322: 4
+  TS2339: 4
+  TS2554: 2
+  TS2300: 2
+  TS2347: 1
+  TS2749: 1
+
+Errors by File:
+  src/App.tsx: 4
+  src/components/ExpenseList.tsx: 3
+  src/components/DeleteConfirmModal.tsx: 2
+  src/components/FlashcardEditModal.tsx: 2
+  src/components/FlashcardManager.tsx: 2
+  src/components/Toast.tsx: 1
+
+Individual Results:
+  1. Expense Tracker: ✗ FAIL (4 errors)
+  2. BMI Calculator: ✓ PASS
+  3. Note Taking App: ✗ FAIL (3 errors)
+  4. Quote Generator: ✓ PASS
+  5. Color Picker: ✓ PASS
+  6. Unit Converter: ✗ FAIL (3 errors)
+  7. Flashcard App: ✗ FAIL (4 errors)
+  8. Habit Tracker: ✓ PASS
+  9. Password Generator: ✓ PASS
+  10. Tip Calculator: ✓ PASS
+
+Detailed results saved to batch_test_results.json
