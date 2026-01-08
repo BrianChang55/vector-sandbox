@@ -181,7 +181,6 @@ CORS_ALLOWED_ORIGINS = [
     # Production custom domain
     'https://relayapps.ai',
     'https://www.relayapps.ai',
-    'https://app.relayapps.ai',
 ]
 
 # Allow Sandpack/CodeSandbox iframe origins for the preview runtime
