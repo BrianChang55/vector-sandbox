@@ -30,6 +30,7 @@ import { cn } from '../../lib/utils'
 import { versionsApi } from '../../services/apiService'
 import type { FileChange } from '../../types/agent'
 import type { BundlerError } from '../../hooks/useSandpackValidation'
+import { TEMPLATE_UI_COMPONENTS } from './templateComponents'
 
 // Get the API base URL for runtime injection into Sandpack
 // This should point to the actual backend, not the Sandpack iframe origin
@@ -419,7 +420,7 @@ function convertToSandpackFiles(
   versionId: string,
   appName: string
 ): Record<string, string> {
-  const sandpackFiles: Record<string, string> = { ...DEFAULT_FILES }
+  const sandpackFiles: Record<string, string> = { ...DEFAULT_FILES, ...TEMPLATE_UI_COMPONENTS }
 
   // CRITICAL: Use postMessage bridge to bypass CORS/Private Network Access issues
   // The Sandpack iframe cannot directly call localhost due to Chrome's PNA restrictions

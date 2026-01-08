@@ -23,6 +23,7 @@ import { SettingsPage } from './pages/SettingsPage'
 import { AppPreviewPage } from './pages/AppPreviewPage'
 import { PublishedAppPage } from './pages/PublishedAppPage'
 import { InviteAcceptPage } from './pages/InviteAcceptPage'
+import { AdminTemplatePage } from './pages/AdminTemplatePage'
 
 function App() {
   return (
@@ -42,6 +43,16 @@ function App() {
             <Route path="/auth/magic-link/verify" element={<MagicLinkVerifyPage />} />
             <Route path="/invite/accept" element={<InviteAcceptPage />} />
             
+            {/* Admin routes */}
+            <Route
+              path="/admin/template"
+              element={
+                <AuthGuard>
+                  <AdminTemplatePage />
+                </AuthGuard>
+              }
+            />
+
             {/* Protected routes */}
             <Route
               path="/apps"
