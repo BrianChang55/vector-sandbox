@@ -152,9 +152,9 @@ def _build_tools_from_connectors(
             if not tool_id:
                 continue
             
-            # Tool names in MCP are just the tool ID, not prefixed with connector
-            # The Merge MCP API expects: "retrieve_balance" not "stripe_retrieve_balance"
-            tool_name = tool_id
+            # MCP tool names use the format: {connector}__{tool_id} (double underscore)
+            # e.g., "stripe__retrieve_balance", "github__get_issue"
+            tool_name = f"{connector_id}__{tool_id}"
             description = tool_info.get('description', f'{tool_id} operation for {connector.name}')
             
             # Build input schema from tool parameters if available
@@ -361,8 +361,8 @@ def _build_full_context(
     lines.append("")
     lines.append("**Authentication Pattern:**")
     lines.append("```typescript")
-    lines.append("// Step 1: Try to call the tool")
-    lines.append("const result = await mcpTools.call('retrieve_balance', {});")
+    lines.append("// Step 1: Try to call the tool (use connector__tool format)")
+    lines.append("const result = await mcpTools.call('stripe__retrieve_balance', {});")
     lines.append("")
     lines.append("// Step 2: If tool not found, initiate authentication")
     lines.append("if (!result.success && result.error?.includes('not found')) {")
