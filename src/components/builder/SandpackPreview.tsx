@@ -647,7 +647,7 @@ interface MCPToolResult<T = any> {
 export const mcpTools = {
   /**
    * Call an MCP tool by name
-   * @param toolName - The full tool name (e.g., "stripe_retrieve_balance")
+   * @param toolName - The full tool name with double underscore (e.g., "stripe__retrieve_balance")
    * @param params - Tool-specific parameters
    */
   async call<T = any>(
