@@ -761,7 +761,72 @@ Guidelines:
 Base design/style requirements (always follow):
 {design_style}
 
+{template_context}
+
 NEVER import from node_modules that aren't available. Use inline implementations."""
+
+
+# =============================================================================
+# TEMPLATE CONTEXT
+# =============================================================================
+# Injects available pre-built components and hooks into the prompt.
+
+TEMPLATE_CONTEXT = """
+## Pre-built Components Available
+
+You have access to a component library in `/components/ui/`. ALWAYS prefer using these over writing custom implementations.
+
+### UI Components (import from './components/ui')
+
+| Component | Props | Description |
+|-----------|-------|-------------|
+| `Button` | variant: 'default'|'destructive'|'outline'|'secondary'|'ghost', size: 'default'|'sm'|'lg'|'icon', loading: boolean | Primary interactive button |
+| `Input` | label?: string, error?: string | Text input with label and error state |
+| `Card` | title?: string, interactive?: boolean | Content container with optional title |
+| `Badge` | variant: 'default'|'success'|'warning'|'error'|'info' | Status indicator |
+| `PageHeader` | title: string, subtitle?: string, actions?: ReactNode | Page title with actions |
+| `EmptyState` | icon?: ReactNode, title: string, description?: string, action?: ReactNode | Empty data placeholder |
+| `StatCard` | title: string, value: string|number, change?: number, changeLabel?: string | Metric display with trend |
+
+### Utility (import from './components/ui')
+- `cn()` - Utility to merge Tailwind CSS classes
+
+### Hooks (import from './hooks')
+
+| Hook | Returns | Description |
+|------|---------|-------------|
+| `useDataQuery(tableSlug, options?, deps?)` | { data, totalCount, loading, error, refetch } | Fetch rows from a data table |
+| `useMutation(tableSlug)` | { insert, update, remove, loading, error } | Insert, update, delete rows |
+
+### Usage Examples
+
+```typescript
+// Import components
+import { Button, Card, Badge, PageHeader, EmptyState, StatCard, cn } from './components/ui';
+import { useDataQuery, useMutation } from './hooks';
+
+// Fetch data
+const { data: customers, loading, refetch } = useDataQuery('customers', {
+  filters: [{ field: 'status', op: 'eq', value: 'active' }],
+  orderBy: [{ field: 'created_at', dir: 'desc' }],
+  limit: 50,
+});
+
+// Mutations
+const { insert, update, remove, loading: saving } = useMutation('customers');
+await insert({ name: 'John Doe', email: 'john@example.com' });
+await update(rowId, { status: 'inactive' });
+await remove(rowId);
+
+// UI Components
+<PageHeader title="Customers" subtitle="Manage your customer base" actions={<Button>Add New</Button>} />
+<Card title="Customer Details">...</Card>
+<Badge variant="success">Active</Badge>
+<StatCard title="Revenue" value="$12,450" change={12.5} changeLabel="vs last month" />
+```
+
+IMPORTANT: Use these pre-built components instead of writing custom implementations for tables, cards, buttons, forms, and data fetching.
+"""
 
 PLAN_PROMPT_TEMPLATE = """You are planning an internal app generation task.
 
@@ -1085,6 +1150,8 @@ Guidelines:
 Base design/style requirements (always follow):
 {design_style}
 
+{template_context}
+
 NEVER import from node_modules that aren't available. Use inline implementations."""
 
 
@@ -1344,6 +1411,9 @@ def build_codegen_system_prompt(
     
     # Inject TypeScript safety rules to prevent common compilation errors
     prompt = prompt.replace("{typescript_safety_rules}", TYPESCRIPT_SAFETY_RULES)
+    
+    # Inject template context (pre-built components and hooks)
+    prompt = prompt.replace("{template_context}", TEMPLATE_CONTEXT)
     
     return prompt
 
