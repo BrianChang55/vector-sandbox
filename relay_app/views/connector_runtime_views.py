@@ -20,7 +20,7 @@ from typing import Tuple, Optional
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAuthenticated
 
 from ..models import (
     InternalApp,
@@ -32,6 +32,7 @@ from ..models import (
     UserOrganization,
 )
 from ..services.merge_service import merge_service, MergeAPIError
+from ..permissions import require_org_membership
 
 logger = logging.getLogger(__name__)
 
@@ -47,17 +48,14 @@ def check_app_access(request, app: InternalApp) -> Tuple[bool, Optional[str]]:
     """
     user = request.user
     
-    # Require authentication
+    # Require authentication (should be handled by IsAuthenticated, but double-check)
     if not user or not user.is_authenticated:
         return False, "Authentication required"
     
-    # Verify user belongs to the app's organization
-    is_member = UserOrganization.objects.filter(
-        user=user,
-        organization=app.organization
-    ).exists()
+    # Verify user belongs to the app's organization using permissions helper
+    membership, _ = require_org_membership(request, app.organization)
     
-    if not is_member:
+    if not membership:
         return False, "You don't have access to this app"
     
     return True, None
@@ -88,8 +86,8 @@ class RuntimeConnectorProxyView(APIView):
     - toolId = "tools": Get tools for a connector (params.connectorId required)
     """
     
-    # Allow the request through - we do custom authorization below
-    permission_classes = [AllowAny]
+    # Use IsAuthenticated - app access verification is done in check_app_access
+    permission_classes = [IsAuthenticated]
     
     def post(self, request):
         """Handle all connector operations."""

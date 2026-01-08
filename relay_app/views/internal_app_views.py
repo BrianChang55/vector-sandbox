@@ -10,8 +10,9 @@ from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
 from rest_framework.exceptions import PermissionDenied
 
-from ..models import InternalApp, Organization, AppFavorite
+from ..models import InternalApp, Organization, AppFavorite, UserOrganization
 from ..serializers import InternalAppSerializer, InternalAppCreateSerializer, AppFavoriteSerializer
+from ..permissions import IsOrgEditorOrAbove, require_editor_or_above, require_admin
 
 logger = logging.getLogger(__name__)
 
@@ -19,12 +20,13 @@ logger = logging.getLogger(__name__)
 class InternalAppViewSet(viewsets.ModelViewSet):
     """
     ViewSet for InternalApp model.
-    GET /api/v1/orgs/:org_id/apps - List apps
-    POST /api/v1/orgs/:org_id/apps - Create app
-    GET /api/v1/apps/:id - Get app
-    PATCH /api/v1/apps/:id - Update app
+    GET /api/v1/orgs/:org_id/apps - List apps (any member)
+    POST /api/v1/orgs/:org_id/apps - Create app (editor+)
+    GET /api/v1/apps/:id - Get app (any member)
+    PATCH /api/v1/apps/:id - Update app (editor+)
+    DELETE /api/v1/apps/:id - Delete app (admin only)
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsOrgEditorOrAbove]
     serializer_class = InternalAppSerializer
     
     def get_queryset(self):
@@ -54,13 +56,14 @@ class InternalAppViewSet(viewsets.ModelViewSet):
         return context
     
     def perform_create(self, serializer):
-        """Verify user is member of organization."""
+        """Verify user is editor or above in organization."""
         org_id = self.kwargs.get('organization_pk')
         organization = get_object_or_404(Organization, id=org_id)
         
-        # Verify user is member
-        if not self.request.user.user_organizations.filter(organization=organization).exists():
-            raise PermissionError('You are not a member of this organization')
+        # Verify user is editor or above (permission class should catch this, but double-check)
+        membership, error = require_editor_or_above(self.request, organization)
+        if error:
+            raise PermissionDenied('You must be an editor or admin to create apps')
         
         serializer.save()
     
@@ -78,12 +81,13 @@ class InternalAppViewSet(viewsets.ModelViewSet):
         return Response(read_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
     def destroy(self, request, *args, **kwargs):
-        """Delete an app after verifying the user is a member of its organization."""
+        """Delete an app (admin only)."""
         app = self.get_object()
 
-        # Verify membership in the app's organization
-        if not request.user.user_organizations.filter(organization=app.organization).exists():
-            raise PermissionDenied('You are not a member of this organization')
+        # Verify user is admin of the app's organization
+        membership, error = require_admin(request, app.organization)
+        if error:
+            raise PermissionDenied('Only admins can delete apps')
 
         app.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)

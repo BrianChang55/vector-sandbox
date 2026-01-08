@@ -2,7 +2,7 @@
 Publish API views
 """
 import logging
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes as drf_permission_classes
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -12,22 +12,25 @@ from django.db import transaction
 from ..models import InternalApp, AppVersion, ResourceRegistryEntry, Organization
 from ..services.version_service import VersionService
 from ..serializers import InternalAppSerializer, AppVersionSerializer
+from ..permissions import require_admin
 
 logger = logging.getLogger(__name__)
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@drf_permission_classes([IsAuthenticated])
 def publish_app(request, pk=None):
-    """Publish app by creating a version with scope snapshot (POST /api/v1/apps/:app_id/publish)."""
+    """
+    Publish app by creating a version with scope snapshot (admin only).
+    
+    POST /api/v1/apps/:app_id/publish/
+    """
     app = get_object_or_404(InternalApp, pk=pk)
     
-    # Verify access
-    if not request.user.user_organizations.filter(organization=app.organization).exists():
-        return Response(
-            {'error': 'Access denied'},
-            status=status.HTTP_403_FORBIDDEN
-        )
+    # Verify user is admin (publishing is an admin operation)
+    membership, error = require_admin(request, app.organization)
+    if error:
+        return error
     
     # Get latest STABLE version (complete generation) to publish
     latest_stable = VersionService.get_latest_stable_version(app)
@@ -119,7 +122,7 @@ def publish_app(request, pk=None):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@drf_permission_classes([IsAuthenticated])
 def get_published_app(request, org_slug=None, app_slug=None):
     """
     Fetch the active published version of an app by org/app slug.

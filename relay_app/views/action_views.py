@@ -9,20 +9,21 @@ from rest_framework import status
 from django.shortcuts import get_object_or_404
 
 from ..models import ResourceRegistryEntry
+from ..permissions import IsOrgAdmin, require_admin
 
 logger = logging.getLogger(__name__)
 
 
 class ActionAllowlistView(APIView):
     """
-    View for managing action allowlists.
+    View for managing action allowlists (admin only).
     POST /api/v1/actions/allowlist - Add action to allowlist
     DELETE /api/v1/actions/:action_id - Remove action from allowlist
     """
     permission_classes = [IsAuthenticated]
     
     def post(self, request):
-        """Add action to allowlist."""
+        """Add action to allowlist (admin only)."""
         registry_id = request.data.get('registry_id')
         action_def = request.data.get('action_def')
         
@@ -34,12 +35,10 @@ class ActionAllowlistView(APIView):
         
         registry_entry = get_object_or_404(ResourceRegistryEntry, pk=registry_id)
         
-        # Verify access
-        if not request.user.user_organizations.filter(organization=registry_entry.organization).exists():
-            return Response(
-                {'error': 'Access denied'},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        # Verify user is admin
+        membership, error = require_admin(request, registry_entry.organization)
+        if error:
+            return error
         
         # Add action to allowlist
         allowed_actions = registry_entry.allowed_actions_json or []
@@ -53,7 +52,7 @@ class ActionAllowlistView(APIView):
         })
     
     def delete(self, request, action_id=None):
-        """Remove action from allowlist."""
+        """Remove action from allowlist (admin only)."""
         registry_id = request.data.get('registry_id') or request.query_params.get('registry_id')
         
         if not registry_id or not action_id:
@@ -64,12 +63,10 @@ class ActionAllowlistView(APIView):
         
         registry_entry = get_object_or_404(ResourceRegistryEntry, pk=registry_id)
         
-        # Verify access
-        if not request.user.user_organizations.filter(organization=registry_entry.organization).exists():
-            return Response(
-                {'error': 'Access denied'},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        # Verify user is admin
+        membership, error = require_admin(request, registry_entry.organization)
+        if error:
+            return error
         
         # Remove action from allowlist
         allowed_actions = registry_entry.allowed_actions_json or []

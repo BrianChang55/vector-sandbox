@@ -32,6 +32,7 @@ from ..services.codegen import CodegenService
 from ..services.agentic_service import get_agentic_service
 from ..services.version_service import VersionService
 from ..services.snapshot_service import SnapshotService
+from ..permissions import require_editor_or_above, require_org_membership
 
 logger = logging.getLogger(__name__)
 
@@ -253,10 +254,19 @@ class StreamingGenerateView(View):
         except InternalApp.DoesNotExist:
             return JsonResponse({"error": "App not found"}, status=404)
         
-        if not user.user_organizations.filter(organization=app.organization).exists():
+        # Verify user is editor or above (code generation requires edit permissions)
+        from ..models import UserOrganization
+        try:
+            membership = UserOrganization.objects.get(user=user, organization=app.organization)
+            if not membership.is_editor_or_above():
+                return JsonResponse(
+                    {"error": "You must be an editor or admin to generate code"},
+                    status=403
+                )
+        except UserOrganization.DoesNotExist:
             return JsonResponse(
                 {"error": "Access denied"},
-                status=http_status.HTTP_403_FORBIDDEN
+                status=403
             )
         
         # Create streaming response
@@ -533,27 +543,24 @@ class StreamingGenerateView(View):
 
 class NonStreamingGenerateView(APIView):
     """
-    Non-streaming fallback for code generation.
+    Non-streaming fallback for code generation (editor+ only).
     
     POST /api/v1/apps/:app_id/generate
     """
     permission_classes = [IsAuthenticated]
     
     def post(self, request, app_id):
-        """Generate code without streaming."""
+        """Generate code without streaming (editor+ only)."""
         try:
             app = InternalApp.objects.select_related(
                 'organization',
                 'backend_connection'
             ).get(pk=app_id)
             
-            if not request.user.user_organizations.filter(
-                organization=app.organization
-            ).exists():
-                return Response(
-                    {"error": "Access denied"},
-                    status=http_status.HTTP_403_FORBIDDEN
-                )
+            # Verify user is editor or above
+            membership, error = require_editor_or_above(request, app.organization)
+            if error:
+                return error
             
             message = request.data.get('message', '')
             model = request.data.get('model', 'anthropic/claude-sonnet-4')
@@ -752,7 +759,16 @@ class AgenticGenerateView(View):
         except InternalApp.DoesNotExist:
             return JsonResponse({"error": "App not found"}, status=404)
         
-        if not user.user_organizations.filter(organization=app.organization).exists():
+        # Verify user is editor or above (code generation requires edit permissions)
+        from ..models import UserOrganization
+        try:
+            membership = UserOrganization.objects.get(user=user, organization=app.organization)
+            if not membership.is_editor_or_above():
+                return JsonResponse(
+                    {"error": "You must be an editor or admin to generate code"},
+                    status=403
+                )
+        except UserOrganization.DoesNotExist:
             return JsonResponse({"error": "Access denied"}, status=403)
         
         # Get or create session
@@ -808,7 +824,16 @@ class AgenticGenerateView(View):
         except InternalApp.DoesNotExist:
             return JsonResponse({"error": "App not found"}, status=404)
         
-        if not user.user_organizations.filter(organization=app.organization).exists():
+        # Verify user is editor or above (code generation requires edit permissions)
+        from ..models import UserOrganization
+        try:
+            membership = UserOrganization.objects.get(user=user, organization=app.organization)
+            if not membership.is_editor_or_above():
+                return JsonResponse(
+                    {"error": "You must be an editor or admin to generate code"},
+                    status=403
+                )
+        except UserOrganization.DoesNotExist:
             return JsonResponse({"error": "Access denied"}, status=403)
         
         # Get or create session
@@ -1312,14 +1337,14 @@ class LatestGenerationView(APIView):
 
 class ApplyGeneratedCodeView(APIView):
     """
-    Apply generated code to create a new version.
+    Apply generated code to create a new version (editor+ only).
     
     POST /api/v1/messages/:message_id/apply
     """
     permission_classes = [IsAuthenticated]
     
     def post(self, request, message_id):
-        """Apply code from a chat message to create a version."""
+        """Apply code from a chat message to create a version (editor+ only)."""
         try:
             message = ChatMessage.objects.select_related(
                 'session__internal_app__organization'
@@ -1327,13 +1352,10 @@ class ApplyGeneratedCodeView(APIView):
             
             app = message.session.internal_app
             
-            if not request.user.user_organizations.filter(
-                organization=app.organization
-            ).exists():
-                return Response(
-                    {"error": "Access denied"},
-                    status=http_status.HTTP_403_FORBIDDEN
-                )
+            # Verify user is editor or above
+            membership, error = require_editor_or_above(request, app.organization)
+            if error:
+                return error
             
             if message.version_created:
                 return Response({
@@ -1399,7 +1421,7 @@ class ApplyGeneratedCodeView(APIView):
 
 class CancelGenerationView(APIView):
     """
-    Cancel an in-progress code generation.
+    Cancel an in-progress code generation (editor+ only).
     
     POST /api/v1/versions/:version_id/cancel
     
@@ -1413,20 +1435,16 @@ class CancelGenerationView(APIView):
     permission_classes = [IsAuthenticated]
     
     def post(self, request, version_id):
-        """Cancel a generating version."""
+        """Cancel a generating version (editor+ only)."""
         try:
             version = AppVersion.objects.select_related(
                 'internal_app__organization'
             ).get(pk=version_id)
             
-            # Verify access
-            if not request.user.user_organizations.filter(
-                organization=version.internal_app.organization
-            ).exists():
-                return Response(
-                    {"error": "Access denied"},
-                    status=http_status.HTTP_403_FORBIDDEN
-                )
+            # Verify user is editor or above
+            membership, error = require_editor_or_above(request, version.internal_app.organization)
+            if error:
+                return error
             
             # Cancel the generation
             result = VersionService.cancel_generating_version(version_id, request.user)
@@ -1527,9 +1545,16 @@ class FixErrorsView(View):
         except AppVersion.DoesNotExist:
             return JsonResponse({"error": "Version not found"}, status=404)
         
-        if not user.user_organizations.filter(
-            organization=version.internal_app.organization
-        ).exists():
+        # Verify user is editor or above (fixing errors requires edit permissions)
+        from ..models import UserOrganization
+        try:
+            membership = UserOrganization.objects.get(user=user, organization=version.internal_app.organization)
+            if not membership.is_editor_or_above():
+                return JsonResponse(
+                    {"error": "You must be an editor or admin to fix errors"},
+                    status=403
+                )
+        except UserOrganization.DoesNotExist:
             return JsonResponse({"error": "Access denied"}, status=403)
         
         # Decode errors

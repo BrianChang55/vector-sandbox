@@ -19,6 +19,7 @@ from ..adapters.postgresql import PostgreSQLAdapter
 from ..adapters.mysql import MySQLAdapter
 from ..adapters.base import AdapterContext
 from ..utils.encryption import encrypt_string
+from ..permissions import IsOrgAdmin, require_admin
 
 logger = logging.getLogger(__name__)
 
@@ -59,13 +60,15 @@ def get_adapter_context(backend: BackendConnection) -> AdapterContext:
 class BackendConnectionViewSet(viewsets.ModelViewSet):
     """
     ViewSet for BackendConnection model.
-    GET /api/v1/orgs/:org_id/backends - List backends
-    POST /api/v1/orgs/:org_id/backends - Create backend
-    GET /api/v1/backends/:id - Get backend
-    POST /api/v1/backends/:id/test - Test connection
-    POST /api/v1/backends/:id/user-auth - Store user JWT
+    GET /api/v1/orgs/:org_id/backends - List backends (any member)
+    POST /api/v1/orgs/:org_id/backends - Create backend (admin only)
+    GET /api/v1/backends/:id - Get backend (any member)
+    PATCH /api/v1/backends/:id - Update backend (admin only)
+    DELETE /api/v1/backends/:id - Delete backend (admin only)
+    POST /api/v1/backends/:id/test - Test connection (admin only)
+    POST /api/v1/backends/:id/user-auth - Store user JWT (any member)
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsOrgAdmin]
     serializer_class = BackendConnectionSerializer
     
     def get_queryset(self):
@@ -93,13 +96,15 @@ class BackendConnectionViewSet(viewsets.ModelViewSet):
         return context
     
     def perform_create(self, serializer):
-        """Verify user is member of organization."""
+        """Verify user is admin of organization."""
         org_id = self.kwargs.get('organization_pk')
         organization = get_object_or_404(Organization, id=org_id)
         
-        # Verify user is member
-        if not self.request.user.user_organizations.filter(organization=organization).exists():
-            raise PermissionError('You are not a member of this organization')
+        # Verify user is admin (permission class should catch this, but double-check)
+        membership, error = require_admin(self.request, organization)
+        if error:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Only admins can create backend connections')
         
         serializer.save()
     

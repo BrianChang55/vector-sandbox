@@ -30,6 +30,7 @@ from ..services.ai_service import AIService
 from ..services.version_service import VersionService
 from ..services.snapshot_service import SnapshotService
 from ..services.schema_migration_service import SchemaMigrationService
+from ..permissions import IsOrgEditorOrAbove, require_editor_or_above
 
 logger = logging.getLogger(__name__)
 
@@ -37,13 +38,14 @@ logger = logging.getLogger(__name__)
 class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
     """
     ViewSet for AppVersion model (read-only, use custom actions for creation).
-    GET /api/v1/apps/:app_id/versions - List versions
-    GET /api/v1/versions/:id - Get version
-    POST /api/v1/apps/:app_id/versions/ai-edit - Create version from AI edit
-    POST /api/v1/apps/:app_id/versions/code-edit - Create version from code edit
-    POST /api/v1/versions/:id/rollback - Rollback to version
+    GET /api/v1/apps/:app_id/versions - List versions (any member)
+    GET /api/v1/versions/:id - Get version (any member)
+    POST /api/v1/apps/:app_id/versions/ai-edit - Create version from AI edit (editor+)
+    POST /api/v1/apps/:app_id/versions/code-edit - Create version from code edit (editor+)
+    POST /api/v1/versions/:id/rollback - Rollback to version (editor+)
+    POST /api/v1/versions/:id/save-files - Save files to version (editor+)
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsOrgEditorOrAbove]
     serializer_class = AppVersionSerializer
     
     def get_queryset(self):
@@ -92,15 +94,13 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
     
     @action(detail=False, methods=['post'], url_path='ai-edit')
     def ai_edit(self, request, internal_app_pk=None):
-        """Create new version from AI edit."""
+        """Create new version from AI edit (editor+ only)."""
         app = get_object_or_404(InternalApp, pk=internal_app_pk)
         
-        # Verify access
-        if not request.user.user_organizations.filter(organization=app.organization).exists():
-            return Response(
-                {'error': 'Access denied'},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        # Verify editor or above access
+        membership, error = require_editor_or_above(request, app.organization)
+        if error:
+            return error
         
         serializer = AppVersionCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -179,15 +179,13 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
     
     @action(detail=False, methods=['post'], url_path='code-edit')
     def code_edit(self, request, internal_app_pk=None):
-        """Create new version from code edit."""
+        """Create new version from code edit (editor+ only)."""
         app = get_object_or_404(InternalApp, pk=internal_app_pk)
         
-        # Verify access
-        if not request.user.user_organizations.filter(organization=app.organization).exists():
-            return Response(
-                {'error': 'Access denied'},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        # Verify editor or above access
+        membership, error = require_editor_or_above(request, app.organization)
+        if error:
+            return error
         
         # Get latest STABLE version to base edit on
         # Code edits should only be made on complete versions
@@ -247,16 +245,14 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
     
     @action(detail=True, methods=['post'], url_path='save-files')
     def save_files(self, request, pk=None, internal_app_pk=None):
-        """Save edited files to an existing version."""
+        """Save edited files to an existing version (editor+ only)."""
         version = get_object_or_404(AppVersion, pk=pk)
         app = version.internal_app
         
-        # Verify access
-        if not request.user.user_organizations.filter(organization=app.organization).exists():
-            return Response(
-                {'error': 'Access denied'},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        # Verify editor or above access
+        membership, error = require_editor_or_above(request, app.organization)
+        if error:
+            return error
         
         files = request.data.get('files', [])
         if not files:
@@ -296,7 +292,7 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=True, methods=['post'])
     def rollback(self, request, pk=None):
         """
-        Enhanced rollback to a previous version.
+        Enhanced rollback to a previous version (editor+ only).
         
         Supports:
         - dry_run=True for preview mode (shows what would change)
@@ -307,12 +303,10 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
         version = self.get_object()
         app = version.internal_app
         
-        # Verify access
-        if not request.user.user_organizations.filter(organization=app.organization).exists():
-            return Response(
-                {'error': 'Access denied'},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        # Verify editor or above access
+        membership, error = require_editor_or_above(request, app.organization)
+        if error:
+            return error
         
         # Get options from request
         dry_run = request.data.get('dry_run', False)

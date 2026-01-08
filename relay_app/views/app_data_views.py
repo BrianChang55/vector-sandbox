@@ -23,6 +23,7 @@ from ..serializers.app_data import (
     QueryResultSerializer,
 )
 from ..services.app_data_service import AppDataService
+from ..permissions import require_org_membership, require_editor_or_above
 
 
 class AppDataTableViewSet(viewsets.ViewSet):
@@ -30,11 +31,11 @@ class AppDataTableViewSet(viewsets.ViewSet):
     ViewSet for managing data tables within an Internal App.
     
     Endpoints:
-    - GET /apps/{app_id}/data/tables/ - List tables
-    - POST /apps/{app_id}/data/tables/ - Create table
-    - GET /apps/{app_id}/data/tables/{slug}/ - Get table
-    - PATCH /apps/{app_id}/data/tables/{slug}/ - Update table
-    - DELETE /apps/{app_id}/data/tables/{slug}/ - Delete table
+    - GET /apps/{app_id}/data/tables/ - List tables (any member)
+    - POST /apps/{app_id}/data/tables/ - Create table (editor+)
+    - GET /apps/{app_id}/data/tables/{slug}/ - Get table (any member)
+    - PATCH /apps/{app_id}/data/tables/{slug}/ - Update table (editor+)
+    - DELETE /apps/{app_id}/data/tables/{slug}/ - Delete table (editor+)
     """
     permission_classes = [IsAuthenticated]
     
@@ -43,13 +44,16 @@ class AppDataTableViewSet(viewsets.ViewSet):
         app = get_object_or_404(InternalApp, pk=app_pk)
         
         # Verify user belongs to the app's organization
-        if not UserOrganization.objects.filter(
-            user=request.user,
-            organization=app.organization
-        ).exists():
+        membership, _ = require_org_membership(request, app.organization)
+        if not membership:
             return None
         
         return app
+    
+    def _require_editor(self, request, app):
+        """Check if user is editor or above. Returns error response or None."""
+        membership, error = require_editor_or_above(request, app.organization)
+        return error
     
     def list(self, request, internal_app_pk=None):
         """List all tables for an app."""
@@ -65,13 +69,18 @@ class AppDataTableViewSet(viewsets.ViewSet):
         return Response(serializer.data)
     
     def create(self, request, internal_app_pk=None):
-        """Create a new data table."""
+        """Create a new data table (editor+ only)."""
         app = self._get_app(request, internal_app_pk)
         if not app:
             return Response(
                 {'error': 'App not found or access denied'},
                 status=status.HTTP_404_NOT_FOUND
             )
+        
+        # Require editor or above for mutations
+        error = self._require_editor(request, app)
+        if error:
+            return error
         
         serializer = AppDataTableCreateSerializer(data=request.data)
         if not serializer.is_valid():
@@ -111,13 +120,18 @@ class AppDataTableViewSet(viewsets.ViewSet):
         return Response(AppDataTableSerializer(table).data)
     
     def partial_update(self, request, internal_app_pk=None, pk=None):
-        """Update a table."""
+        """Update a table (editor+ only)."""
         app = self._get_app(request, internal_app_pk)
         if not app:
             return Response(
                 {'error': 'App not found or access denied'},
                 status=status.HTTP_404_NOT_FOUND
             )
+        
+        # Require editor or above for mutations
+        error = self._require_editor(request, app)
+        if error:
+            return error
         
         table = AppDataService.get_table(app, pk)
         if not table:
@@ -143,13 +157,18 @@ class AppDataTableViewSet(viewsets.ViewSet):
         return Response(AppDataTableSerializer(updated_table).data)
     
     def destroy(self, request, internal_app_pk=None, pk=None):
-        """Delete a table."""
+        """Delete a table (editor+ only)."""
         app = self._get_app(request, internal_app_pk)
         if not app:
             return Response(
                 {'error': 'App not found or access denied'},
                 status=status.HTTP_404_NOT_FOUND
             )
+        
+        # Require editor or above for mutations
+        error = self._require_editor(request, app)
+        if error:
+            return error
         
         table = AppDataService.get_table(app, pk)
         if not table:
@@ -167,13 +186,13 @@ class AppDataRowViewSet(viewsets.ViewSet):
     ViewSet for managing rows within a data table.
     
     Endpoints:
-    - GET /apps/{app_id}/data/tables/{slug}/rows/ - Query rows
-    - POST /apps/{app_id}/data/tables/{slug}/rows/ - Insert row
-    - GET /apps/{app_id}/data/tables/{slug}/rows/{id}/ - Get row
-    - PATCH /apps/{app_id}/data/tables/{slug}/rows/{id}/ - Update row
-    - DELETE /apps/{app_id}/data/tables/{slug}/rows/{id}/ - Delete row
-    - POST /apps/{app_id}/data/tables/{slug}/rows/bulk/ - Bulk insert
-    - DELETE /apps/{app_id}/data/tables/{slug}/rows/bulk/ - Bulk delete
+    - GET /apps/{app_id}/data/tables/{slug}/rows/ - Query rows (any member)
+    - POST /apps/{app_id}/data/tables/{slug}/rows/ - Insert row (editor+)
+    - GET /apps/{app_id}/data/tables/{slug}/rows/{id}/ - Get row (any member)
+    - PATCH /apps/{app_id}/data/tables/{slug}/rows/{id}/ - Update row (editor+)
+    - DELETE /apps/{app_id}/data/tables/{slug}/rows/{id}/ - Delete row (editor+)
+    - POST /apps/{app_id}/data/tables/{slug}/rows/bulk/ - Bulk insert (editor+)
+    - DELETE /apps/{app_id}/data/tables/{slug}/rows/bulk/ - Bulk delete (editor+)
     """
     permission_classes = [IsAuthenticated]
     
@@ -182,14 +201,17 @@ class AppDataRowViewSet(viewsets.ViewSet):
         app = get_object_or_404(InternalApp, pk=app_pk)
         
         # Verify user belongs to the app's organization
-        if not UserOrganization.objects.filter(
-            user=request.user,
-            organization=app.organization
-        ).exists():
+        membership, _ = require_org_membership(request, app.organization)
+        if not membership:
             return None, None
         
         table = AppDataService.get_table(app, table_slug)
         return app, table
+    
+    def _require_editor(self, request, app):
+        """Check if user is editor or above. Returns error response or None."""
+        membership, error = require_editor_or_above(request, app.organization)
+        return error
     
     def list(self, request, internal_app_pk=None, table_slug=None):
         """Query rows with optional filtering, sorting, and pagination."""
@@ -231,7 +253,7 @@ class AppDataRowViewSet(viewsets.ViewSet):
         return Response(QueryResultSerializer(result).data)
     
     def create(self, request, internal_app_pk=None, table_slug=None):
-        """Insert a single row."""
+        """Insert a single row (editor+ only)."""
         app, table = self._get_table(request, internal_app_pk, table_slug)
         if not app:
             return Response(
@@ -243,6 +265,11 @@ class AppDataRowViewSet(viewsets.ViewSet):
                 {'error': 'Table not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
+        
+        # Require editor or above for mutations
+        error = self._require_editor(request, app)
+        if error:
+            return error
         
         serializer = AppDataRowDataSerializer(data=request.data)
         if not serializer.is_valid():
@@ -282,7 +309,7 @@ class AppDataRowViewSet(viewsets.ViewSet):
         return Response(AppDataRowSerializer(row).data)
     
     def partial_update(self, request, internal_app_pk=None, table_slug=None, pk=None):
-        """Update a row with partial data."""
+        """Update a row with partial data (editor+ only)."""
         app, table = self._get_table(request, internal_app_pk, table_slug)
         if not app:
             return Response(
@@ -294,6 +321,11 @@ class AppDataRowViewSet(viewsets.ViewSet):
                 {'error': 'Table not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
+        
+        # Require editor or above for mutations
+        error = self._require_editor(request, app)
+        if error:
+            return error
         
         row = AppDataService.get_row(table, pk)
         if not row:
@@ -314,7 +346,7 @@ class AppDataRowViewSet(viewsets.ViewSet):
         return Response(AppDataRowSerializer(updated_row).data)
     
     def destroy(self, request, internal_app_pk=None, table_slug=None, pk=None):
-        """Delete a row."""
+        """Delete a row (editor+ only)."""
         app, table = self._get_table(request, internal_app_pk, table_slug)
         if not app:
             return Response(
@@ -326,6 +358,11 @@ class AppDataRowViewSet(viewsets.ViewSet):
                 {'error': 'Table not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
+        
+        # Require editor or above for mutations
+        error = self._require_editor(request, app)
+        if error:
+            return error
         
         row = AppDataService.get_row(table, pk)
         if not row:
@@ -340,7 +377,7 @@ class AppDataRowViewSet(viewsets.ViewSet):
 
 class AppDataRowBulkView(APIView):
     """
-    View for bulk row operations.
+    View for bulk row operations (editor+ only).
     
     POST - Bulk insert rows
     DELETE - Bulk delete rows
@@ -352,17 +389,20 @@ class AppDataRowBulkView(APIView):
         app = get_object_or_404(InternalApp, pk=app_pk)
         
         # Verify user belongs to the app's organization
-        if not UserOrganization.objects.filter(
-            user=request.user,
-            organization=app.organization
-        ).exists():
+        membership, _ = require_org_membership(request, app.organization)
+        if not membership:
             return None, None
         
         table = AppDataService.get_table(app, table_slug)
         return app, table
     
+    def _require_editor(self, request, app):
+        """Check if user is editor or above. Returns error response or None."""
+        membership, error = require_editor_or_above(request, app.organization)
+        return error
+    
     def post(self, request, internal_app_pk=None, table_slug=None):
-        """Bulk insert rows."""
+        """Bulk insert rows (editor+ only)."""
         app, table = self._get_table(request, internal_app_pk, table_slug)
         if not app:
             return Response(
@@ -374,6 +414,11 @@ class AppDataRowBulkView(APIView):
                 {'error': 'Table not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
+        
+        # Require editor or above for mutations
+        error = self._require_editor(request, app)
+        if error:
+            return error
         
         serializer = AppDataRowBulkSerializer(data=request.data)
         if not serializer.is_valid():
@@ -395,7 +440,7 @@ class AppDataRowBulkView(APIView):
         return Response(response_data, status=status.HTTP_201_CREATED)
     
     def delete(self, request, internal_app_pk=None, table_slug=None):
-        """Bulk delete rows."""
+        """Bulk delete rows (editor+ only)."""
         app, table = self._get_table(request, internal_app_pk, table_slug)
         if not app:
             return Response(
@@ -407,6 +452,11 @@ class AppDataRowBulkView(APIView):
                 {'error': 'Table not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
+        
+        # Require editor or above for mutations
+        error = self._require_editor(request, app)
+        if error:
+            return error
         
         serializer = AppDataRowBulkDeleteSerializer(data=request.data)
         if not serializer.is_valid():
@@ -426,6 +476,7 @@ class AppDataQueryView(APIView):
     POST /apps/{app_id}/data/tables/{slug}/query/
     
     Allows passing complex query specifications in the request body.
+    Read-only - any org member can query.
     """
     permission_classes = [IsAuthenticated]
     
@@ -434,10 +485,8 @@ class AppDataQueryView(APIView):
         app = get_object_or_404(InternalApp, pk=app_pk)
         
         # Verify user belongs to the app's organization
-        if not UserOrganization.objects.filter(
-            user=request.user,
-            organization=app.organization
-        ).exists():
+        membership, _ = require_org_membership(request, app.organization)
+        if not membership:
             return None, None
         
         table = AppDataService.get_table(app, table_slug)

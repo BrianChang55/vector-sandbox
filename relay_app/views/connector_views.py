@@ -128,13 +128,14 @@ class IntegrationProviderViewSet(viewsets.ModelViewSet):
         return context
     
     def perform_create(self, serializer):
-        """Verify user is member of organization."""
+        """Verify user is admin of organization (integration management requires admin)."""
         org_id = self.kwargs.get('organization_pk')
         organization = get_object_or_404(Organization, id=org_id)
         
-        # Verify user is member
-        if not self.request.user.user_organizations.filter(organization=organization).exists():
-            raise PermissionError('You are not a member of this organization')
+        # Verify user is admin
+        if not require_admin_for_integrations(self.request, organization):
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied('Only admins can create integration providers')
         
         serializer.save()
 

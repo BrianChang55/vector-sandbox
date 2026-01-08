@@ -2,14 +2,20 @@
 Preview Views for Internal Apps
 
 Serves the generated app preview as an HTML page with bundled React code.
+
+Authorization:
+- All requests must be authenticated (session or JWT)
+- User must be a member of the app's organization
 """
 import logging
 import json
-from django.http import HttpResponse, Http404
+from django.http import HttpResponse, HttpResponseForbidden, Http404
 from django.views import View
 from django.shortcuts import get_object_or_404
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework.request import Request
 
-from ..models import InternalApp, AppVersion, VersionFile
+from ..models import InternalApp, AppVersion, VersionFile, UserOrganization
 from ..services.version_service import VersionService
 
 logger = logging.getLogger(__name__)
@@ -20,14 +26,66 @@ class AppPreviewView(View):
     Serves the app preview as an HTML page.
     
     GET /preview/apps/:app_id?version=...
+    
+    Authorization:
+    - Must be authenticated (session or JWT)
+    - Must be member of app's organization
     """
+    
+    def _get_authenticated_user(self, request):
+        """
+        Get authenticated user from session or JWT token.
+        
+        Returns (user, error_response) tuple.
+        """
+        # Try session auth first
+        if request.user and request.user.is_authenticated:
+            return request.user, None
+        
+        # Try JWT from Authorization header
+        auth_header = request.META.get('HTTP_AUTHORIZATION', '')
+        if auth_header:
+            try:
+                jwt_auth = JWTAuthentication()
+                drf_request = Request(request)
+                auth_result = jwt_auth.authenticate(drf_request)
+                if auth_result:
+                    user, _ = auth_result
+                    return user, None
+            except Exception as e:
+                logger.debug(f"JWT auth failed for preview: {e}")
+        
+        # Check for token query parameter (for iframe embedding)
+        token = request.GET.get('token')
+        if token:
+            try:
+                from rest_framework_simplejwt.tokens import AccessToken
+                access_token = AccessToken(token)
+                from django.contrib.auth import get_user_model
+                User = get_user_model()
+                user = User.objects.get(id=access_token['user_id'])
+                return user, None
+            except Exception as e:
+                logger.debug(f"Token param auth failed: {e}")
+        
+        return None, HttpResponseForbidden("Authentication required")
     
     def get(self, request, app_id):
         """Render preview HTML for an app version."""
+        # Authenticate user
+        user, error = self._get_authenticated_user(request)
+        if error:
+            return self._allow_iframe(error)
+        
         version_id = request.GET.get('version')
         
         try:
-            app = InternalApp.objects.get(pk=app_id)
+            app = InternalApp.objects.select_related('organization').get(pk=app_id)
+            
+            # Verify user is member of app's organization
+            if not UserOrganization.objects.filter(user=user, organization=app.organization).exists():
+                response = HttpResponseForbidden("You don't have access to this app")
+                return self._allow_iframe(response)
             
             if version_id:
                 version = AppVersion.objects.get(pk=version_id, internal_app=app)
