@@ -1,0 +1,104 @@
+# Render Blueprint for Internal Apps Backend
+# Deploy with: Render Dashboard > New > Blueprint > Connect this repo
+
+services:
+  # Django Backend API
+  - type: web
+    name: internal-apps-api
+    runtime: python
+    region: oregon
+    plan: starter
+    buildCommand: ./build.sh
+    startCommand: gunicorn internal_apps.wsgi:application
+    healthCheckPath: /api/v1/health/
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.10.12"
+      - key: DEBUG
+        value: "False"
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: internal-apps-db
+          property: connectionString
+      - key: CELERY_BROKER_URL
+        fromService:
+          type: redis
+          name: internal-apps-redis
+          property: connectionString
+      - key: CELERY_RESULT_BACKEND
+        fromService:
+          type: redis
+          name: internal-apps-redis
+          property: connectionString
+      # Set manually after frontend deploys
+      - key: FRONTEND_URL
+        sync: false
+      # Add your own API keys via Render dashboard
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+    autoDeploy: true
+
+  # Celery Background Worker
+  - type: worker
+    name: internal-apps-worker
+    runtime: python
+    region: oregon
+    plan: starter
+    buildCommand: ./build.sh
+    startCommand: celery -A internal_apps worker --loglevel=info
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.10.12"
+      - key: DEBUG
+        value: "False"
+      - key: DJANGO_SECRET_KEY
+        fromService:
+          type: web
+          name: internal-apps-api
+          envVarKey: DJANGO_SECRET_KEY
+      - key: DATABASE_URL
+        fromDatabase:
+          name: internal-apps-db
+          property: connectionString
+      - key: CELERY_BROKER_URL
+        fromService:
+          type: redis
+          name: internal-apps-redis
+          property: connectionString
+      - key: CELERY_RESULT_BACKEND
+        fromService:
+          type: redis
+          name: internal-apps-redis
+          property: connectionString
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+    autoDeploy: true
+
+  # Redis for Celery
+  - type: redis
+    name: internal-apps-redis
+    region: oregon
+    plan: starter
+    maxmemoryPolicy: noeviction
+
+databases:
+  - name: internal-apps-db
+    region: oregon
+    plan: starter
+    databaseName: internal_apps
+    user: internal_apps_user
+

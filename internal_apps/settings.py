@@ -185,6 +185,7 @@ CORS_ALLOWED_ORIGINS = [
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r'^https://.*\.codesandbox\.io$',
     r'^https://.*-sandpack\.codesandbox\.io$',
+    r'^https://internal-apps-frontend.*\.onrender\.com$',  # Render frontend
 ]
 
 FRONTEND_URL = env('FRONTEND_URL', default='http://localhost:5176')
