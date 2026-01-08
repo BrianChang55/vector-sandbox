@@ -178,6 +178,10 @@ CORS_ALLOWED_ORIGINS = [
     'http://localhost:5176',
     'https://localhost:3000',
     'https://localhost:3001',
+    # Production custom domain
+    'https://relayapps.ai',
+    'https://www.relayapps.ai',
+    'https://app.relayapps.ai',
 ]
 
 # Allow Sandpack/CodeSandbox iframe origins for the preview runtime
@@ -185,7 +189,8 @@ CORS_ALLOWED_ORIGINS = [
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r'^https://.*\.codesandbox\.io$',
     r'^https://.*-sandpack\.codesandbox\.io$',
-    r'^https://internal-apps-frontend.*\.onrender\.com$',  # Render frontend
+    r'^https://internal-apps-frontend.*\.onrender\.com$',
+    r'^https://.*\.relayapps\.ai$',  # All subdomains of relayapps.ai
 ]
 
 FRONTEND_URL = env('FRONTEND_URL', default='http://localhost:5176')
@@ -217,6 +222,11 @@ CSRF_TRUSTED_ORIGINS = [
     'http://localhost:3001',
     'https://localhost:3000',
     'https://localhost:3001',
+    # Production custom domain
+    'https://relayapps.ai',
+    'https://www.relayapps.ai',
+    'https://app.relayapps.ai',
+    'https://api.relayapps.ai',
 ]
 
 if RENDER_EXTERNAL_HOSTNAME:
