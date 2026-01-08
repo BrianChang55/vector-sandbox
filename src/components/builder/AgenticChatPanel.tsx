@@ -28,13 +28,17 @@ import {
   startAgenticGeneration,
   agentStateReducer,
   fetchLatestGeneration,
+  fetchLatestJob,
+  reconnectToJob,
   upsertFileChange,
   cancelGeneration,
+  cancelJob,
   startFixErrors,
 } from '../../services/agentService'
 import type { BundlerError } from '../../hooks/useSandpackValidation'
 import type { AgentEvent, PlanStep, FileChange, AgentState } from '../../types/agent'
 import { initialAgentState } from '../../types/agent'
+import { useQueryClient } from '@tanstack/react-query'
 import { useChatSessions, useCreateChatSession, useChatMessages } from '../../hooks/useAI'
 import type { ChatMessage as ApiChatMessage } from '../../services/aiService'
 import { cn } from '../../lib/utils'
@@ -427,6 +431,9 @@ export function AgenticChatPanel({
   const [accumulatedFiles, setAccumulatedFiles] = useState<FileChange[]>([])
   // Track the generating version ID so we can cancel it properly
   const [generatingVersionId, setGeneratingVersionId] = useState<string | null>(null)
+  // Track active job ID for reconnection support
+  const [activeJobId, setActiveJobId] = useState<string | null>(null)
+  const [hasCheckedForActiveJob, setHasCheckedForActiveJob] = useState(false)
   
   // Error fixing state
   const [isFixingErrors, setIsFixingErrors] = useState(false)
@@ -449,6 +456,7 @@ export function AgenticChatPanel({
   const { data: chatSessions, refetch: refetchChatSessions, isLoading: sessionsLoading } = useChatSessions(appId)
   const { mutateAsync: createChatSession, isPending: creatingSession } = useCreateChatSession()
   const { data: sessionMessages, isFetching: messagesFetching } = useChatMessages(sessionId)
+  const queryClient = useQueryClient()
   const [hydratedSessionId, setHydratedSessionId] = useState<string | null>(null)
   const [hasHydratedMessages, setHasHydratedMessages] = useState(false)
   const [minLoaderElapsed, setMinLoaderElapsed] = useState(false)
@@ -881,6 +889,38 @@ export function AgenticChatPanel({
           refetchChatSessions()
           break
 
+        case 'user_message':
+          // Add user message to the chat (handles reconnection/replay scenarios)
+          setMessages(prev => {
+            // Check if we already have this user message (avoid duplicates during live generation)
+            const existingIdx = prev.findIndex(m => m.id === data.id)
+            if (existingIdx >= 0) return prev
+            
+            // Also check if the last user message has the same content (for live generation)
+            const lastUserMsg = [...prev].reverse().find(m => m.role === 'user')
+            if (lastUserMsg?.content === data.content) return prev
+            
+            // Find the insertion point (before any assistant messages for this generation)
+            const lastIdx = prev.length - 1
+            const lastMsg = prev[lastIdx]
+            
+            const userMessage: LocalMessage = {
+              id: data.id || `user-${Date.now()}`,
+              role: 'user',
+              content: data.content,
+              status: 'complete',
+              createdAt: event.timestamp,
+            }
+            
+            // If last message is a streaming assistant, insert user message before it
+            if (lastMsg?.role === 'assistant' && lastMsg?.status === 'streaming') {
+              return [...prev.slice(0, lastIdx), userMessage, lastMsg]
+            }
+            
+            return [...prev, userMessage]
+          })
+          break
+
         case 'agent_start':
           setThinkingStartTime(Date.now())
           setAccumulatedFiles([]) // Reset files for new generation
@@ -1290,6 +1330,104 @@ export function AgenticChatPanel({
     ]
   )
 
+  // Check for active jobs on mount and reconnect if one is in progress
+  // This enables seamless continuation after page refresh
+  useEffect(() => {
+    if (hasCheckedForActiveJob) return
+    // Wait for session messages to be loaded first to preserve chat history
+    if (messagesFetching || sessionMessages === undefined) return
+    
+    const checkForActiveJob = async () => {
+      try {
+        const jobInfo = await fetchLatestJob(appId)
+        
+        if (jobInfo?.has_active_job && jobInfo.job_id) {
+          console.log('[AgenticChatPanel] Found active job, reconnecting:', jobInfo.job_id)
+          
+          // Set loading state
+          setIsLoading(true)
+          setActiveJobId(jobInfo.job_id)
+          setThinkingStartTime(Date.now())
+          
+          if (jobInfo.version_id) {
+            setGeneratingVersionId(jobInfo.version_id)
+            onGeneratingVersionChange?.(jobInfo.version_id)
+          }
+          
+          // Add placeholder message for the reconnected generation
+          // Use sessionMessages as the base to preserve chat history
+          const historicalMessages = sessionMessages 
+            ? sessionMessages.map(mapApiMessageToLocal)
+            : []
+          
+          // Mark as hydrated since we're using session messages
+          if (sessionId) {
+            setHydratedSessionId(sessionId)
+          }
+          
+          setMessages(prev => {
+            // If we haven't hydrated yet, start with historical messages
+            const baseMessages = prev.length === 0 ? historicalMessages : prev
+            
+            // Check if we already have a streaming message
+            const lastMsg = baseMessages[baseMessages.length - 1]
+            if (lastMsg?.status === 'streaming') return baseMessages
+            
+            return [
+              ...baseMessages,
+              {
+                id: `reconnect-${Date.now()}`,
+                role: 'assistant' as const,
+                content: '',
+                status: 'streaming' as const,
+                isAgentic: true,
+                tasks: [],
+                files: [],
+                progressUpdates: [{
+                  id: 'reconnect',
+                  text: 'Reconnecting to generation in progress...',
+                  timestamp: new Date().toISOString(),
+                  variant: 'info' as const,
+                }],
+                createdAt: new Date().toISOString(),
+              },
+            ]
+          })
+          
+          // Reconnect to the job stream
+          const { controller } = reconnectToJob(jobInfo.job_id, {
+            onEvent: handleAgentEvent,
+            onComplete: () => {
+              setIsLoading(false)
+              setAbortController(null)
+              setActiveJobId(null)
+              setGeneratingVersionId(null)
+              // Invalidate and refetch messages to ensure we have the latest
+              if (sessionId) {
+                queryClient.invalidateQueries({ queryKey: ['chat-messages', sessionId] })
+              }
+            },
+            onError: (error) => {
+              console.error('[AgenticChatPanel] Reconnection error:', error)
+              setIsLoading(false)
+              setAbortController(null)
+              setActiveJobId(null)
+              setGeneratingVersionId(null)
+            },
+          })
+          
+          setAbortController(controller)
+        }
+      } catch (error) {
+        console.error('[AgenticChatPanel] Failed to check for active jobs:', error)
+      } finally {
+        setHasCheckedForActiveJob(true)
+      }
+    }
+    
+    checkForActiveJob()
+  }, [appId, hasCheckedForActiveJob, handleAgentEvent, onGeneratingVersionChange, messagesFetching, sessionMessages, mapApiMessageToLocal, sessionId])
+
   const handleSubmit = async () => {
     if (!input.trim() || isLoading) return
 
@@ -1336,21 +1474,38 @@ export function AgenticChatPanel({
       },
     ])
 
-    const { controller } = startAgenticGeneration(appId, message, {
+    const { controller, getJobId } = startAgenticGeneration(appId, message, {
       sessionId: sessionId || undefined,
       model: selectedModel,
-      onEvent: handleAgentEvent,
+      onEvent: (event) => {
+        // Track job ID from version_draft event (job creates version)
+        const data = event.data as Record<string, unknown>
+        if (event.type === 'version_draft' && data.version_id) {
+          // The job ID is tracked internally, but we use version_id for cancellation
+          const jobId = getJobId()
+          if (jobId) {
+            setActiveJobId(jobId)
+          }
+        }
+        handleAgentEvent(event)
+      },
       onComplete: () => {
         setIsLoading(false)
         setAbortController(null)
-        setGeneratingVersionId(null)  // Clear on completion
+        setGeneratingVersionId(null)
+        setActiveJobId(null)
+        // Invalidate and refetch messages to ensure we have the latest
+        if (sessionId) {
+          queryClient.invalidateQueries({ queryKey: ['chat-messages', sessionId] })
+        }
       },
       onError: (error) => {
         console.error('Agent error:', error)
         setIsLoading(false)
         setAbortController(null)
         setThinkingStartTime(null)
-        setGeneratingVersionId(null)  // Clear on error
+        setGeneratingVersionId(null)
+        setActiveJobId(null)
         setMessages((prev) => {
           const lastIdx = prev.length - 1
           if (lastIdx < 0) return prev
@@ -1379,15 +1534,25 @@ export function AgenticChatPanel({
     setAbortController(null)
     setThinkingStartTime(null)
 
-    // Cancel the generating version on the backend to clean up
-    if (generatingVersionId) {
+    // Cancel the job on the backend (this also cancels the version)
+    if (activeJobId) {
+      try {
+        await cancelJob(activeJobId)
+      } catch (error) {
+        console.warn('[AgenticChatPanel] Failed to cancel job:', error)
+      }
+      setActiveJobId(null)
+    }
+    
+    // Fallback: cancel the version directly if no job ID
+    if (generatingVersionId && !activeJobId) {
       try {
         await cancelGeneration(generatingVersionId)
       } catch (error) {
         console.warn('[AgenticChatPanel] Failed to cancel generating version:', error)
       }
-      setGeneratingVersionId(null)
     }
+    setGeneratingVersionId(null)
 
     dispatchAgentEvent({
       type: 'agent_error',
@@ -1460,16 +1625,19 @@ export function AgenticChatPanel({
 
   useEffect(() => {
     if (!sessionId) return
-    // Consider messages hydrated only after we've loaded the current session's
-    // history (even if empty) and our hydrate effect has run.
-    if (
-      !messagesFetching &&
-      sessionMessages &&
-      (hydratedSessionId === sessionId || sessionMessages.length === 0)
-    ) {
-      setHasHydratedMessages(true)
+    // Consider messages hydrated once the fetch completes and we've either:
+    // 1. Already hydrated this session
+    // 2. No messages to hydrate (empty session)
+    // 3. sessionMessages are available (hydration effect will run)
+    if (!messagesFetching && sessionMessages !== undefined) {
+      // Give the hydration effect a chance to run, then mark as hydrated
+      // This handles the case where sessionMessages has data
+      const timer = setTimeout(() => {
+        setHasHydratedMessages(true)
+      }, 50)
+      return () => clearTimeout(timer)
     }
-  }, [sessionId, sessionMessages, messagesFetching, hydratedSessionId])
+  }, [sessionId, sessionMessages, messagesFetching])
 
   // Add a small minimum loader duration to avoid flicker
   useEffect(() => {

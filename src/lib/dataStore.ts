@@ -109,6 +109,7 @@ declare global {
       appId: string;
       versionId?: string;
       apiBaseUrl: string;
+      authToken?: string;
     };
   }
 }
@@ -145,11 +146,20 @@ async function runtimeDataCall<T>(
     body.tableSlug = tableSlug;
   }
   
+  // Build headers with optional auth token
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  
+  // Try to get auth token from config or localStorage
+  const authToken = config.authToken || (typeof localStorage !== 'undefined' ? localStorage.getItem('access_token') : null);
+  if (authToken) {
+    headers['Authorization'] = `Bearer ${authToken}`;
+  }
+
   const response = await fetch(`${config.apiBaseUrl}/runtime/data/`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify(body),
   });
   

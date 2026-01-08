@@ -1681,15 +1681,20 @@ export function SandpackPreview({
       // Handle DATASTORE_REQUEST messages
       if (event.data.type === 'DATASTORE_REQUEST') {
         const { requestId, appId: reqAppId, versionId: reqVersionId, operation, tableSlug, params } = event.data
-        console.log('[SandpackPreview] Received dataStore request:', requestId, operation, tableSlug)
 
         try {
           const url = `${RUNTIME_API_BASE_URL}/runtime/data/`
-          console.log('[SandpackPreview] Proxying request to:', url)
+
+          // Include auth token from parent window's localStorage
+          const token = localStorage.getItem('access_token')
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+          if (token) {
+            headers['Authorization'] = `Bearer ${token}`
+          }
 
           const response = await fetch(url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers,
             body: JSON.stringify({
               appId: reqAppId || appId,
               versionId: reqVersionId || versionId,
@@ -1700,7 +1705,6 @@ export function SandpackPreview({
           })
 
           const data = await response.json()
-          console.log('[SandpackPreview] Got response for:', requestId, response.ok ? 'success' : 'error')
 
           event.source?.postMessage({
             type: 'DATASTORE_RESPONSE',
@@ -1710,7 +1714,6 @@ export function SandpackPreview({
             error: !response.ok ? (data.error || `API error: ${response.status}`) : undefined,
           }, { targetOrigin: '*' })
         } catch (error) {
-          console.error('[SandpackPreview] API call failed:', requestId, error)
           event.source?.postMessage({
             type: 'DATASTORE_RESPONSE',
             requestId,
@@ -1724,15 +1727,20 @@ export function SandpackPreview({
       // Handle MCP_REQUEST messages (for connector/integration tools)
       if (event.data.type === 'MCP_REQUEST') {
         const { requestId, appId: reqAppId, toolName, params } = event.data
-        console.log('[SandpackPreview] Received MCP request:', requestId, toolName)
 
         try {
           const url = `${RUNTIME_API_BASE_URL}/runtime/connectors/`
-          console.log('[SandpackPreview] Proxying MCP request to:', url)
+
+          // Include auth token from parent window's localStorage
+          const mcpToken = localStorage.getItem('access_token')
+          const mcpHeaders: Record<string, string> = { 'Content-Type': 'application/json' }
+          if (mcpToken) {
+            mcpHeaders['Authorization'] = `Bearer ${mcpToken}`
+          }
 
           const response = await fetch(url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: mcpHeaders,
             body: JSON.stringify({
               appId: reqAppId || appId,
               connectorId: '_meta',
@@ -1745,7 +1753,6 @@ export function SandpackPreview({
           })
 
           const data = await response.json()
-          console.log('[SandpackPreview] Got MCP response for:', requestId, response.ok ? 'success' : 'error')
 
           event.source?.postMessage({
             type: 'MCP_RESPONSE',
@@ -1755,7 +1762,6 @@ export function SandpackPreview({
             error: !response.ok || data.success === false ? (data.error || `API error: ${response.status}`) : undefined,
           }, { targetOrigin: '*' })
         } catch (error) {
-          console.error('[SandpackPreview] MCP call failed:', requestId, error)
           event.source?.postMessage({
             type: 'MCP_RESPONSE',
             requestId,
@@ -1769,7 +1775,6 @@ export function SandpackPreview({
       // Handle MCP_LIST_TOOLS messages
       if (event.data.type === 'MCP_LIST_TOOLS') {
         const { requestId, appId: reqAppId } = event.data
-        console.log('[SandpackPreview] Received MCP list tools request:', requestId)
 
         try {
           const url = `${RUNTIME_API_BASE_URL}/runtime/connectors/`
@@ -1792,7 +1797,6 @@ export function SandpackPreview({
             error: !response.ok ? (data.error || `API error: ${response.status}`) : undefined,
           }, { targetOrigin: '*' })
         } catch (error) {
-          console.error('[SandpackPreview] MCP list tools failed:', requestId, error)
           event.source?.postMessage({
             type: 'MCP_RESPONSE',
             requestId,
@@ -1805,7 +1809,6 @@ export function SandpackPreview({
     }
 
     window.addEventListener('message', handleMessage)
-    console.log('[SandpackPreview] PostMessage bridge listener installed (dataStore + MCP)')
 
     return () => {
       window.removeEventListener('message', handleMessage)

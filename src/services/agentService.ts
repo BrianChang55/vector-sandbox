@@ -156,21 +156,94 @@ export async function cancelGeneration(versionId: string): Promise<void> {
 }
 
 /**
+ * Cancel a generation job by job ID
+ */
+export async function cancelJob(jobId: string): Promise<void> {
+  try {
+    await api.post(`/jobs/${jobId}/cancel/`)
+  } catch (error) {
+    console.warn('[agentService] Failed to cancel job:', error)
+  }
+}
+
+/**
+ * Job status response from the backend
+ */
+export interface JobStatus {
+  job_id: string
+  app_id: string
+  status: 'queued' | 'processing' | 'streaming' | 'complete' | 'failed' | 'cancelled'
+  version_id: string | null
+  event_count: number
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+  error_message: string | null
+  is_active: boolean
+}
+
+/**
+ * Fetch the status of a specific job
+ */
+export async function fetchJobStatus(jobId: string): Promise<JobStatus | null> {
+  try {
+    const response = await api.get<JobStatus>(`/jobs/${jobId}/`)
+    return response.data
+  } catch (error) {
+    console.error('[agentService] Failed to fetch job status:', error)
+    return null
+  }
+}
+
+/**
+ * Latest job response from the backend
+ */
+export interface LatestJobInfo {
+  has_active_job: boolean
+  job_id: string | null
+  status?: string
+  version_id?: string | null
+  event_count?: number
+  created_at?: string
+  completed_at?: string | null
+}
+
+/**
+ * Fetch the latest job for an app (for reconnection on page refresh)
+ */
+export async function fetchLatestJob(appId: string): Promise<LatestJobInfo | null> {
+  try {
+    const response = await api.get<LatestJobInfo>(`/apps/${appId}/latest-job/`)
+    return response.data
+  } catch (error) {
+    console.error('[agentService] Failed to fetch latest job:', error)
+    return null
+  }
+}
+
+/**
  * Start agentic code generation with streaming progress
+ * 
+ * Uses job-based background processing for resilience:
+ * - Generation runs in Celery worker, survives connection drops
+ * - Events stored in DB for replay on reconnection
+ * - Same SSE interface as before (no breaking changes)
  * 
  * Returns an object with:
  * - controller: AbortController to cancel the request
  * - getVersionId: function to get the current version ID (for cancellation)
+ * - getJobId: function to get the job ID (for reconnection)
  */
 export function startAgenticGeneration(
   appId: string,
   message: string,
   options: AgentGenerateOptions
-): { controller: AbortController; getVersionId: () => string | null } {
+): { controller: AbortController; getVersionId: () => string | null; getJobId: () => string | null } {
   const controller = new AbortController()
   
-  // Track the version ID when it's created so we can cancel it
+  // Track IDs when they're created
   let currentVersionId: string | null = null
+  let currentJobId: string | null = null
 
   const params = new URLSearchParams({
     message,
@@ -182,6 +255,7 @@ export function startAgenticGeneration(
     params.set('session_id', options.sessionId)
   }
 
+  // Use legacy GET endpoint which now creates a job and streams from it
   const url = `${api.defaults.baseURL}/apps/${appId}/generate/agentic/?${params.toString()}`
   const token = localStorage.getItem('access_token')
 
@@ -255,8 +329,10 @@ export function startAgenticGeneration(
       })
       .catch(async (error) => {
         if (error.name === 'AbortError') {
-          // User cancelled - clean up the generating version
-          if (currentVersionId) {
+          // User cancelled - clean up
+          if (currentJobId) {
+            await cancelJob(currentJobId)
+          } else if (currentVersionId) {
             await cancelGeneration(currentVersionId)
           }
         } else {
@@ -270,7 +346,102 @@ export function startAgenticGeneration(
   return {
     controller,
     getVersionId: () => currentVersionId,
+    getJobId: () => currentJobId,
   }
+}
+
+/**
+ * Reconnect to an existing generation job
+ * 
+ * Use this to resume streaming events after a page refresh or browser switch.
+ * All events are replayed from the start, then live streaming continues.
+ */
+export function reconnectToJob(
+  jobId: string,
+  options: AgentGenerateOptions & { lastEventIndex?: number }
+): { controller: AbortController } {
+  const controller = new AbortController()
+  
+  const params = new URLSearchParams()
+  if (options.lastEventIndex !== undefined) {
+    params.set('last_index', String(options.lastEventIndex))
+  }
+
+  const url = `${api.defaults.baseURL}/jobs/${jobId}/stream/?${params.toString()}`
+  const token = localStorage.getItem('access_token')
+
+  if (token) {
+    fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'text/event-stream',
+      },
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+        }
+
+        const reader = response.body?.getReader()
+        if (!reader) {
+          throw new Error('No response body')
+        }
+
+        const decoder = new TextDecoder()
+        let buffer = ''
+
+        while (true) {
+          const { done, value } = await reader.read()
+
+          if (done) {
+            options.onComplete?.()
+            break
+          }
+
+          buffer += decoder.decode(value, { stream: true })
+
+          // Parse SSE events
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+
+          let eventType = ''
+          let eventData = ''
+
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              eventType = line.slice(7).trim()
+            } else if (line.startsWith('data: ')) {
+              eventData = line.slice(6)
+            } else if (line === '' && eventType && eventData) {
+              try {
+                const data = JSON.parse(eventData)
+                const event: AgentEvent = {
+                  type: eventType as AgentEventType,
+                  timestamp: new Date().toISOString(),
+                  data,
+                }
+                options.onEvent(event)
+              } catch (e) {
+                console.warn('Failed to parse SSE data:', eventData)
+              }
+              eventType = ''
+              eventData = ''
+            }
+          }
+        }
+      })
+      .catch((error) => {
+        if (error.name !== 'AbortError') {
+          options.onError?.(error)
+        }
+      })
+  } else {
+    options.onError?.(new Error('Authentication required'))
+  }
+
+  return { controller }
 }
 
 /**

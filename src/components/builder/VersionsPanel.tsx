@@ -134,10 +134,18 @@ export function VersionsPanel({
               return (
                   <div key={version.id} className="relative">
                     {/* Version Card */}
-                  <button
+                  <div
                     onClick={() => onVersionSelect(version.id)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        onVersionSelect(version.id)
+                      }
+                    }}
                     className={cn(
-                        'w-full text-left rounded-lg transition-all duration-150',
+                        'w-full text-left rounded-lg transition-all duration-150 cursor-pointer',
                         'border',
                       isSelected
                           ? 'bg-gray-50 border-gray-200'
@@ -251,7 +259,7 @@ export function VersionsPanel({
                           </div>
                         )}
                       </div>
-                  </button>
+                  </div>
                 </div>
               )
             })}

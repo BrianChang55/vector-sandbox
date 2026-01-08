@@ -59,6 +59,8 @@ export function useChatMessages(sessionId: string | null) {
     queryKey: ['chat-messages', sessionId],
     queryFn: () => getChatMessages(sessionId!),
     enabled: !!sessionId,
+    staleTime: 0, // Always fetch fresh data
+    refetchOnMount: 'always', // Refetch when component mounts (e.g., page refresh)
   })
 }
 
