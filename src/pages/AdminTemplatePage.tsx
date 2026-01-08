@@ -4,30 +4,26 @@
  * Testing page for template components, dataStore, and MCP integrations.
  * Accessible at /admin/template
  */
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import {
   CheckCircle,
   XCircle,
   Loader2,
-  Box,
   Database,
   Plug,
   Palette,
   Clock,
   LayoutGrid,
-  FormInput,
-  Table2,
   Bell,
   PanelRightOpen,
   AlertCircle,
   Plus,
-  Trash2,
   RefreshCw,
   ChevronRight,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { useToast, ToastProvider } from '@/components/ui/toast'
+import { useToast } from '@/components/ui/toast'
 import {
   Drawer,
   DrawerContent,
@@ -37,7 +33,90 @@ import {
   DrawerFooter,
 } from '@/components/ui/drawer'
 import { cn } from '@/lib/utils'
-import { dataTablesApi } from '@/services/apiService'
+
+// API base URL for runtime proxy testing
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001/api/v1'
+
+/**
+ * Get auth headers for authenticated requests
+ */
+function getAuthHeaders(): Record<string, string> {
+  const token = localStorage.getItem('access_token')
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  }
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
+  return headers
+}
+
+/**
+ * Runtime Data Proxy - calls the same endpoint that generated apps use
+ * Includes auth token so backend can verify user has access to the app
+ */
+async function runtimeDataCall<T>(
+  appId: string,
+  operation: string,
+  tableSlug: string | null = null,
+  params: Record<string, unknown> = {}
+): Promise<T> {
+  const body: Record<string, unknown> = {
+    appId,
+    operation,
+    params,
+  }
+  
+  if (tableSlug) {
+    body.tableSlug = tableSlug
+  }
+  
+  const response = await fetch(`${API_BASE_URL}/runtime/data/`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(body),
+  })
+  
+  const result = await response.json()
+  
+  if (!response.ok) {
+    throw new Error(result.error || `Runtime data operation failed: ${operation}`)
+  }
+  
+  return result as T
+}
+
+/**
+ * Runtime Connector Proxy - calls the same endpoint that generated apps use for MCP
+ * Includes auth token so backend can verify user has access to the app
+ */
+async function runtimeConnectorCall<T>(
+  appId: string,
+  connectorId: string,
+  toolId: string,
+  params: Record<string, unknown> = {}
+): Promise<T> {
+  const body = {
+    appId,
+    connectorId,
+    toolId,
+    params,
+  }
+  
+  const response = await fetch(`${API_BASE_URL}/runtime/connectors/`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(body),
+  })
+  
+  const result = await response.json()
+  
+  if (!response.ok) {
+    throw new Error(result.error || `Runtime connector operation failed: ${toolId}`)
+  }
+  
+  return result as T
+}
 
 // ============================================================================
 // Types
@@ -383,15 +462,15 @@ function LoadingStateShowcase() {
 }
 
 // ============================================================================
-// DataStore Test Panel
+// DataStore Test Panel - Tests the Runtime Data Proxy endpoint
 // ============================================================================
 
 function DataStoreTestPanel() {
   const [results, setResults] = useState<TestResult[]>([])
   const [running, setRunning] = useState(false)
-  const [testAppId] = useState('test-app-' + Date.now())
+  const [testAppId, setTestAppId] = useState<string>('')
 
-  const runTest = async (operation: string, fn: () => Promise<any>): Promise<TestResult> => {
+  const runTest = async (operation: string, fn: () => Promise<unknown>): Promise<TestResult> => {
     const start = Date.now()
     try {
       const data = await fn()
@@ -412,50 +491,59 @@ function DataStoreTestPanel() {
   }
 
   const runAllTests = async () => {
+    const appId = testAppId.trim()
+    if (!appId) return
+    
     setRunning(true)
     setResults([])
     const newResults: TestResult[] = []
 
-    // Test 1: List tables
-    newResults.push(await runTest('List Tables', async () => {
-      const response = await dataTablesApi.listTables(testAppId)
+    // Test 1: Runtime Proxy - List Tables (same endpoint generated apps use)
+    newResults.push(await runTest('Runtime Proxy: listTables', async () => {
+      const response = await runtimeDataCall<{ tables: unknown[] }>(
+        appId,
+        'listTables'
+      )
       return response
     }))
     setResults([...newResults])
 
-    // Note: Full CRUD tests would require a valid app with tables
-    // For demo, we show the API structure
-    newResults.push({
-      operation: 'Insert Row (Demo)',
-      success: true,
-      duration: 0,
-      data: { id: 'demo-123', data: { name: 'Test' } },
-    })
-    setResults([...newResults])
+    // Test 2: Get first table's schema if any tables exist
+    const tablesResult = newResults[0]
+    if (tablesResult.success && tablesResult.data?.tables?.length > 0) {
+      const firstTableSlug = tablesResult.data.tables[0].slug
+      
+      newResults.push(await runTest(`Runtime Proxy: getSchema (${firstTableSlug})`, async () => {
+        const response = await runtimeDataCall(
+          appId,
+          'getSchema',
+          firstTableSlug
+        )
+        return response
+      }))
+      setResults([...newResults])
 
-    newResults.push({
-      operation: 'Query Rows (Demo)',
-      success: true,
-      duration: 0,
-      data: { rows: [], total_count: 0 },
-    })
-    setResults([...newResults])
-
-    newResults.push({
-      operation: 'Update Row (Demo)',
-      success: true,
-      duration: 0,
-      data: { success: true },
-    })
-    setResults([...newResults])
-
-    newResults.push({
-      operation: 'Delete Row (Demo)',
-      success: true,
-      duration: 0,
-      data: { success: true },
-    })
-    setResults([...newResults])
+      // Test 3: Query rows from the table
+      newResults.push(await runTest(`Runtime Proxy: query (${firstTableSlug})`, async () => {
+        const response = await runtimeDataCall(
+          appId,
+          'query',
+          firstTableSlug,
+          { limit: 5 }
+        )
+        return response
+      }))
+      setResults([...newResults])
+    } else {
+      // No tables - show info result
+      newResults.push({
+        operation: 'getSchema / query',
+        success: true,
+        duration: 0,
+        data: { message: 'No tables in app - create a table to test more operations' },
+      })
+      setResults([...newResults])
+    }
 
     setRunning(false)
   }
@@ -467,7 +555,10 @@ function DataStoreTestPanel() {
           <Database className="h-5 w-5 text-gray-500" />
           DataStore Integration Test
         </h3>
-        <Button onClick={runAllTests} disabled={running}>
+        <Button 
+          onClick={runAllTests} 
+          disabled={running || !testAppId.trim()}
+        >
           {running ? (
             <>
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -481,6 +572,23 @@ function DataStoreTestPanel() {
           )}
         </Button>
       </div>
+
+      {/* App ID Input */}
+      <div className="mb-4">
+        <label className="block text-xs font-medium text-gray-700 mb-1">App ID</label>
+        <Input
+          type="text"
+          value={testAppId}
+          onChange={(e) => setTestAppId(e.target.value)}
+          placeholder="Paste an app ID (e.g. abc12345-1234-5678-9abc-def012345678)"
+          className="font-mono text-xs"
+        />
+      </div>
+
+      <p className="text-xs text-gray-500 mb-4">
+        Tests the <code className="bg-gray-100 px-1 rounded">/api/v1/runtime/data/</code> endpoint 
+        — the same proxy that generated apps use at runtime.
+      </p>
 
       {results.length > 0 && (
         <div className="space-y-2">
@@ -526,111 +634,217 @@ function DataStoreTestPanel() {
 }
 
 // ============================================================================
-// MCP Test Panel
+// MCP Test Panel - Tests the Runtime Connector Proxy endpoint
 // ============================================================================
 
+interface RuntimeConnector {
+  id: string
+  name: string
+  category: string
+  icon_url?: string
+  tool_count: number
+  is_connected: boolean
+}
+
 function MCPTestPanel() {
-  const [connectors, setConnectors] = useState<string[]>([
-    'slack',
-    'jira',
-    'hubspot',
-    'stripe',
-    'github',
-  ])
-  const [selectedConnector, setSelectedConnector] = useState<string | null>(null)
+  const [testAppId, setTestAppId] = useState<string>('')
+  const [connectors, setConnectors] = useState<RuntimeConnector[]>([])
+  const [selectedConnector, setSelectedConnector] = useState<RuntimeConnector | null>(null)
   const [tools, setTools] = useState<ConnectorTool[]>([])
+  const [loadingConnectors, setLoadingConnectors] = useState(false)
   const [loadingTools, setLoadingTools] = useState(false)
   const [testResult, setTestResult] = useState<TestResult | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
-  const handleSelectConnector = async (connector: string) => {
+  const loadConnectors = async () => {
+    const appId = testAppId.trim()
+    if (!appId) return
+    
+    setLoadingConnectors(true)
+    setError(null)
+    setConnectors([])
+    setSelectedConnector(null)
+    setTools([])
+    
+    try {
+      // Call runtime connector proxy to list connectors (same as generated apps)
+      const response = await runtimeConnectorCall<{ connectors: RuntimeConnector[] }>(
+        appId,
+        '_meta',
+        'list'
+      )
+      setConnectors(response.connectors || [])
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      if (message.includes('No integration provider') || message.includes('not configured')) {
+        setError('No integration provider configured for this organization.')
+      } else {
+        setError(message)
+      }
+    } finally {
+      setLoadingConnectors(false)
+    }
+  }
+
+  const handleSelectConnector = async (connector: RuntimeConnector) => {
+    const appId = testAppId.trim()
+    if (!appId) return
+    
     setSelectedConnector(connector)
     setLoadingTools(true)
     setTools([])
     setTestResult(null)
 
-    // Simulate fetching tools (would call actual API)
-    await new Promise((r) => setTimeout(r, 500))
-
-    // Demo tools based on connector
-    const demoTools: Record<string, ConnectorTool[]> = {
-      slack: [
-        { name: 'slack_send_message', description: 'Send a message to a Slack channel' },
-        { name: 'slack_list_channels', description: 'List all Slack channels' },
-      ],
-      jira: [
-        { name: 'jira_create_issue', description: 'Create a new Jira issue' },
-        { name: 'jira_list_projects', description: 'List all Jira projects' },
-      ],
-      hubspot: [
-        { name: 'hubspot_list_deals', description: 'List HubSpot deals' },
-        { name: 'hubspot_create_contact', description: 'Create a new contact' },
-      ],
-      stripe: [
-        { name: 'stripe_list_customers', description: 'List Stripe customers' },
-        { name: 'stripe_create_invoice', description: 'Create an invoice' },
-      ],
-      github: [
-        { name: 'github_list_repos', description: 'List GitHub repositories' },
-        { name: 'github_create_issue', description: 'Create a GitHub issue' },
-      ],
+    try {
+      // Call runtime connector proxy to get tools for this connector
+      const response = await runtimeConnectorCall<{ tools: ConnectorTool[] }>(
+        appId,
+        '_meta',
+        'tools',
+        { connectorId: connector.id }
+      )
+      setTools(response.tools || [])
+    } catch (err) {
+      setTestResult({
+        operation: 'Load Tools',
+        success: false,
+        duration: 0,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      setLoadingTools(false)
     }
-
-    setTools(demoTools[connector] || [])
-    setLoadingTools(false)
   }
 
   const handleTestTool = async (tool: ConnectorTool) => {
+    const appId = testAppId.trim()
+    if (!appId || !selectedConnector) return
+    
     setTestResult(null)
     const start = Date.now()
 
-    // Simulate tool call
-    await new Promise((r) => setTimeout(r, 800))
-
-    setTestResult({
-      operation: tool.name,
-      success: true,
-      duration: Date.now() - start,
-      data: { message: 'Tool executed successfully (demo)', results: [] },
-    })
+    try {
+      // Execute the tool via runtime connector proxy
+      const response = await runtimeConnectorCall<{ success: boolean; data?: unknown; error?: string }>(
+        appId,
+        selectedConnector.id,
+        tool.name,
+        {}  // Empty params for test
+      )
+      
+      setTestResult({
+        operation: tool.name,
+        success: response.success,
+        duration: Date.now() - start,
+        data: response.data,
+        error: response.error,
+      })
+    } catch (err) {
+      setTestResult({
+        operation: tool.name,
+        success: false,
+        duration: Date.now() - start,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
   }
 
   return (
     <div className="bg-white rounded-lg border border-gray-200 p-6">
-      <h3 className="font-medium text-gray-900 flex items-center gap-2 mb-4">
-        <Plug className="h-5 w-5 text-gray-500" />
-        MCP Integration Test
-      </h3>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-medium text-gray-900 flex items-center gap-2">
+          <Plug className="h-5 w-5 text-gray-500" />
+          MCP Integration Test
+        </h3>
+      </div>
 
-      <div className="grid grid-cols-2 gap-6">
-        {/* Connector List */}
-        <div>
-          <h4 className="text-sm font-medium text-gray-700 mb-3">Available Connectors</h4>
-          <div className="space-y-2">
-            {connectors.map((connector) => (
-              <button
-                key={connector}
-                onClick={() => handleSelectConnector(connector)}
-                className={cn(
-                  'w-full flex items-center justify-between p-3 rounded-lg border text-left transition-colors',
-                  selectedConnector === connector
-                    ? 'border-gray-400 bg-gray-50'
-                    : 'border-gray-200 hover:border-gray-300'
-                )}
-              >
-                <span className="text-sm font-medium text-gray-900 capitalize">{connector}</span>
-                <ChevronRight className="h-4 w-4 text-gray-400" />
-              </button>
-            ))}
-          </div>
+      {/* App ID Input */}
+      <div className="mb-4">
+        <label className="block text-xs font-medium text-gray-700 mb-1">App ID</label>
+        <div className="flex gap-2">
+          <Input
+            type="text"
+            value={testAppId}
+            onChange={(e) => setTestAppId(e.target.value)}
+            placeholder="Paste an app ID (e.g. abc12345-1234-5678-9abc-def012345678)"
+            className="font-mono text-xs flex-1"
+          />
+          <Button 
+            onClick={loadConnectors} 
+            disabled={loadingConnectors || !testAppId.trim()}
+            variant="outline"
+          >
+            {loadingConnectors ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              'Load Connectors'
+            )}
+          </Button>
         </div>
+      </div>
 
-        {/* Tool List & Execution */}
-        <div>
-          {selectedConnector ? (
-            <>
-              <h4 className="text-sm font-medium text-gray-700 mb-3">
-                {selectedConnector.charAt(0).toUpperCase() + selectedConnector.slice(1)} Tools
-              </h4>
+      <p className="text-xs text-gray-500 mb-4">
+        Tests the <code className="bg-gray-100 px-1 rounded">/api/v1/runtime/connectors/</code> endpoint 
+        — the same proxy that generated apps use for MCP integrations.
+      </p>
+
+      {error && (
+        <div className="p-3 rounded-lg bg-yellow-50 border border-yellow-200 text-sm text-yellow-700 mb-4">
+          <AlertCircle className="h-4 w-4 inline mr-2" />
+          {error}
+        </div>
+      )}
+
+      {!loadingConnectors && connectors.length > 0 && (
+        <div className="grid grid-cols-2 gap-6">
+          {/* Connector List */}
+          <div>
+            <h4 className="text-sm font-medium text-gray-700 mb-3">
+              Available Connectors ({connectors.length})
+            </h4>
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {connectors.map((connector) => (
+                <button
+                  key={connector.id}
+                  onClick={() => handleSelectConnector(connector)}
+                  className={cn(
+                    'w-full flex items-center justify-between p-3 rounded-lg border text-left transition-colors',
+                    selectedConnector?.id === connector.id
+                      ? 'border-gray-400 bg-gray-50'
+                      : 'border-gray-200 hover:border-gray-300'
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    {connector.icon_url && (
+                      <img src={connector.icon_url} alt="" className="h-5 w-5 rounded" />
+                    )}
+                    <div>
+                      <span className="text-sm font-medium text-gray-900">{connector.name}</span>
+                      <span className="text-xs text-gray-500 ml-2">
+                        {connector.tool_count} tools
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {connector.is_connected ? (
+                      <span className="text-xs text-green-600">Connected</span>
+                    ) : (
+                      <span className="text-xs text-gray-400">Not connected</span>
+                    )}
+                    <ChevronRight className="h-4 w-4 text-gray-400" />
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Tool List & Execution */}
+          <div>
+            {selectedConnector ? (
+              <>
+                <h4 className="text-sm font-medium text-gray-700 mb-3">
+                  {selectedConnector.name} Tools
+                </h4>
               {loadingTools ? (
                 <div className="flex items-center gap-2 text-sm text-gray-500">
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -688,6 +902,7 @@ function MCPTestPanel() {
           )}
         </div>
       </div>
+      )}
     </div>
   )
 }

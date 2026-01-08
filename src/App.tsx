@@ -9,6 +9,7 @@ import { ToastProvider } from './components/ui/toast'
 import { store } from './store'
 import { MainLayout } from './components/Layout/MainLayout'
 import { AuthGuard } from './components/auth/AuthGuard'
+import { AdminGuard } from './components/auth/AdminGuard'
 import { LandingPage } from './pages/LandingPage'
 import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage'
 import { TermsOfServicePage } from './pages/TermsOfServicePage'
@@ -43,13 +44,13 @@ function App() {
             <Route path="/auth/magic-link/verify" element={<MagicLinkVerifyPage />} />
             <Route path="/invite/accept" element={<InviteAcceptPage />} />
             
-            {/* Admin routes */}
+            {/* Admin routes - requires whitelisted email */}
             <Route
               path="/admin/template"
               element={
-                <AuthGuard>
+                <AdminGuard>
                   <AdminTemplatePage />
-                </AuthGuard>
+                </AdminGuard>
               }
             />
 
