@@ -166,6 +166,12 @@ urlpatterns = [
     path('versions/<uuid:version_id>/generation-state/', streaming_views.GenerationStateView.as_view(), name='generation-state'),
     path('messages/<uuid:message_id>/apply/', streaming_views.ApplyGeneratedCodeView.as_view(), name='apply-generated'),
     
+    # Job-based generation endpoints (background processing with reconnection)
+    path('jobs/<uuid:job_id>/', streaming_views.JobStatusView.as_view(), name='job-status'),
+    path('jobs/<uuid:job_id>/stream/', streaming_views.JobStreamView.as_view(), name='job-stream'),
+    path('jobs/<uuid:job_id>/cancel/', streaming_views.JobCancelView.as_view(), name='job-cancel'),
+    path('apps/<uuid:app_id>/latest-job/', streaming_views.LatestJobView.as_view(), name='latest-job'),
+    
     # =========================================================================
     # App Data Store endpoints
     # =========================================================================

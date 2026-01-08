@@ -1085,6 +1085,10 @@ class AgentConfiguration(BaseModel):
 class CodeGenerationJob(BaseModel):
     """
     Tracks code generation jobs for async processing and streaming.
+    
+    Events are stored in events_json for replay on reconnection.
+    The Celery worker appends events as they're generated, and the
+    SSE endpoint streams them to the client.
     """
     STATUS_QUEUED = 'queued'
     STATUS_PROCESSING = 'processing'
@@ -1106,13 +1110,33 @@ class CodeGenerationJob(BaseModel):
     chat_message = models.OneToOneField(
         ChatMessage,
         on_delete=models.CASCADE,
-        related_name='generation_job'
+        related_name='generation_job',
+        null=True,
+        blank=True,
     )
     internal_app = models.ForeignKey(
         InternalApp,
         on_delete=models.CASCADE,
         related_name='generation_jobs'
     )
+    version = models.ForeignKey(
+        'AppVersion',
+        on_delete=models.CASCADE,
+        related_name='generation_job',
+        null=True,
+        blank=True,
+    )
+    session = models.ForeignKey(
+        ChatSession,
+        on_delete=models.CASCADE,
+        related_name='generation_jobs',
+        null=True,
+        blank=True,
+    )
+    
+    # Generation parameters
+    user_message = models.TextField(blank=True)
+    model_id = models.CharField(max_length=100, default='anthropic/claude-sonnet-4')
     
     status = models.CharField(
         max_length=20,
@@ -1124,9 +1148,10 @@ class CodeGenerationJob(BaseModel):
     progress_percentage = models.IntegerField(default=0)
     progress_message = models.CharField(max_length=255, blank=True)
     
-    # Streaming state
+    # Streaming state - events stored for replay
     accumulated_content = models.TextField(blank=True)
     chunk_count = models.IntegerField(default=0)
+    events_json = models.JSONField(default=list, blank=True)  # List of {type, data, timestamp}
     
     # Timing
     started_at = models.DateTimeField(null=True, blank=True)
@@ -1137,6 +1162,15 @@ class CodeGenerationJob(BaseModel):
     retry_count = models.IntegerField(default=0)
     max_retries = models.IntegerField(default=3)
     
+    # User who initiated the job
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='generation_jobs'
+    )
+    
     class Meta:
         ordering = ['-created_at']
         indexes = [
@@ -1146,6 +1180,19 @@ class CodeGenerationJob(BaseModel):
     
     def __str__(self):
         return f"Job {self.id} - {self.status}"
+    
+    def append_event(self, event_type: str, data: dict):
+        """Append an event to events_json and save."""
+        import time
+        event = {
+            'type': event_type,
+            'data': data,
+            'timestamp': time.time(),
+            'index': len(self.events_json),
+        }
+        self.events_json.append(event)
+        self.chunk_count = len(self.events_json)
+        self.save(update_fields=['events_json', 'chunk_count', 'updated_at'])
 
 
 class AIUsageLog(BaseModel):
