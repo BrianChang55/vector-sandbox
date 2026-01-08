@@ -3,17 +3,51 @@ Runtime Data Proxy API.
 
 Single endpoint for generated apps to interact with the App Data Store.
 Handles authentication via app context and routes to appropriate operations.
+
+Authorization:
+- All requests must be authenticated
+- User must be a member of the app's organization
 """
+from __future__ import annotations
+
 import logging
+from typing import Tuple, Optional
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
 
-from ..models import InternalApp, AppDataTable, AppVersion, AppDataTableSnapshot
+from ..models import InternalApp, AppDataTable, AppVersion, AppDataTableSnapshot, UserOrganization
 from ..services.app_data_service import AppDataService
 
 logger = logging.getLogger(__name__)
+
+
+def check_app_access(request, app: InternalApp) -> Tuple[bool, Optional[str]]:
+    """
+    Check if the request has access to the app.
+    
+    All requests must be authenticated and user must be a member of the app's organization.
+    
+    Returns:
+        (has_access, error_message) - if has_access is False, error_message explains why
+    """
+    user = request.user
+    
+    # Require authentication
+    if not user or not user.is_authenticated:
+        return False, "Authentication required"
+    
+    # Verify user belongs to the app's organization
+    is_member = UserOrganization.objects.filter(
+        user=user,
+        organization=app.organization
+    ).exists()
+    
+    if not is_member:
+        return False, "You don't have access to this app"
+    
+    return True, None
 
 
 class RuntimeDataProxyView(APIView):
@@ -22,6 +56,10 @@ class RuntimeDataProxyView(APIView):
     
     This endpoint is called by generated apps at runtime to perform
     CRUD operations on the app's data tables.
+    
+    Authorization:
+    - All requests must be authenticated
+    - User must be a member of the app's organization
     
     Request format:
     {
@@ -33,8 +71,7 @@ class RuntimeDataProxyView(APIView):
     }
     """
     
-    # Allow unauthenticated access for generated apps
-    # Apps are authenticated via appId
+    # Allow the request through - we do custom authorization below
     permission_classes = [AllowAny]
     
     def post(self, request):
@@ -63,11 +100,19 @@ class RuntimeDataProxyView(APIView):
         
         # Get the app
         try:
-            app = InternalApp.objects.get(id=app_id)
+            app = InternalApp.objects.select_related('organization').get(id=app_id)
         except InternalApp.DoesNotExist:
             return Response(
                 {'error': 'App not found'},
                 status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Authorization check
+        has_access, error_message = check_app_access(request, app)
+        if not has_access:
+            return Response(
+                {'error': error_message},
+                status=status.HTTP_403_FORBIDDEN
             )
         
         # Handle meta operations that don't require a table

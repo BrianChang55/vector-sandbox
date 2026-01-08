@@ -7,9 +7,16 @@ Handles authentication via app context and routes to appropriate operations.
 Organization-level integration model:
 - Uses organization's connected credentials for all tool executions
 - All org members share the same integration connections
+
+Authorization:
+- All requests must be authenticated
+- User must be a member of the app's organization
 """
+from __future__ import annotations
+
 import logging
 import time
+from typing import Tuple, Optional
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -22,10 +29,38 @@ from ..models import (
     OrganizationConnectorLink,
     ConnectorExecutionLog,
     User,
+    UserOrganization,
 )
 from ..services.merge_service import merge_service, MergeAPIError
 
 logger = logging.getLogger(__name__)
+
+
+def check_app_access(request, app: InternalApp) -> Tuple[bool, Optional[str]]:
+    """
+    Check if the request has access to the app.
+    
+    All requests must be authenticated and user must be a member of the app's organization.
+    
+    Returns:
+        (has_access, error_message) - if has_access is False, error_message explains why
+    """
+    user = request.user
+    
+    # Require authentication
+    if not user or not user.is_authenticated:
+        return False, "Authentication required"
+    
+    # Verify user belongs to the app's organization
+    is_member = UserOrganization.objects.filter(
+        user=user,
+        organization=app.organization
+    ).exists()
+    
+    if not is_member:
+        return False, "You don't have access to this app"
+    
+    return True, None
 
 
 class RuntimeConnectorProxyView(APIView):
@@ -35,6 +70,10 @@ class RuntimeConnectorProxyView(APIView):
     This endpoint is called by generated apps at runtime to execute
     tools on external connectors (Jira, Slack, etc.) using the
     organization's connected credentials.
+    
+    Authorization:
+    - All requests must be authenticated
+    - User must be a member of the app's organization
     
     Request format:
     {
@@ -49,8 +88,7 @@ class RuntimeConnectorProxyView(APIView):
     - toolId = "tools": Get tools for a connector (params.connectorId required)
     """
     
-    # Allow unauthenticated access for generated apps
-    # Apps are authenticated via appId
+    # Allow the request through - we do custom authorization below
     permission_classes = [AllowAny]
     
     def post(self, request):
@@ -89,6 +127,14 @@ class RuntimeConnectorProxyView(APIView):
             return Response(
                 {'error': 'App not found'},
                 status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Authorization check
+        has_access, error_message = check_app_access(request, app)
+        if not has_access:
+            return Response(
+                {'error': error_message},
+                status=status.HTTP_403_FORBIDDEN
             )
         
         # Get integration provider
