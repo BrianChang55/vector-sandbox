@@ -21,13 +21,11 @@ celery>=5.3.0  # Async task queue for background processing
 redis>=5.0.0  # Redis client for Celery broker
 reportlab>=4.0.0  # PDF generation
 python-pptx>=0.6.21  # PPTX generation
-requests>=2.32.*  # Already present, used for image downloads
 cryptography>=41.0.0  # Encryption for secrets
 postgrest>=0.13.0  # Supabase PostgREST client
 jsonschema>=4.20.0  # JSON schema validation
 python-jsonschema-objects>=0.5.0  # JSON schema objects
 # Note: esbuild is a Node.js tool, install via npm if needed
-postgrest>=0.13.0  # Supabase PostgREST client
 supabase>=2.0.0  # Supabase Python client
 PyMySQL>=1.1.0  # MySQL database connector
 SQLAlchemy>=2.0.0  # SQL toolkit for database introspection
