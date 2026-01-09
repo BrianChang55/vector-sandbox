@@ -16,7 +16,8 @@ import logging
 from rest_framework import viewsets, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 
 from ..models import (
@@ -33,6 +34,96 @@ from ..serializers.connector_serializers import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Cache key and TTL for public integrations list
+PUBLIC_INTEGRATIONS_CACHE_KEY = 'public_integrations_list'
+PUBLIC_INTEGRATIONS_CACHE_TTL = 3600  # 1 hour
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def public_integrations_list(request):
+    """
+    Public (unauthenticated) endpoint to get available integrations.
+    
+    Used on the landing page to display integration logos and names.
+    Returns a cached list of connectors with minimal data for display.
+    
+    GET /api/v1/public/integrations/
+    
+    Response:
+        {
+            "integrations": [
+                {
+                    "id": "slack",
+                    "name": "Slack",
+                    "logo_url": "https://...",
+                    "category": "Communication"
+                },
+                ...
+            ],
+            "count": 18
+        }
+    """
+    # Check cache first
+    cached_data = cache.get(PUBLIC_INTEGRATIONS_CACHE_KEY)
+    if cached_data:
+        return Response(cached_data)
+    
+    # Check if Merge is configured
+    if not is_merge_configured():
+        # Return empty list if not configured (won't break landing page)
+        return Response({
+            'integrations': [],
+            'count': 0,
+            'configured': False,
+        })
+    
+    try:
+        # Fetch connectors from Merge toolpack
+        connectors = merge_service.list_connectors()
+        
+        # Transform to minimal public data
+        integrations = []
+        for connector in connectors:
+            integrations.append({
+                'id': connector.id,
+                'name': connector.name,
+                'logo_url': connector.logo_url,
+                'category': connector.category,
+                'categories': connector.categories,
+            })
+        
+        # Sort alphabetically by name
+        integrations.sort(key=lambda x: x['name'].lower())
+        
+        response_data = {
+            'integrations': integrations,
+            'count': len(integrations),
+            'configured': True,
+        }
+        
+        # Cache the response
+        cache.set(PUBLIC_INTEGRATIONS_CACHE_KEY, response_data, PUBLIC_INTEGRATIONS_CACHE_TTL)
+        
+        logger.info(f"Fetched {len(integrations)} integrations for public landing page")
+        return Response(response_data)
+        
+    except MergeAPIError as e:
+        logger.warning(f"Failed to fetch public integrations: {e}")
+        return Response({
+            'integrations': [],
+            'count': 0,
+            'configured': True,
+            'error': 'Unable to fetch integrations',
+        })
+    except Exception as e:
+        logger.error(f"Unexpected error fetching public integrations: {e}")
+        return Response({
+            'integrations': [],
+            'count': 0,
+            'configured': False,
+        })
 
 
 def require_admin_for_integrations(request, organization):

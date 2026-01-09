@@ -157,6 +157,7 @@ urlpatterns = [
     
     # AI/Code Generation endpoints
     path('models/', streaming_views.AvailableModelsView.as_view(), name='available-models'),
+    path('generate-app-title/', streaming_views.GenerateAppTitleView.as_view(), name='generate-app-title'),
     path('apps/<uuid:app_id>/chat-sessions/', streaming_views.ChatSessionViewSet.as_view(), name='chat-sessions'),
     path('chat-sessions/<uuid:session_id>/messages/', streaming_views.ChatMessagesView.as_view(), name='chat-messages'),
     path('apps/<uuid:app_id>/generate/', streaming_views.NonStreamingGenerateView.as_view(), name='generate'),
@@ -231,6 +232,13 @@ urlpatterns = [
     # =========================================================================
     # Integrations & Connectors endpoints
     # =========================================================================
+    
+    # Public endpoint for landing page (unauthenticated)
+    path(
+        'public/integrations/',
+        connector_views.public_integrations_list,
+        name='public-integrations'
+    ),
     
     # Integration providers (organization-level)
     path(

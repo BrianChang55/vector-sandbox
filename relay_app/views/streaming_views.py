@@ -1685,3 +1685,99 @@ class FixErrorsView(View):
                 "recoverable": True,
             })
 
+
+class GenerateAppTitleView(APIView):
+    """
+    Generate a short title and description from a prompt using GPT mini.
+    This is a quick, lightweight call for naming apps.
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        """
+        Generate app title and description from prompt.
+        
+        Request body:
+            prompt: str - The user's app description/prompt
+            
+        Response:
+            title: str - Short title (max 40 chars)
+            description: str - Short description (max 60 chars)
+        """
+        prompt = request.data.get('prompt', '').strip()
+        
+        if not prompt:
+            return Response(
+                {"error": "prompt is required"},
+                status=http_status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            import httpx
+            from django.conf import settings
+            
+            api_key = getattr(settings, 'OPENROUTER_API_KEY', None) or getattr(settings, 'OPENAI_API_KEY', None)
+            
+            if not api_key:
+                # Fallback: use prompt as title
+                return Response({
+                    "title": prompt[:40],
+                    "description": "",
+                    "fallback": True,
+                })
+            
+            # Use GPT-4o-mini for fast, cheap title generation
+            system_prompt = """You are a helpful assistant that generates short, catchy app titles and descriptions.
+Given a user's prompt describing what they want to build, generate:
+1. A short title (max 40 characters) - concise, descriptive app name
+2. A short description (max 60 characters) - brief summary of the app
+
+Respond in JSON format: {"title": "...", "description": "..."}
+
+Examples:
+- Prompt: "Build a dashboard to manage user subscriptions" -> {"title": "Subscription Manager", "description": "Track and manage user subscriptions"}
+- Prompt: "Create an order tracking system with refunds" -> {"title": "Order Tracker", "description": "Track orders and process refunds"}
+"""
+            
+            with httpx.Client(timeout=15.0) as client:
+                response = client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": "openai/gpt-4o-mini",
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": f"Prompt: {prompt}"},
+                        ],
+                        "response_format": {"type": "json_object"},
+                        "temperature": 0.3,
+                        "max_tokens": 100,
+                    },
+                )
+                response.raise_for_status()
+                
+                result = response.json()
+                content = result["choices"][0]["message"]["content"]
+                parsed = json.loads(content)
+                
+                title = parsed.get("title", prompt[:40])[:40]
+                description = parsed.get("description", "")[:60]
+                
+                return Response({
+                    "title": title,
+                    "description": description,
+                    "fallback": False,
+                })
+                
+        except Exception as e:
+            logger.warning(f"Failed to generate app title via GPT: {e}")
+            # Fallback: use prompt as title
+            return Response({
+                "title": prompt[:40] if len(prompt) <= 40 else prompt[:37] + "...",
+                "description": "",
+                "fallback": True,
+            })
+
