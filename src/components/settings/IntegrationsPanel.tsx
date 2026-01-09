@@ -12,7 +12,7 @@
  * 3. Users can connect any integration using Merge Agent Handler Link
  * 4. Connected integrations are available to all org members in apps
  */
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import {
   RefreshCw,
   Check,
@@ -43,9 +43,10 @@ import { fuzzySearch } from '../../utils/fuzzySearch'
 
 interface IntegrationsPanelProps {
   orgId: string
+  selectedIntegration?: string | null
 }
 
-export function IntegrationsPanel({ orgId }: IntegrationsPanelProps) {
+export function IntegrationsPanel({ orgId, selectedIntegration }: IntegrationsPanelProps) {
   const { data: providers, isLoading: loadingProviders } = useIntegrationProviders(orgId)
   
   const provider = providers?.[0] // Currently only one provider per org
@@ -70,7 +71,7 @@ export function IntegrationsPanel({ orgId }: IntegrationsPanelProps) {
   }
   
   return (
-    <ProviderDashboard provider={provider} />
+    <ProviderDashboard provider={provider} selectedIntegration={selectedIntegration} />
   )
 }
 
@@ -105,18 +106,20 @@ function NotConfiguredState() {
 
 interface ProviderDashboardProps {
   provider: IntegrationProvider
+  selectedIntegration?: string | null
 }
 
 type ViewMode = 'grid' | 'list'
 type FilterMode = 'all' | 'connected' | 'available'
 
-function ProviderDashboard({ provider }: ProviderDashboardProps) {
+function ProviderDashboard({ provider, selectedIntegration }: ProviderDashboardProps) {
   const { data: connectors, isLoading: loadingConnectors, refetch } = useConnectors(provider.id)
   const syncConnectors = useSyncConnectors()
   const [syncError, setSyncError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [filterMode, setFilterMode] = useState<FilterMode>('all')
+  const selectedConnectorRef = useRef<HTMLDivElement | null>(null)
   
   const handleSync = async () => {
     setSyncError(null)
@@ -162,6 +165,29 @@ function ProviderDashboard({ provider }: ProviderDashboardProps) {
     [...filteredConnectors].sort((a, b) => a.name.localeCompare(b.name)),
     [filteredConnectors]
   )
+  
+  // Find the selected connector by id, connector_id, or name
+  const selectedConnector = useMemo(() => {
+    if (!selectedIntegration || !connectors) return null
+    return connectors.find(
+      c => c.id === selectedIntegration || 
+           c.connector_id === selectedIntegration || 
+           c.name === selectedIntegration
+    ) || null
+  }, [selectedIntegration, connectors])
+  
+  // Scroll to selected connector when it's found and connectors are loaded
+  useEffect(() => {
+    if (selectedConnector && selectedConnectorRef.current && !loadingConnectors) {
+      // Small delay to ensure DOM is ready
+      setTimeout(() => {
+        selectedConnectorRef.current?.scrollIntoView({ 
+          behavior: 'smooth', 
+          block: 'center' 
+        })
+      }, 100)
+    }
+  }, [selectedConnector, loadingConnectors])
   
   return (
     <div className="space-y-6">
@@ -266,15 +292,23 @@ function ProviderDashboard({ provider }: ProviderDashboardProps) {
         </div>
       ) : sortedConnectors.length > 0 ? (
         <div className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4' : 'space-y-3'}>
-          {sortedConnectors.map(connector => (
-            <ConnectorCard
-              key={connector.id}
-              connector={connector}
-              providerId={provider.id}
-              onConnected={() => refetch()}
-              viewMode={viewMode}
-            />
-          ))}
+          {sortedConnectors.map(connector => {
+            const isSelected = selectedConnector?.id === connector.id
+            return (
+              <div
+                key={connector.id}
+                ref={isSelected ? selectedConnectorRef : null}
+              >
+                <ConnectorCard
+                  connector={connector}
+                  providerId={provider.id}
+                  onConnected={() => refetch()}
+                  viewMode={viewMode}
+                  isSelected={isSelected}
+                />
+              </div>
+            )
+          })}
         </div>
       ) : connectors && connectors.length > 0 ? (
         <div className="flex flex-col items-center justify-center py-12">
@@ -347,13 +381,14 @@ interface ConnectorCardProps {
   providerId: string
   onConnected: () => void
   viewMode: ViewMode
+  isSelected?: boolean
 }
 
 // ConnectorCard - Uses Merge Agent Handler Link React hook
 // Per docs: https://docs.ah.merge.dev/get-started/setup-link
 // React component: https://github.com/merge-api/react-agent-handler-link
 
-function ConnectorCard({ connector, providerId, onConnected, viewMode }: ConnectorCardProps) {
+function ConnectorCard({ connector, providerId, onConnected, viewMode, isSelected = false }: ConnectorCardProps) {
   const [expanded, setExpanded] = useState(false)
   const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -425,7 +460,11 @@ function ConnectorCard({ connector, providerId, onConnected, viewMode }: Connect
   
   if (viewMode === 'grid') {
     return (
-      <div className="bg-white border border-gray-200 rounded-lg p-4 transition-all hover:border-gray-300 hover:shadow-sm">
+      <div className={`bg-white border rounded-lg p-4 transition-all hover:border-gray-300 hover:shadow-sm ${
+        isSelected 
+          ? 'border-blue-500 border-2 shadow-md ring-2 ring-blue-200' 
+          : 'border-gray-200'
+      }`}>
         <div className="flex items-start gap-3">
           <div className={`h-12 w-12 rounded-lg flex items-center justify-center flex-shrink-0 ${
             connector.is_connected ? 'bg-green-50' : 'bg-gray-100'
@@ -512,7 +551,11 @@ function ConnectorCard({ connector, providerId, onConnected, viewMode }: Connect
   
   // List view
   return (
-    <div className="bg-white border border-gray-200 rounded-lg overflow-hidden transition-all hover:border-gray-300 hover:shadow-sm">
+    <div className={`bg-white border rounded-lg overflow-hidden transition-all hover:border-gray-300 hover:shadow-sm ${
+      isSelected 
+        ? 'border-blue-500 border-2 shadow-md ring-2 ring-blue-200' 
+        : 'border-gray-200'
+    }`}>
       <div 
         className="flex items-center gap-4 p-4 cursor-pointer"
         onClick={() => setExpanded(!expanded)}

@@ -2,6 +2,7 @@
  * Settings page - Organization and user settings
  */
 import { useState, useRef, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAppSelector, useAppDispatch } from '../store/hooks'
 import { logout } from '../store/slices/authSlice'
 import { useOrganizations, useUploadOrganizationLogo, useDeleteOrganizationLogo, useUpdateOrganization, useDeleteOrganization } from '../hooks/useOrganizations'
@@ -43,6 +44,7 @@ export function SettingsPage() {
   const currentUserRole = membersData?.current_user_role
   const canManageIntegrations = currentUserRole === 'admin'
   
+  const [searchParams] = useSearchParams()
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile')
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [orgName, setOrgName] = useState('')
@@ -62,6 +64,14 @@ export function SettingsPage() {
       .replace(/-+/g, '-')
       .replace(/^-|-$/g, '')
   }
+
+  // Sync URL tab parameter with activeTab state
+  useEffect(() => {
+    const tabParam = searchParams.get('tab') as SettingsTab | null
+    if (tabParam && tabs.some(t => t.id === tabParam)) {
+      setActiveTab(tabParam)
+    }
+  }, [searchParams])
 
   // Sync org name and slug with current org
   useEffect(() => {
@@ -590,7 +600,7 @@ export function SettingsPage() {
           {activeTab === 'integrations' && selectedOrgId && canManageIntegrations && (
             <div>
               <h1 className="text-xl font-semibold text-gray-900 mb-6">Integrations</h1>
-              <IntegrationsPanel orgId={selectedOrgId} />
+              <IntegrationsPanel orgId={selectedOrgId} selectedIntegration={searchParams.get('integration')} />
             </div>
           )}
         </div>
