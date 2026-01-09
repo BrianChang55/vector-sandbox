@@ -104,7 +104,7 @@ export function AppConnectorsPanel({ appId, className = '' }: AppConnectorsPanel
             variant="ghost"
             size="sm"
             className="w-full justify-start text-xs text-gray-500 hover:text-gray-700"
-            onClick={() => window.open('/resources?tab=integrations', '_blank')}
+            onClick={() => window.open('/settings?tab=integrations', '_blank')}
           >
             <ExternalLink className="h-3 w-3 mr-2" />
             Manage in Resources
@@ -157,7 +157,7 @@ function EmptyState({ message, description }: EmptyStateProps) {
       </p>
       <Button
         variant="outline"
-        onClick={() => window.open('/resources?tab=integrations', '_blank')}
+        onClick={() => window.open('/settings?tab=integrations', '_blank')}
         className="gap-2"
       >
         <ExternalLink className="h-4 w-4" />
@@ -317,7 +317,11 @@ function ConnectorDetails({ connector }: ConnectorDetailsProps) {
             variant="outline"
             size="sm"
             className="mt-2 text-amber-800 border-amber-300 hover:bg-amber-100"
-            onClick={() => window.open('/resources?tab=integrations', '_blank')}
+            onClick={() => {
+              const integrationParam = connector.id || connector.connector_id || connector.name
+              const url = `/settings?tab=integrations${integrationParam ? `&integration=${encodeURIComponent(integrationParam)}` : ''}`
+              window.open(url, '_blank')
+            }}
           >
             <ExternalLink className="h-3 w-3 mr-1.5" />
             Connect in Resources
