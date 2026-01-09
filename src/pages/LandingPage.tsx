@@ -22,6 +22,7 @@ import {
   Shield,
   Code2
 } from 'lucide-react'
+import { NeuralDotField } from '@/components/NeuralDotField'
 
 // Animation variants
 const staggerContainerVariants = {
@@ -254,65 +255,87 @@ export function LandingPage() {
     <div className="relative w-full overflow-hidden bg-white">
       {/* Hero Section with Background */}
       <div className="relative min-h-screen">
-        {/* Background gradient - subtle gray */}
+        {/* Clean light background */}
         <div 
           className="absolute inset-0 z-0"
           style={{
-            background: 'linear-gradient(180deg, #F9FAFB 0%, #F3F4F6 30%, #E5E7EB 60%, #F9FAFB 85%, #FFFFFF 100%)'
+            background: 'linear-gradient(180deg, #FAFAFA 0%, #F5F5F5 50%, #FAFAFA 100%)'
           }}
         />
         
-        {/* Subtle dot pattern */}
-        <div 
-          className="absolute inset-0 z-[1] opacity-[0.35]"
-          style={{
-            backgroundImage: `radial-gradient(circle at 1px 1px, rgb(156, 163, 175) 1px, transparent 0)`,
-            backgroundSize: '32px 32px',
-          }}
-        />
+        {/* AI Neural Network Dot Field */}
+        <div className="absolute inset-0 z-[1] overflow-hidden">
+          <NeuralDotField />
+          
+          {/* Center clear zone gradient overlay */}
+          <div 
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              background: 'radial-gradient(ellipse 50% 45% at 50% 48%, rgba(250,250,250,0.95) 0%, rgba(250,250,250,0.8) 30%, transparent 70%)'
+            }}
+          />
+        </div>
 
-        {/* Floating shapes - subtle geometric elements */}
+        {/* Subtle animated glow effects */}
         <div className="absolute inset-0 z-[2] overflow-hidden pointer-events-none">
-          {[...Array(8)].map((_, i) => {
-            const sizes = [60, 80, 100, 120, 70, 90, 110, 85]
-            const size = sizes[i]
-            const positions = [
-              { left: '10%', top: '20%' },
-              { left: '85%', top: '15%' },
-              { left: '75%', top: '60%' },
-              { left: '5%', top: '70%' },
-              { left: '90%', top: '80%' },
-              { left: '15%', top: '45%' },
-              { left: '60%', top: '25%' },
-              { left: '40%', top: '75%' },
-            ]
-            const delays = [0, 2, 4, 1, 3, 5, 2.5, 1.5]
-            
-            return (
-              <motion.div
-                key={i}
-                className="absolute rounded-full"
-                style={{
-                  width: size,
-                  height: size,
-                  left: positions[i].left,
-                  top: positions[i].top,
-                  background: 'radial-gradient(circle, rgba(156, 163, 175, 0.08) 0%, transparent 70%)',
-                }}
-                animate={{
-                  y: [0, -20, 0],
-                  scale: [1, 1.05, 1],
-                }}
-                transition={{
-                  duration: 6,
-                  delay: delays[i],
-                  repeat: Infinity,
-                  ease: 'easeInOut',
-                }}
-              />
-            )
-          })}
-          </div>
+          {/* Ambient glow orbs */}
+          <motion.div
+            className="absolute w-[600px] h-[600px] rounded-full"
+            style={{
+              background: 'radial-gradient(circle, rgba(59, 130, 246, 0.03) 0%, transparent 70%)',
+              left: '10%',
+              top: '20%',
+            }}
+            animate={{
+              x: [0, 50, 0],
+              y: [0, 30, 0],
+              scale: [1, 1.1, 1],
+            }}
+            transition={{
+              duration: 15,
+              repeat: Infinity,
+              ease: 'easeInOut',
+            }}
+          />
+          <motion.div
+            className="absolute w-[500px] h-[500px] rounded-full"
+            style={{
+              background: 'radial-gradient(circle, rgba(6, 182, 212, 0.03) 0%, transparent 70%)',
+              right: '5%',
+              top: '40%',
+            }}
+            animate={{
+              x: [0, -40, 0],
+              y: [0, -20, 0],
+              scale: [1, 1.15, 1],
+            }}
+            transition={{
+              duration: 18,
+              repeat: Infinity,
+              ease: 'easeInOut',
+              delay: 2,
+            }}
+          />
+          <motion.div
+            className="absolute w-[400px] h-[400px] rounded-full"
+            style={{
+              background: 'radial-gradient(circle, rgba(139, 92, 246, 0.02) 0%, transparent 70%)',
+              left: '60%',
+              bottom: '10%',
+            }}
+            animate={{
+              x: [0, 30, 0],
+              y: [0, -40, 0],
+              scale: [1, 1.2, 1],
+            }}
+            transition={{
+              duration: 20,
+              repeat: Infinity,
+              ease: 'easeInOut',
+              delay: 5,
+            }}
+          />
+        </div>
 
         {/* Bottom fade gradient - blends hero into white sections */}
         <div 
@@ -395,7 +418,7 @@ export function LandingPage() {
             >
               {/* Hero Title with blur-in animation */}
               <motion.div variants={staggerItemVariants} className="mb-6 text-center">
-                <h1 className="text-4xl sm:text-5xl lg:text-[52px] font-bold tracking-tight text-gray-900 leading-[1.1]">
+                <h1 className="text-3xl sm:text-4xl lg:text-[48px] font-medium tracking-tight text-gray-900 leading-[1.1]">
                   {HERO_TITLE.split("").map((char, index) => (
                     <motion.span
                       key={index}
@@ -416,7 +439,7 @@ export function LandingPage() {
 
               {/* Subtitle - Fade in at midpoint of title */}
               <motion.p 
-                className="mb-10 text-center text-lg sm:text-xl text-gray-600 max-w-xl leading-relaxed"
+                className="mb-10 text-center text-md sm:text-lg text-gray-500 max-w-xl leading-relaxed"
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{
@@ -425,9 +448,7 @@ export function LandingPage() {
                   ease: "easeOut",
                 }}
               >
-                Describe what you need. Relay builds it for you.
-                <br className="hidden sm:block" />
-                <span className="text-gray-500">Powered by AI, secured by design.</span>
+                Create custom internal apps by chatting with AI.
               </motion.p>
 
               {/* Create Input Card */}
@@ -469,14 +490,7 @@ export function LandingPage() {
                   </div>
 
                   {/* Bottom Controls */}
-                  <div className="flex items-center justify-between px-3 pb-2">
-                    {/* Left side - hints */}
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-gray-500 hidden sm:inline">
-                        Press Enter or click to start building
-                      </span>
-                    </div>
-
+                  <div className="flex items-center justify-end px-3 pb-2">
                     {/* Generate Button */}
                     <motion.div
                       whileHover={{ scale: 1.02 }}
@@ -484,32 +498,49 @@ export function LandingPage() {
                     >
                       <Button
                         type="submit"
-                        className="px-5 shadow-sm"
+                        className="px-5 shadow-sm bg-gray-900 hover:bg-gray-800 text-white"
                       >
                         Start Building
                         <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
+                      </Button>
                     </motion.div>
                   </div>
                 </motion.div>
               </motion.form>
 
-              {/* Trust signal */}
-              <motion.p 
-                className="mt-8 text-sm text-gray-500 flex items-center gap-3"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
+              {/* Trust signal - Three dots with checkmarks */}
+              <motion.div 
+                className="mt-10 flex items-center justify-center gap-6 sm:gap-10"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 1.2, duration: 0.5 }}
               >
-                <span className="flex items-center gap-1.5">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                  Free to start
-                </span>
-                <span className="text-gray-300">•</span>
-                <span>No credit card required</span>
-                <span className="text-gray-300">•</span>
-                <span>Ship in minutes</span>
-              </motion.p>
+                {[
+                  'Free to start',
+                  'No credit card required',
+                  'Ship in minutes'
+                ].map((text, index) => (
+                  <motion.span 
+                    key={text}
+                    className="flex items-center gap-2 text-sm text-gray-600"
+                    initial={{ opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 1.3 + index * 0.1, duration: 0.4 }}
+                  >
+                    <svg 
+                      className="h-4 w-4 text-gray-500" 
+                      fill="none" 
+                      viewBox="0 0 24 24" 
+                      stroke="currentColor" 
+                      strokeWidth={2}
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                    {text}
+                  </motion.span>
+                ))}
+              </motion.div>
+
             </motion.div>
           </main>
         </div>
