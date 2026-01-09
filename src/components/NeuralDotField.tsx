@@ -32,7 +32,7 @@ interface DataStream {
 
 export function NeuralDotField() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const animationRef = useRef<number>()
+  const animationRef = useRef<number | null>(null)
   const dotsRef = useRef<Dot[]>([])
   const streamsRef = useRef<DataStream[]>([])
   const mouseRef = useRef({ x: -1000, y: -1000 })
