@@ -570,46 +570,14 @@ export function AppsPage() {
                 </div>
 
                 <div className="mb-1 min-w-0">
-                  {canEditApps ? (
-                  <div
-                    className="block -mx-2 px-2 py-1 rounded-[4px] cursor-text transition-colors hover:bg-gray-50 min-w-0"
-                    onClick={(event) => {
-                      event.preventDefault()
-                      event.stopPropagation()
-                      openEditDialog(app)
-                    }}
-                    onMouseDown={(event) => event.stopPropagation()}
-                  >
-                    <span className="block font-medium text-gray-900 hover:text-gray-700 truncate">
-                      {app.name || 'Untitled app'}
-                    </span>
-                  </div>
-                  ) : (
-                    <span className="block font-medium text-gray-900 truncate">
-                      {app.name || 'Untitled app'}
-                    </span>
-                  )}
+                  <span className="block font-medium text-gray-900 truncate">
+                    {app.name || 'Untitled app'}
+                  </span>
                 </div>
                 <div className="mb-4 min-w-0">
-                  {canEditApps ? (
-                  <div
-                    className="block -mx-2 px-2 py-1 rounded-[4px] cursor-text transition-colors hover:bg-gray-50 min-w-0"
-                    onClick={(event) => {
-                      event.preventDefault()
-                      event.stopPropagation()
-                      openEditDialog(app)
-                    }}
-                    onMouseDown={(event) => event.stopPropagation()}
-                  >
-                    <p className="text-sm text-gray-500 truncate transition-colors hover:text-gray-600">
-                      {app.description || 'No description'}
-                    </p>
-                  </div>
-                  ) : (
-                    <p className="text-sm text-gray-500 truncate">
-                      {app.description || 'No description'}
-                    </p>
-                  )}
+                  <p className="text-sm text-gray-500 truncate">
+                    {app.description || 'No description'}
+                  </p>
                 </div>
 
                 <div className="flex items-center gap-3">
