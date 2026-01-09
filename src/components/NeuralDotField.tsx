@@ -64,7 +64,7 @@ export function NeuralDotField() {
         if (normalizedDist < 0.15) continue
         
         // Vary radius based on distance (smaller near center, larger at edges)
-        const baseRadius = 0.8 + normalizedDist * 1.8
+        const baseRadius = 0.6 + normalizedDist * 1.4
         
         dots.push({
           x,

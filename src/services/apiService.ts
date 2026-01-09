@@ -1324,6 +1324,57 @@ export const authApi = {
 }
 
 // =============================================================================
+// PUBLIC API (Unauthenticated)
+// =============================================================================
+
+/**
+ * Public API for unauthenticated endpoints.
+ * 
+ * These endpoints don't require authentication and are used for public pages
+ * like the landing page.
+ */
+
+export interface PublicIntegration {
+  id: string
+  name: string
+  logo_url: string | null
+  category: string
+  categories: string[]
+}
+
+export interface PublicIntegrationsResponse {
+  integrations: PublicIntegration[]
+  count: number
+  configured: boolean
+  error?: string
+}
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001/api/v1'
+
+export const publicApi = {
+  /**
+   * Get available integrations for the landing page.
+   * This is an unauthenticated endpoint.
+   */
+  getIntegrations: async (): Promise<PublicIntegrationsResponse> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/public/integrations/`)
+      if (!response.ok) {
+        throw new Error('Failed to fetch integrations')
+      }
+      return await response.json()
+    } catch (error) {
+      console.warn('Failed to fetch public integrations:', error)
+      return {
+        integrations: [],
+        count: 0,
+        configured: false,
+      }
+    }
+  },
+}
+
+// =============================================================================
 // RE-EXPORT API INSTANCE
 // =============================================================================
 

@@ -10,19 +10,57 @@ import { Button } from '@/components/ui/button'
 import { Logo } from '@/components/Logo'
 import { 
   ArrowRight, 
-  Layers,
-  Table2,
   Users,
   BarChart3,
-  Settings,
-  FileText,
   ShoppingCart,
-  Ticket,
   Zap,
   Shield,
-  Code2
+  Code2,
+  CreditCard,
+  Package,
+  MessageSquare,
+  ClipboardList,
+  UserCheck,
+  GitBranch,
+  Plug,
+  Rocket
 } from 'lucide-react'
 import { NeuralDotField } from '@/components/NeuralDotField'
+import { publicApi, type PublicIntegration } from '@/services/apiService'
+
+// Shorten long integration names for display
+const shortenIntegrationName = (name: string): string => {
+  const shortNames: Record<string, string> = {
+    'Jira Service Management': 'Jira Service',
+    'Google Workspace': 'Google',
+    'Microsoft Outlook': 'Outlook',
+    'Microsoft OneDrive': 'OneDrive',
+    'Google Calendar': 'Google Calendar',
+  }
+  return shortNames[name] || name
+}
+
+// Fallback integrations for when API is unavailable
+const FALLBACK_INTEGRATIONS = [
+  { id: 'supabase', name: 'Supabase', logo_url: 'https://cdn.simpleicons.org/supabase/3ECF8E', category: 'Database' },
+  { id: 'stripe', name: 'Stripe', logo_url: 'https://cdn.simpleicons.org/stripe/635BFF', category: 'Payments' },
+  { id: 'openai', name: 'OpenAI', logo_url: 'https://cdn.simpleicons.org/openai/412991', category: 'AI' },
+  { id: 'slack', name: 'Slack', logo_url: 'https://cdn.simpleicons.org/slack/4A154B', category: 'Communication' },
+  { id: 'github', name: 'GitHub', logo_url: 'https://cdn.simpleicons.org/github/181717', category: 'Development' },
+  { id: 'notion', name: 'Notion', logo_url: 'https://cdn.simpleicons.org/notion/000000', category: 'Productivity' },
+  { id: 'twilio', name: 'Twilio', logo_url: 'https://cdn.simpleicons.org/twilio/F22F46', category: 'Communication' },
+  { id: 'salesforce', name: 'Salesforce', logo_url: 'https://cdn.simpleicons.org/salesforce/00A1E0', category: 'CRM' },
+  { id: 'hubspot', name: 'HubSpot', logo_url: 'https://cdn.simpleicons.org/hubspot/FF7A59', category: 'Marketing' },
+  { id: 'zendesk', name: 'Zendesk', logo_url: 'https://cdn.simpleicons.org/zendesk/03363D', category: 'Support' },
+  { id: 'intercom', name: 'Intercom', logo_url: 'https://cdn.simpleicons.org/intercom/6AFDEF', category: 'Communication' },
+  { id: 'linear', name: 'Linear', logo_url: 'https://cdn.simpleicons.org/linear/5E6AD2', category: 'Project Management' },
+  { id: 'jira', name: 'Jira', logo_url: 'https://cdn.simpleicons.org/jira/0052CC', category: 'Project Management' },
+  { id: 'airtable', name: 'Airtable', logo_url: 'https://cdn.simpleicons.org/airtable/18BFFF', category: 'Database' },
+  { id: 'googlesheets', name: 'Google Sheets', logo_url: 'https://cdn.simpleicons.org/googlesheets/34A853', category: 'Productivity' },
+  { id: 'postgresql', name: 'PostgreSQL', logo_url: 'https://cdn.simpleicons.org/postgresql/4169E1', category: 'Database' },
+  { id: 'resend', name: 'Resend', logo_url: 'https://cdn.simpleicons.org/resend/000000', category: 'Email' },
+  { id: 'aws', name: 'AWS', logo_url: 'https://cdn.simpleicons.org/amazonaws/FF9900', category: 'Cloud' },
+]
 
 // Animation variants
 const staggerContainerVariants = {
@@ -66,106 +104,147 @@ const STATIC_PREFIX = 'Build a '
 // Hero title for blur animation
 const HERO_TITLE = 'Build Internal Apps in Seconds'
 
-// Template app data
+// Template app data - 8 most common internal tool use cases
 const APP_TEMPLATES = [
   {
-    id: 'user-admin',
-    title: 'User Admin Panel',
-    description: 'Manage users, roles, and permissions',
+    id: 'customer-crm',
+    title: 'Customer CRM',
+    description: 'View, search, and manage customer profiles',
     icon: Users,
     color: 'bg-blue-50',
     iconColor: 'text-blue-600',
     borderHover: 'hover:border-blue-200',
   },
   {
-    id: 'data-table',
-    title: 'Data Explorer',
-    description: 'Browse and edit database records',
-    icon: Table2,
+    id: 'order-management',
+    title: 'Order Management',
+    description: 'Track orders, process refunds, update status',
+    icon: ShoppingCart,
     color: 'bg-emerald-50',
     iconColor: 'text-emerald-600',
     borderHover: 'hover:border-emerald-200',
   },
   {
-    id: 'analytics',
-    title: 'Analytics Dashboard',
-    description: 'Visualize metrics and KPIs',
-    icon: BarChart3,
+    id: 'support-queue',
+    title: 'Support Queue',
+    description: 'Triage tickets, respond to users, escalate issues',
+    icon: MessageSquare,
     color: 'bg-violet-50',
     iconColor: 'text-violet-600',
     borderHover: 'hover:border-violet-200',
   },
   {
-    id: 'settings',
-    title: 'Settings Manager',
-    description: 'Configure app settings and preferences',
-    icon: Settings,
-    color: 'bg-orange-50',
-    iconColor: 'text-orange-600',
-    borderHover: 'hover:border-orange-200',
-  },
-  {
-    id: 'content-manager',
-    title: 'Content Manager',
-    description: 'Create and manage content entries',
-    icon: FileText,
-    color: 'bg-pink-50',
-    iconColor: 'text-pink-600',
-    borderHover: 'hover:border-pink-200',
-  },
-  {
-    id: 'order-tracker',
-    title: 'Order Tracker',
-    description: 'Track and manage customer orders',
-    icon: ShoppingCart,
-    color: 'bg-teal-50',
-    iconColor: 'text-teal-600',
-    borderHover: 'hover:border-teal-200',
-  },
-  {
-    id: 'ticket-system',
-    title: 'Ticket System',
-    description: 'Handle support tickets and requests',
-    icon: Ticket,
+    id: 'billing-dashboard',
+    title: 'Billing Dashboard',
+    description: 'Review invoices, manage subscriptions, issue credits',
+    icon: CreditCard,
     color: 'bg-amber-50',
     iconColor: 'text-amber-600',
     borderHover: 'hover:border-amber-200',
   },
   {
-    id: 'workflow-builder',
-    title: 'Workflow Builder',
-    description: 'Design and automate workflows',
-    icon: Layers,
+    id: 'inventory-tracker',
+    title: 'Inventory Tracker',
+    description: 'Monitor stock levels, reorder alerts, SKU lookup',
+    icon: Package,
+    color: 'bg-teal-50',
+    iconColor: 'text-teal-600',
+    borderHover: 'hover:border-teal-200',
+  },
+  {
+    id: 'content-moderation',
+    title: 'Content Moderation',
+    description: 'Review flagged content, approve or reject posts',
+    icon: ClipboardList,
+    color: 'bg-pink-50',
+    iconColor: 'text-pink-600',
+    borderHover: 'hover:border-pink-200',
+  },
+  {
+    id: 'user-admin',
+    title: 'User Admin',
+    description: 'Manage roles, permissions, and account status',
+    icon: UserCheck,
     color: 'bg-indigo-50',
     iconColor: 'text-indigo-600',
     borderHover: 'hover:border-indigo-200',
   },
+  {
+    id: 'analytics-dashboard',
+    title: 'Analytics Dashboard',
+    description: 'Visualize KPIs, track metrics, generate reports',
+    icon: BarChart3,
+    color: 'bg-orange-50',
+    iconColor: 'text-orange-600',
+    borderHover: 'hover:border-orange-200',
+  },
 ]
 
-// Showcase apps - what people have built
+// Showcase apps - impressive examples of what teams have built
 const SHOWCASE_APPS = [
-  { title: 'Customer Portal', category: 'Support', gradient: 'from-blue-50 to-indigo-50' },
-  { title: 'Inventory System', category: 'Operations', gradient: 'from-emerald-50 to-teal-50' },
-  { title: 'HR Dashboard', category: 'People', gradient: 'from-violet-50 to-purple-50' },
-  { title: 'Sales Pipeline', category: 'Revenue', gradient: 'from-amber-50 to-orange-50' },
+  { 
+    title: 'Lead Pipeline Tracker', 
+    category: 'Sales', 
+    gradient: 'from-blue-50 to-indigo-50',
+    description: 'Track deals, update stages, and forecast revenue'
+  },
+  { 
+    title: 'Ops Command Center', 
+    category: 'Operations', 
+    gradient: 'from-emerald-50 to-teal-50',
+    description: 'Real-time ops metrics and alerts'
+  },
+  { 
+    title: 'Customer Health Dashboard', 
+    category: 'Customer Success', 
+    gradient: 'from-violet-50 to-purple-50',
+    description: 'Monitor NPS, usage, and renewal risks'
+  },
+  { 
+    title: 'Expense Approvals', 
+    category: 'Finance', 
+    gradient: 'from-amber-50 to-orange-50',
+    description: 'Review and approve expense requests'
+  },
 ]
 
-// Features data
+// Features data - 6 key differentiators
 const FEATURES = [
   {
     icon: Zap,
-    title: 'AI-Powered',
-    description: 'Describe what you need in plain English. Relay generates production-ready apps in seconds.',
+    title: 'AI-First Builder',
+    description: 'Skip the drag-and-drop. Describe what you need and get a working app in seconds.',
+    highlight: 'Fast',
   },
   {
     icon: Shield,
-    title: 'Secure by Design',
-    description: 'All queries respect your Row-Level Security policies. Your data rules are never bypassed.',
+    title: 'Team Roles & Permissions',
+    description: 'Control who builds, who views, and who publishes. Keep your team aligned and your data safe.',
+    highlight: 'Enterprise-grade',
+  },
+  {
+    icon: Plug,
+    title: 'Universal Integrations',
+    description: 'Connect to Slack, Jira, Salesforce, and 100+ tools your team already uses.',
+    highlight: '100+ Apps',
   },
   {
     icon: Code2,
-    title: 'Full Code Access',
-    description: "Not a black box. Export your code, customize freely, and sync with Git. It's yours.",
+    title: 'Own Your Code',
+    description: 'Export clean React and TypeScript anytime. No vendor lock-in, no surprises.',
+    highlight: 'No lock-in',
+  },
+  {
+    icon: GitBranch,
+    title: 'Built-in Versioning',
+    description: 'See every change. Compare versions side-by-side and rollback with one click.',
+    highlight: 'Production-ready',
+  },
+  {
+    icon: Rocket,
+    title: 'One-Click Publish',
+    description: 'Ship to your team instantly. No pipelines, no engineering, no waiting.',
+    highlight: 'Ship fast',
   },
 ]
 
@@ -175,8 +254,23 @@ export function LandingPage() {
   const [animatedPlaceholder, setAnimatedPlaceholder] = useState('')
   const [phraseIndex, setPhraseIndex] = useState(0)
   const [isTyping, setIsTyping] = useState(true)
+  const [integrations, setIntegrations] = useState<PublicIntegration[]>([])
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const navigate = useNavigate()
+
+  // Fetch public integrations on mount
+  useEffect(() => {
+    const fetchIntegrations = async () => {
+      const data = await publicApi.getIntegrations()
+      if (data.configured && data.integrations.length > 0) {
+        setIntegrations(data.integrations)
+      } else {
+        // Use fallback if API not configured or empty
+        setIntegrations(FALLBACK_INTEGRATIONS as PublicIntegration[])
+      }
+    }
+    fetchIntegrations()
+  }, [])
 
   // Typewriter animation for placeholder
   const animatePlaceholder = useCallback(() => {
@@ -382,6 +476,12 @@ export function LandingPage() {
                   Showcase
                 </a>
                 <a 
+                  href="#integrations" 
+                  className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
+                >
+                  Integrations
+                </a>
+                <a 
                   href="#features" 
                   className="text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
                 >
@@ -459,8 +559,8 @@ export function LandingPage() {
               >
                 {/* Card with enhanced styling */}
                 <motion.div 
-                  className="bg-white/95 backdrop-blur-sm border border-gray-200 rounded-2xl shadow-xl shadow-gray-200/50 p-3 flex flex-col"
-                  whileHover={{ boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.15)' }}
+                  className="bg-white/95 backdrop-blur-sm border border-gray-200 rounded-2xl shadow-md shadow-gray-200/50 p-3 flex flex-col"
+                  whileHover={{ boxShadow: '0 20px 25px -12px rgba(0, 0, 0, 0.10)' }}
                   transition={{ duration: 0.3 }}
                 >
                   {/* Textarea Container with Animated Placeholder */}
@@ -468,7 +568,7 @@ export function LandingPage() {
                     {/* Animated placeholder overlay - only visible when prompt is empty */}
                     {!prompt && (
                       <div className="absolute inset-0 px-4 py-4 pointer-events-none">
-                        <span className="text-base sm:text-lg text-gray-400">
+                        <span className="sm:text-md text-gray-400">
                           {STATIC_PREFIX}
                           <span>{animatedPlaceholder}</span>
                           <motion.span 
@@ -599,8 +699,11 @@ export function LandingPage() {
                   </div>
                 </div>
                 <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-[10px] font-medium text-gray-500 uppercase tracking-wide px-1.5 py-0.5 bg-white/60 rounded">{app.category}</span>
+                  </div>
                   <p className="text-sm font-medium text-gray-900 group-hover:text-gray-700 transition-colors">{app.title}</p>
-                  <p className="text-xs text-gray-500">{app.category}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{app.description}</p>
                 </div>
               </motion.div>
             ))}
@@ -676,6 +779,219 @@ export function LandingPage() {
         </div>
       </section>
 
+      {/* Integrations Section - Dark theme for dramatic effect */}
+      <section id="integrations" className="relative w-full bg-gray-950 pt-24 pb-32 overflow-hidden">
+        {/* Animated gradient background */}
+        <div className="absolute inset-0 overflow-hidden">
+          <motion.div 
+            className="absolute -top-1/2 -left-1/2 w-full h-full rounded-full"
+            style={{
+              background: 'radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, transparent 50%)',
+            }}
+            animate={{ 
+              x: [0, 100, 0],
+              y: [0, 50, 0],
+            }}
+            transition={{ duration: 20, repeat: Infinity, ease: 'easeInOut' }}
+          />
+          <motion.div 
+            className="absolute -bottom-1/2 -right-1/2 w-full h-full rounded-full"
+            style={{
+              background: 'radial-gradient(circle, rgba(6, 182, 212, 0.12) 0%, transparent 50%)',
+            }}
+            animate={{ 
+              x: [0, -80, 0],
+              y: [0, -60, 0],
+            }}
+            transition={{ duration: 25, repeat: Infinity, ease: 'easeInOut' }}
+          />
+          {/* Grid pattern overlay */}
+          <div 
+            className="absolute inset-0 opacity-[0.03]"
+            style={{
+              backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`,
+              backgroundSize: '60px 60px',
+            }}
+          />
+        </div>
+
+        <div className="relative">
+          {/* Header */}
+          <motion.div 
+            className="text-center mb-16 px-6 lg:px-10 max-w-7xl mx-auto"
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.5 }}
+          >
+            {/* Count badge */}
+            <motion.div 
+              className="inline-flex items-center gap-3 px-4 py-2 rounded-full bg-white/5 border border-white/10 backdrop-blur-sm mb-6"
+              initial={{ opacity: 0, scale: 0.9 }}
+              whileInView={{ opacity: 1, scale: 1 }}
+              viewport={{ once: true }}
+            >
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <span className="text-sm text-gray-300">
+                <span className="font-semibold text-white">100+</span> Integrations Available
+              </span>
+            </motion.div>
+            
+            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-semibold text-white mb-4 tracking-tight">
+              Connect to{' '}
+              <span className="bg-gradient-to-r from-cyan-400 via-blue-400 to-violet-400 bg-clip-text text-transparent">
+                everything
+              </span>
+            </h2>
+            <p className="text-gray-400 max-w-2xl mx-auto text-lg">
+              Pull data from any source. Push updates anywhere. Build fully connected internal tools.
+            </p>
+          </motion.div>
+
+          {/* Integration logos - smooth infinite scroll using CSS */}
+          <div className="relative space-y-5">
+            {/* CSS keyframes for smooth infinite scroll */}
+            <style>{`
+              @keyframes scrollLeft {
+                0% { transform: translateX(0); }
+                100% { transform: translateX(-50%); }
+              }
+              @keyframes scrollRight {
+                0% { transform: translateX(-50%); }
+                100% { transform: translateX(0); }
+              }
+              .scroll-left {
+                animation: scrollLeft 120s linear infinite;
+              }
+              .scroll-right {
+                animation: scrollRight 140s linear infinite;
+              }
+              .scroll-left-slow {
+                animation: scrollLeft 160s linear infinite;
+              }
+            `}</style>
+            
+            {/* Row 1 - Scroll Left */}
+            <div className="flex overflow-hidden">
+              <div className="flex gap-5 scroll-left" style={{ width: 'max-content' }}>
+                {[...Array(6)].map((_, setIdx) => (
+                  <div key={setIdx} className="flex gap-5">
+                    {integrations.slice(0, 6).map((integration, idx) => (
+                      <motion.div
+                        key={`${setIdx}-${idx}`}
+                        className="flex-shrink-0 w-[200px] h-[72px] bg-white rounded-xl border border-gray-200 flex items-center justify-center gap-2.5 px-4 cursor-pointer group shadow-sm hover:shadow-lg hover:scale-105 transition-all duration-200"
+                      >
+                        {integration.logo_url ? (
+                          <img 
+                            src={integration.logo_url} 
+                            alt={integration.name}
+                            className="h-6 w-6 object-contain flex-shrink-0 transition-transform group-hover:scale-110"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = 'none'
+                            }}
+                          />
+                        ) : (
+                          <div className="h-6 w-6 rounded bg-gray-200 flex items-center justify-center text-gray-500 text-[10px] font-bold flex-shrink-0">
+                            {integration.name.charAt(0)}
+                          </div>
+                        )}
+                        <span className="text-[13px] font-medium text-gray-900 group-hover:text-gray-700 truncate">
+                          {shortenIntegrationName(integration.name)}
+                        </span>
+                      </motion.div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Row 2 - Scroll Right */}
+            <div className="flex overflow-hidden">
+              <div className="flex gap-5 scroll-right" style={{ width: 'max-content' }}>
+                {[...Array(6)].map((_, setIdx) => (
+                  <div key={setIdx} className="flex gap-5">
+                    {integrations.slice(6, 12).map((integration, idx) => (
+                      <motion.div
+                        key={`${setIdx}-${idx}`}
+                        className="flex-shrink-0 w-[200px] h-[72px] bg-white rounded-xl border border-gray-200 flex items-center justify-center gap-2.5 px-4 cursor-pointer group shadow-sm hover:shadow-lg hover:scale-105 transition-all duration-200"
+                      >
+                        {integration.logo_url ? (
+                          <img 
+                            src={integration.logo_url} 
+                            alt={integration.name}
+                            className="h-6 w-6 object-contain flex-shrink-0 transition-transform group-hover:scale-110"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = 'none'
+                            }}
+                          />
+                        ) : (
+                          <div className="h-6 w-6 rounded bg-gray-200 flex items-center justify-center text-gray-500 text-[10px] font-bold flex-shrink-0">
+                            {integration.name.charAt(0)}
+                          </div>
+                        )}
+                        <span className="text-[13px] font-medium text-gray-900 group-hover:text-gray-700 truncate">
+                          {shortenIntegrationName(integration.name)}
+                        </span>
+                      </motion.div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Row 3 - Scroll Left Slow */}
+            <div className="flex overflow-hidden">
+              <div className="flex gap-5 scroll-left-slow" style={{ width: 'max-content' }}>
+                {[...Array(6)].map((_, setIdx) => (
+                  <div key={setIdx} className="flex gap-5">
+                    {integrations.slice(12, 18).map((integration, idx) => (
+                      <motion.div
+                        key={`${setIdx}-${idx}`}
+                        className="flex-shrink-0 w-[200px] h-[72px] bg-white rounded-xl border border-gray-200 flex items-center justify-center gap-2.5 px-4 cursor-pointer group shadow-sm hover:shadow-lg hover:scale-105 transition-all duration-200"
+                      >
+                        {integration.logo_url ? (
+                          <img 
+                            src={integration.logo_url} 
+                            alt={integration.name}
+                            className="h-6 w-6 object-contain flex-shrink-0 transition-transform group-hover:scale-110"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = 'none'
+                            }}
+                          />
+                        ) : (
+                          <div className="h-6 w-6 rounded bg-gray-200 flex items-center justify-center text-gray-500 text-[10px] font-bold flex-shrink-0">
+                            {integration.name.charAt(0)}
+                          </div>
+                        )}
+                        <span className="text-[13px] font-medium text-gray-900 group-hover:text-gray-700 truncate">
+                          {shortenIntegrationName(integration.name)}
+                        </span>
+                      </motion.div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Bottom CTA */}
+          <motion.div 
+            className="mt-12 text-center px-6 lg:px-10 max-w-7xl mx-auto"
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ delay: 0.3 }}
+          >
+            <p className="text-gray-500 text-sm">
+              Don't see what you need? We're adding new integrations every week.
+            </p>
+          </motion.div>
+        </div>
+      </section>
+
       {/* Features Section */}
       <section id="features" className="w-full bg-white py-24 px-6 lg:px-10">
         <div className="max-w-7xl mx-auto">
@@ -689,16 +1005,17 @@ export function LandingPage() {
             <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 mb-3">
               Why teams choose Relay
             </h2>
-            <p className="text-gray-600 max-w-xl mx-auto">
-              Build internal tools that are secure, fast, and easy to maintain.
+            <p className="text-gray-600 max-w-2xl mx-auto">
+              The fastest way to build internal tools. AI-powered and secure by default.
             </p>
           </motion.div>
 
-          <div className="grid md:grid-cols-3 gap-6 max-w-4xl mx-auto">
-            {FEATURES.map((feature, index) => (
+          {/* Top row - 3 features */}
+          <div className="grid md:grid-cols-3 gap-5 max-w-5xl mx-auto mb-5">
+            {FEATURES.slice(0, 3).map((feature, index) => (
               <motion.div 
                 key={feature.title}
-                className="group p-6 bg-white rounded-xl border border-gray-200"
+                className="group p-6 bg-white rounded-xl border border-gray-200 relative"
                 initial={{ opacity: 0, y: 20 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
@@ -709,6 +1026,47 @@ export function LandingPage() {
                   borderColor: 'rgb(209, 213, 219)'
                 }}
               >
+                {/* Highlight badge */}
+                <span className="absolute top-4 right-4 text-[10px] font-medium text-gray-500 uppercase tracking-wide px-2 py-1 bg-gray-100 rounded-full">
+                  {feature.highlight}
+                </span>
+                <motion.div 
+                  className="h-12 w-12 rounded-xl bg-gray-100 flex items-center justify-center mb-5"
+                  whileHover={{ scale: 1.05, rotate: 3 }}
+                  transition={{ type: 'spring', stiffness: 300 }}
+                >
+                  <feature.icon className="h-6 w-6 text-gray-700" />
+                </motion.div>
+                <h3 className="font-semibold text-gray-900 mb-2 group-hover:text-gray-700 transition-colors">
+                  {feature.title}
+                </h3>
+                <p className="text-sm text-gray-600 leading-relaxed">
+                  {feature.description}
+                </p>
+              </motion.div>
+            ))}
+          </div>
+
+          {/* Bottom row - 3 features */}
+          <div className="grid md:grid-cols-3 gap-5 max-w-5xl mx-auto">
+            {FEATURES.slice(3, 6).map((feature, index) => (
+              <motion.div 
+                key={feature.title}
+                className="group p-6 bg-white rounded-xl border border-gray-200 relative"
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5, delay: (index + 3) * 0.1 }}
+                whileHover={{ 
+                  y: -4,
+                  boxShadow: '0 12px 24px -8px rgba(0, 0, 0, 0.08)',
+                  borderColor: 'rgb(209, 213, 219)'
+                }}
+              >
+                {/* Highlight badge */}
+                <span className="absolute top-4 right-4 text-[10px] font-medium text-gray-500 uppercase tracking-wide px-2 py-1 bg-gray-100 rounded-full">
+                  {feature.highlight}
+                </span>
                 <motion.div 
                   className="h-12 w-12 rounded-xl bg-gray-100 flex items-center justify-center mb-5"
                   whileHover={{ scale: 1.05, rotate: 3 }}
@@ -740,7 +1098,7 @@ export function LandingPage() {
           <h2 className="text-2xl sm:text-4xl font-semibold text-white mb-4">
             Ready to build?
           </h2>
-          <p className="text-gray-400 mb-10 max-w-lg mx-auto text-lg">
+          <p className="text-gray-400 mb-10 max-w-2xl mx-auto text-lg">
             Start building your first internal app in minutes.
             No credit card required.
           </p>
@@ -794,6 +1152,11 @@ export function LandingPage() {
                 <li>
                   <a href="#showcase" className="text-sm text-gray-600 hover:text-gray-900 transition-colors">
                     Showcase
+                  </a>
+                </li>
+                <li>
+                  <a href="#integrations" className="text-sm text-gray-600 hover:text-gray-900 transition-colors">
+                    Integrations
                   </a>
                 </li>
                 <li>
