@@ -9,16 +9,17 @@
  * - All org members share the connected integrations
  */
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Plug,
   Loader2,
   Check,
   AlertCircle,
-  ExternalLink,
   Clock,
   Zap,
   RefreshCw,
   User,
+  Link,
 } from 'lucide-react'
 import { useApp } from '@/hooks/useApps'
 import {
@@ -34,6 +35,7 @@ interface AppConnectorsPanelProps {
 }
 
 export function AppConnectorsPanel({ appId, className = '' }: AppConnectorsPanelProps) {
+  const navigate = useNavigate()
   const { data: app } = useApp(appId)
   const orgId = app?.organization || null
   const { hasIntegrations, provider, isLoading: loadingProvider } = useHasIntegrations(orgId)
@@ -104,10 +106,10 @@ export function AppConnectorsPanel({ appId, className = '' }: AppConnectorsPanel
             variant="ghost"
             size="sm"
             className="w-full justify-start text-xs text-gray-500 hover:text-gray-700"
-            onClick={() => window.open('/settings?tab=integrations', '_blank')}
+            onClick={() => navigate('/integrations')}
           >
-            <ExternalLink className="h-3 w-3 mr-2" />
-            Manage in Resources
+            <Plug className="h-3 w-3 mr-2" />
+            Manage Integrations
           </Button>
         </div>
       </div>
@@ -144,6 +146,8 @@ interface EmptyStateProps {
 }
 
 function EmptyState({ message, description }: EmptyStateProps) {
+  const navigate = useNavigate()
+  
   return (
     <div className="flex flex-col items-center justify-center h-full bg-gray-50">
       <div className="h-16 w-16 rounded-xl bg-gray-100 flex items-center justify-center mb-4">
@@ -157,11 +161,47 @@ function EmptyState({ message, description }: EmptyStateProps) {
       </p>
       <Button
         variant="outline"
-        onClick={() => window.open('/settings?tab=integrations', '_blank')}
+        onClick={() => navigate('/integrations')}
         className="gap-2"
       >
-        <ExternalLink className="h-4 w-4" />
-        Go to Resources
+        <Plug className="h-4 w-4" />
+        Go to Integrations
+      </Button>
+    </div>
+  )
+}
+
+// ============================================================================
+// Not Connected Banner
+// ============================================================================
+
+interface NotConnectedBannerProps {
+  connector: Connector
+}
+
+function NotConnectedBanner({ connector }: NotConnectedBannerProps) {
+  const navigate = useNavigate()
+  
+  const handleConnect = () => {
+    const integrationParam = connector.id || connector.connector_id || connector.name
+    const url = `/integrations${integrationParam ? `?integration=${encodeURIComponent(integrationParam)}` : ''}`
+    navigate(url)
+  }
+  
+  return (
+    <div className="mx-4 mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+      <p className="text-sm text-amber-800">
+        <strong>Not connected:</strong> This integration needs to be connected by an organization 
+        admin before it can be used in apps.
+      </p>
+      <Button
+        variant="outline"
+        size="sm"
+        className="mt-2 text-amber-800 border-amber-300 hover:bg-amber-100"
+        onClick={handleConnect}
+      >
+        <Link className="h-3 w-3 mr-1.5" />
+        Connect
       </Button>
     </div>
   )
@@ -308,25 +348,7 @@ function ConnectorDetails({ connector }: ConnectorDetailsProps) {
 
       {/* Not Connected Banner */}
       {!connector.is_connected && (
-        <div className="mx-4 mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-          <p className="text-sm text-amber-800">
-            <strong>Not connected:</strong> This integration needs to be connected by an organization 
-            member before it can be used in apps.
-          </p>
-          <Button
-            variant="outline"
-            size="sm"
-            className="mt-2 text-amber-800 border-amber-300 hover:bg-amber-100"
-            onClick={() => {
-              const integrationParam = connector.id || connector.connector_id || connector.name
-              const url = `/settings?tab=integrations${integrationParam ? `&integration=${encodeURIComponent(integrationParam)}` : ''}`
-              window.open(url, '_blank')
-            }}
-          >
-            <ExternalLink className="h-3 w-3 mr-1.5" />
-            Connect in Resources
-          </Button>
-        </div>
+        <NotConnectedBanner connector={connector} />
       )}
 
       {/* Tools Section */}

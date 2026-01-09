@@ -2,6 +2,7 @@
  * Resources page - Manage backend connections, resource registry, and integrations
  */
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAppSelector } from '../store/hooks'
 import { useBackends, useCreateBackend, useTestBackend } from '../hooks/useBackends'
 import type { BackendConnection } from '../types/models'
@@ -39,6 +40,7 @@ const adapterOptions: { value: AdapterType; label: string; description: string }
 ]
 
 export function ResourcesPage() {
+  const [searchParams] = useSearchParams()
   const selectedOrgId = useAppSelector((state) => state.ui.selectedOrgId)
   const { data: backends, isLoading: backendsLoading } = useBackends(selectedOrgId || null)
   const createBackend = useCreateBackend()
@@ -52,6 +54,9 @@ export function ResourcesPage() {
   
   // Tab state (hidden for now)
   const [_activeTab] = useState<ResourceTab>('backends')
+  
+  // Get selected integration from URL for auto-scroll
+  const selectedIntegration = searchParams.get('integration')
   
   // Connection dialog state
   const [showConnectionDialog, setShowConnectionDialog] = useState(false)
@@ -196,7 +201,7 @@ export function ResourcesPage() {
       {/* Integrations Panel - Full view (Backend tab hidden for now) */}
       <div className="flex-1 overflow-auto bg-gray-50 p-6">
         <div className="max-w-5xl mx-auto">
-          <IntegrationsPanel orgId={selectedOrgId} />
+          <IntegrationsPanel orgId={selectedOrgId} selectedIntegration={selectedIntegration} />
         </div>
       </div>
 

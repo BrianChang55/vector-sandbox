@@ -10,17 +10,15 @@ import { useOrgMembers } from '../hooks/useMembers'
 import { Button } from '../components/ui/button'
 import { useDialog } from '../components/ui/dialog-provider'
 import { MembersPanel } from '../components/settings/MembersPanel'
-import { IntegrationsPanel } from '../components/settings/IntegrationsPanel'
-import { User, Building2, LogOut, Shield, Bell, Upload, Trash2, Loader2, Check, Users, Plug } from 'lucide-react'
+import { User, Building2, LogOut, Shield, Bell, Upload, Trash2, Loader2, Check, Users } from 'lucide-react'
 import { cn } from '../lib/utils'
 
-type SettingsTab = 'profile' | 'organization' | 'members' | 'integrations' | 'security' | 'notifications'
+type SettingsTab = 'profile' | 'organization' | 'members' | 'security' | 'notifications'
 
 const tabs: { id: SettingsTab; label: string; icon: React.ElementType; adminOnly?: boolean }[] = [
   { id: 'profile', label: 'Profile', icon: User },
   { id: 'organization', label: 'Organization', icon: Building2 },
   { id: 'members', label: 'Members', icon: Users },
-  { id: 'integrations', label: 'Integrations', icon: Plug, adminOnly: true },
   { id: 'security', label: 'Security', icon: Shield },
   { id: 'notifications', label: 'Notifications', icon: Bell },
 ]
@@ -42,7 +40,6 @@ export function SettingsPage() {
   const [deleteConfirmName, setDeleteConfirmName] = useState('')
   
   const currentUserRole = membersData?.current_user_role
-  const canManageIntegrations = currentUserRole === 'admin'
   
   const [searchParams] = useSearchParams()
   const [activeTab, setActiveTab] = useState<SettingsTab>('profile')
@@ -243,11 +240,6 @@ export function SettingsPage() {
       <div className="w-56 border-r border-gray-200 bg-white p-4">
         <nav className="space-y-1">
           {tabs.map((tab) => {
-            // Hide admin-only tabs for non-admins
-            if (tab.adminOnly && !canManageIntegrations) {
-              return null
-            }
-            
             const Icon = tab.icon
             const isActive = activeTab === tab.id
             return (
@@ -281,10 +273,7 @@ export function SettingsPage() {
 
       {/* Right panel: Content */}
       <div className="flex-1 bg-gray-50 overflow-y-auto">
-        <div className={cn(
-          "mx-auto p-8",
-          activeTab === 'integrations' ? 'max-w-5xl' : 'max-w-2xl'
-        )}>
+        <div className="mx-auto p-8 max-w-2xl">
           {/* Profile Tab */}
           {activeTab === 'profile' && (
             <div>
@@ -593,14 +582,6 @@ export function SettingsPage() {
             <div>
               <h1 className="text-xl font-semibold text-gray-900 mb-6">Members</h1>
               <MembersPanel orgId={selectedOrgId} />
-            </div>
-          )}
-
-          {/* Integrations Tab (Admin only) */}
-          {activeTab === 'integrations' && selectedOrgId && canManageIntegrations && (
-            <div>
-              <h1 className="text-xl font-semibold text-gray-900 mb-6">Integrations</h1>
-              <IntegrationsPanel orgId={selectedOrgId} selectedIntegration={searchParams.get('integration')} />
             </div>
           )}
         </div>

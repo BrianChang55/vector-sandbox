@@ -393,8 +393,20 @@ function ConnectorCard({ connector, providerId, onConnected, viewMode, isSelecte
   const [connecting, setConnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [linkToken, setLinkToken] = useState<string | undefined>(undefined)
+  const [showHighlight, setShowHighlight] = useState(false)
   const generateLinkToken = useGenerateLinkToken()
   const handleCallback = useHandleLinkCallback()
+  
+  // Temporary highlight effect when selected - show for 1 second then fade away
+  useEffect(() => {
+    if (isSelected) {
+      setShowHighlight(true)
+      const timer = setTimeout(() => {
+        setShowHighlight(false)
+      }, 1000)
+      return () => clearTimeout(timer)
+    }
+  }, [isSelected])
   
   // Use the Merge Agent Handler Link React hook
   const { open: openLink, isReady } = useAgentHandlerLink({
@@ -460,10 +472,10 @@ function ConnectorCard({ connector, providerId, onConnected, viewMode, isSelecte
   
   if (viewMode === 'grid') {
     return (
-      <div className={`bg-white border rounded-lg p-4 transition-all hover:border-gray-300 hover:shadow-sm ${
-        isSelected 
-          ? 'border-blue-500 border-2 shadow-md ring-2 ring-blue-200' 
-          : 'border-gray-200'
+      <div className={`bg-white border border-gray-200 rounded-lg p-4 transition-all duration-500 hover:border-gray-300 hover:shadow-sm ${
+        showHighlight 
+          ? 'bg-amber-50 border-amber-200' 
+          : ''
       }`}>
         <div className="flex items-start gap-3">
           <div className={`h-12 w-12 rounded-lg flex items-center justify-center flex-shrink-0 ${
@@ -551,10 +563,10 @@ function ConnectorCard({ connector, providerId, onConnected, viewMode, isSelecte
   
   // List view
   return (
-    <div className={`bg-white border rounded-lg overflow-hidden transition-all hover:border-gray-300 hover:shadow-sm ${
-      isSelected 
-        ? 'border-blue-500 border-2 shadow-md ring-2 ring-blue-200' 
-        : 'border-gray-200'
+    <div className={`bg-white border border-gray-200 rounded-lg overflow-hidden transition-all duration-500 hover:border-gray-300 hover:shadow-sm ${
+      showHighlight 
+        ? 'bg-amber-50 border-amber-200' 
+        : ''
     }`}>
       <div 
         className="flex items-center gap-4 p-4 cursor-pointer"
