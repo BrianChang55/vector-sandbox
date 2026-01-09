@@ -18,8 +18,6 @@ import {
   Database,
   GitCompare,
   Loader2,
-  Clock,
-  User,
   Sparkles,
   Code2,
   History,
@@ -354,8 +352,8 @@ export function RollbackModal({
                       </div>
                       <div className="flex items-center gap-3">
                         <span className="text-lg font-semibold text-gray-900">
-                          {preview.schema_compatibility?.summary.tables_removed || 0 + 
-                           preview.schema_compatibility?.summary.tables_modified || 0}
+                          {(preview.schema_compatibility?.summary?.tables_removed ?? 0) + 
+                           (preview.schema_compatibility?.summary?.tables_modified ?? 0)}
                         </span>
                         {preview.diff.tables.modified.length + preview.diff.tables.added.length + preview.diff.tables.removed.length > 0 && (
                           <span className="text-xs px-1.5 py-0.5 bg-yellow-100 text-yellow-700 rounded-full">

@@ -4,11 +4,12 @@
 import { useState } from 'react'
 import { useAppSelector } from '../store/hooks'
 import { useBackends, useCreateBackend, useTestBackend } from '../hooks/useBackends'
+import type { BackendConnection } from '../types/models'
 import { useResources, useUpdateResource, useDiscoverResources } from '../hooks/useResources'
 import { Button } from '../components/ui/button'
 import { CustomDialog } from '../components/ui/dialog'
 import { useDialog } from '../components/ui/dialog-provider'
-import { Plus, Database, RefreshCw, ChevronRight, Check, X, TestTube2, Loader2, Plug } from 'lucide-react'
+import { Plus, Database, RefreshCw, ChevronRight, Check, X, TestTube2, Loader2 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { IntegrationsPanel } from '../components/settings/IntegrationsPanel'
 
@@ -49,8 +50,8 @@ export function ResourcesPage() {
   const { data: resources, isLoading: resourcesLoading } = useResources(selectedBackendId)
   const updateResource = useUpdateResource()
   
-  // Tab state
-  const [activeTab, setActiveTab] = useState<ResourceTab>('backends')
+  // Tab state (hidden for now)
+  const [_activeTab] = useState<ResourceTab>('backends')
   
   // Connection dialog state
   const [showConnectionDialog, setShowConnectionDialog] = useState(false)
@@ -98,7 +99,7 @@ export function ResourcesPage() {
     try {
       await createBackend.mutateAsync({
         orgId: selectedOrgId,
-        data: formData,
+        data: formData as Partial<BackendConnection>,
       })
       setShowConnectionDialog(false)
       resetForm()
@@ -131,14 +132,14 @@ export function ResourcesPage() {
       // First create a temporary connection to test
       const result = await createBackend.mutateAsync({
         orgId: selectedOrgId,
-        data: formData,
+        data: formData as Partial<BackendConnection>,
       })
       
       // Then test it
       const testRes = await testBackend.mutateAsync(result.id)
       setTestResult({
         success: testRes.success,
-        message: testRes.message + (testRes.version ? ` (${testRes.version})` : ''),
+        message: testRes.message || 'Connection successful',
       })
       
       // If test failed, we might want to delete the connection
@@ -272,7 +273,7 @@ export function ResourcesPage() {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => handleDiscover(selectedBackendId)}
+                onClick={() => selectedBackendId && handleDiscover(selectedBackendId)}
                 disabled={discoverResources.isPending}
               >
                 <RefreshCw className={cn('h-4 w-4 mr-1', discoverResources.isPending && 'animate-spin')} />
@@ -287,7 +288,7 @@ export function ResourcesPage() {
                 <div className="text-center py-12">
                   <Database className="h-12 w-12 text-gray-300 mx-auto mb-3" />
                   <p className="text-gray-500 mb-4">No resources discovered yet</p>
-                  <Button onClick={() => handleDiscover(selectedBackendId)}>
+                  <Button onClick={() => selectedBackendId && handleDiscover(selectedBackendId)}>
                     <RefreshCw className="h-4 w-4 mr-1" />
                     Discover Resources
                   </Button>

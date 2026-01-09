@@ -257,7 +257,6 @@ export function MembersPanel({ orgId }: MembersPanelProps) {
             isCurrentUser={currentUserRole === member.role && members.length === 1}
             onRoleChange={(role) => handleRoleChange(member, role)}
             onRemove={() => handleRemoveMember(member)}
-            isUpdating={updateRole.isPending}
           />
         ))}
 
@@ -411,7 +410,6 @@ interface MemberRowProps {
   isCurrentUser: boolean
   onRoleChange: (role: OrgRole) => void
   onRemove: () => void
-  isUpdating: boolean
 }
 
 function MemberRow({
@@ -420,7 +418,6 @@ function MemberRow({
   isCurrentUser,
   onRoleChange,
   onRemove,
-  isUpdating,
 }: MemberRowProps) {
   const roleOption = ROLE_OPTIONS.find((r) => r.value === member.role)
   const RoleIcon = roleOption?.icon ?? Eye

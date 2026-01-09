@@ -9,7 +9,6 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Rocket,
   CheckCircle,
-  Link2,
   Copy,
   Check,
   Loader2,

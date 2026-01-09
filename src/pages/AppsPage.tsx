@@ -161,7 +161,7 @@ export function AppsPage() {
       if (formMode === 'create') {
         await createApp.mutateAsync({
           orgId: selectedOrgId!,
-          data: { name: cleanedName, description: cleanedDescription, backend_connection: null },
+          data: { name: cleanedName, description: cleanedDescription, backend_connection: undefined },
         })
       } else if (formMode === 'edit' && formAppId) {
         setSavingAppId(formAppId)

@@ -21,7 +21,7 @@ import {
   Check,
 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
-import type { AppVersion, VersionDiff } from '../../types/models'
+import type { AppVersion } from '../../types/models'
 import { useVersionDiff } from '../../hooks/useApps'
 import { cn } from '../../lib/utils'
 

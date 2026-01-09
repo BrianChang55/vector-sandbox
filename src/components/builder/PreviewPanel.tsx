@@ -42,7 +42,7 @@ export function PreviewPanel({
 }: PreviewPanelProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('preview')
   const [isLoading, setIsLoading] = useState(false)
-  const [autoRefresh, setAutoRefresh] = useState(true)
+  const [autoRefresh] = useState(true)
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 

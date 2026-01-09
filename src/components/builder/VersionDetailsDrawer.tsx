@@ -24,7 +24,6 @@ import {
   User,
   MessageSquare,
   Hash,
-  Clock,
 } from 'lucide-react'
 import { formatDistanceToNow, format } from 'date-fns'
 import type { AppVersion } from '../../types/models'

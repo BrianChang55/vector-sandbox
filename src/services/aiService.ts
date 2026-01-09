@@ -19,12 +19,64 @@ export type {
   ChatMessage,
 } from './apiService'
 
-export interface StreamEvent {
-  type: 'connected' | 'session_created' | 'user_message' | 'assistant_start' | 
-        'content' | 'thinking' | 'generation_complete' | 'version_created' | 
-        'validation_warning' | 'version_error' | 'error' | 'done'
-  data: unknown
+// Event data types for each stream event
+export interface SessionCreatedData {
+  session_id: string
 }
+
+export interface UserMessageData {
+  id: string
+  content: string
+}
+
+export interface AssistantStartData {
+  id: string
+  model: string
+}
+
+export interface ContentData {
+  chunk: string
+}
+
+export interface ThinkingData {
+  chunk: string
+}
+
+export interface GenerationCompleteData {
+  message_id: string
+}
+
+export interface VersionCreatedData {
+  version_id: string
+  version_number: number
+}
+
+export interface ValidationWarningData {
+  message: string
+  warnings: string[]
+}
+
+export interface VersionErrorData {
+  message: string
+}
+
+export interface ErrorData {
+  message: string
+}
+
+export type StreamEvent =
+  | { type: 'connected'; data: Record<string, never> }
+  | { type: 'session_created'; data: SessionCreatedData }
+  | { type: 'user_message'; data: UserMessageData }
+  | { type: 'assistant_start'; data: AssistantStartData }
+  | { type: 'content'; data: ContentData }
+  | { type: 'thinking'; data: ThinkingData }
+  | { type: 'generation_complete'; data: GenerationCompleteData }
+  | { type: 'version_created'; data: VersionCreatedData }
+  | { type: 'validation_warning'; data: ValidationWarningData }
+  | { type: 'version_error'; data: VersionErrorData }
+  | { type: 'error'; data: ErrorData }
+  | { type: 'done'; data: Record<string, never> }
 
 export type StreamCallback = (event: StreamEvent) => void
 

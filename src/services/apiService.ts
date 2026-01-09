@@ -66,6 +66,7 @@ import type {
   DataTable,
   DataRow,
   QueryResult,
+  QueryResultRow,
   QuerySpec,
   CreateTableRequest,
   UpdateTableRequest,
@@ -1093,13 +1094,13 @@ export const dataTablesApi = {
    * Export all rows from a table (handles pagination automatically)
    * @param appId - App ID
    * @param tableSlug - Table slug
-   * @returns All rows from the table
+   * @returns All rows from the table as QueryResultRow[]
    */
   exportAllRows: async (
     appId: string,
     tableSlug: string
-  ): Promise<DataRow[]> => {
-    const allRows: DataRow[] = []
+  ): Promise<QueryResultRow[]> => {
+    const allRows: QueryResultRow[] = []
     let offset = 0
     const batchSize = 1000
     let hasMore = true
