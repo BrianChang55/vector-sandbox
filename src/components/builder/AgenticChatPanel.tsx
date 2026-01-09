@@ -58,10 +58,14 @@ interface AgenticChatPanelProps {
   bundlerErrors?: BundlerError[]
   /** Current version ID for error fixing */
   currentVersionId?: string
-  /** Initial prompt to auto-submit (e.g., from landing page) */
+  /** Initial prompt to auto-submit (e.g., from landing page) - VISIBLE in input */
   initialPrompt?: string
   /** Callback when initial prompt has been consumed */
   onInitialPromptConsumed?: () => void
+  /** Hidden prompt to auto-submit (from templates) - NEVER displayed to user */
+  hiddenPrompt?: string
+  /** Callback when hidden prompt has been consumed */
+  onHiddenPromptConsumed?: () => void
   className?: string
 }
 
@@ -426,6 +430,8 @@ export function AgenticChatPanel({
   currentVersionId,
   initialPrompt,
   onInitialPromptConsumed,
+  hiddenPrompt,
+  onHiddenPromptConsumed,
   className = '',
 }: AgenticChatPanelProps) {
   const [messages, setMessages] = useState<LocalMessage[]>([])
@@ -536,6 +542,47 @@ export function AgenticChatPanel({
   
   // Track whether we've auto-submitted the initial prompt
   const hasAutoSubmittedInitialPrompt = useRef(false)
+  
+  // Track whether we've auto-submitted the hidden prompt (from templates)
+  const hasAutoSubmittedHiddenPrompt = useRef(false)
+  
+  // Track if currently executing a hidden prompt (to suppress user message display)
+  const [isHiddenPromptExecution, setIsHiddenPromptExecution] = useState(false)
+  
+  // Store hidden prompts to filter from display - persists to localStorage per app
+  const HIDDEN_PROMPTS_KEY = `hidden_prompts_${appId}`
+  
+  // Get hidden prompts for this app from localStorage
+  const getHiddenPrompts = useCallback((): string[] => {
+    try {
+      const stored = localStorage.getItem(HIDDEN_PROMPTS_KEY)
+      return stored ? JSON.parse(stored) : []
+    } catch {
+      return []
+    }
+  }, [HIDDEN_PROMPTS_KEY])
+  
+  // Add a hidden prompt to the list
+  const addHiddenPrompt = useCallback((content: string) => {
+    const existing = getHiddenPrompts()
+    if (!existing.includes(content)) {
+      existing.push(content)
+      localStorage.setItem(HIDDEN_PROMPTS_KEY, JSON.stringify(existing))
+    }
+  }, [HIDDEN_PROMPTS_KEY, getHiddenPrompts])
+  
+  // Check if a message content is a hidden prompt
+  const isHiddenPromptContent = useCallback((content: string): boolean => {
+    const hiddenPrompts = getHiddenPrompts()
+    return hiddenPrompts.includes(content)
+  }, [getHiddenPrompts])
+  
+  // Store the current hidden prompt from prop
+  useEffect(() => {
+    if (hiddenPrompt) {
+      addHiddenPrompt(hiddenPrompt)
+    }
+  }, [hiddenPrompt, addHiddenPrompt])
 
   const appendProgressUpdate = useCallback(
     (
@@ -630,10 +677,21 @@ export function AgenticChatPanel({
     if (hydratedSessionId === sessionId) return
     // Avoid overwriting live streaming content; only hydrate when idle
     if (messages.length > 0 && messages[messages.length - 1]?.status === 'streaming') return
-    const restored = sessionMessages.map(mapApiMessageToLocal)
+    
+    // Filter out hidden prompt messages from session history
+    const restored = sessionMessages
+      .map(mapApiMessageToLocal)
+      .filter(msg => {
+        // Skip user messages that match any hidden prompt content
+        if (msg.role === 'user' && isHiddenPromptContent(msg.content)) {
+          return false
+        }
+        return true
+      })
+    
     setMessages(restored)
     setHydratedSessionId(sessionId)
-  }, [hydratedSessionId, mapApiMessageToLocal, messages, sessionId, sessionMessages])
+  }, [hydratedSessionId, mapApiMessageToLocal, messages, sessionId, sessionMessages, isHiddenPromptContent])
 
   // Auto-create a session if none exists for this app
   useEffect(() => {
@@ -899,6 +957,18 @@ export function AgenticChatPanel({
           break
 
         case 'user_message':
+          // Skip user_message events during hidden prompt execution (template builds)
+          // The prompt is intentionally never shown to the user
+          if (isHiddenPromptExecution) {
+            break
+          }
+          
+          // Also skip if the message content matches any hidden prompt
+          // This handles cases where the message comes from backend history or reconnection
+          if (isHiddenPromptContent(data.content)) {
+            break
+          }
+          
           // Add user message to the chat (handles reconnection/replay scenarios)
           setMessages(prev => {
             // Check if we already have this user message (avoid duplicates during live generation)
@@ -1336,6 +1406,8 @@ export function AgenticChatPanel({
       onFilesGenerated,
       thinkingStartTime,
       accumulatedFiles,
+      isHiddenPromptExecution,
+      isHiddenPromptContent,
     ]
   )
 
@@ -1693,6 +1765,138 @@ export function AgenticChatPanel({
     return () => clearTimeout(focusTimeout)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, initialPrompt, waitingOnSessionData, waitingOnMessages])
+
+  // Auto-submit hidden prompt from templates (NEVER display to user)
+  useEffect(() => {
+    // Only process once per component instance
+    if (hasAutoSubmittedHiddenPrompt.current) return
+    // Need a session ID and the hidden prompt
+    if (!sessionId || !hiddenPrompt) return
+    // Wait for session to be hydrated and ready
+    if (waitingOnSessionData || waitingOnMessages) return
+    // Don't submit if already loading
+    if (isLoading) return
+    
+    // Mark as processed immediately to prevent double-processing
+    hasAutoSubmittedHiddenPrompt.current = true
+    
+    console.log('[AgenticChatPanel] Auto-submitting hidden prompt from template')
+    
+    // Set flag to indicate this is a hidden prompt execution
+    setIsHiddenPromptExecution(true)
+    
+    // Store the hidden prompt content to filter it from display (persists in localStorage)
+    addHiddenPrompt(hiddenPrompt)
+    
+    // Auto-submit the hidden prompt after a brief delay for smooth UX
+    const submitTimeout = setTimeout(() => {
+      handleHiddenPromptSubmit(hiddenPrompt)
+      onHiddenPromptConsumed?.()
+    }, 300)
+    
+    return () => clearTimeout(submitTimeout)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, hiddenPrompt, waitingOnSessionData, waitingOnMessages, isLoading])
+  
+  // Handle hidden prompt submission - same as regular but doesn't add user message
+  const handleHiddenPromptSubmit = async (promptText: string) => {
+    if (!promptText || isLoading) return
+
+    setIsLoading(true)
+    setThinkingStartTime(Date.now())
+
+    // Reset agent state
+    dispatchAgentEvent({
+      type: 'agent_start',
+      timestamp: new Date().toISOString(),
+      data: { sessionId: '', messageId: '', goal: promptText },
+    })
+
+    // Reset the generating version ID for a new generation
+    setGeneratingVersionId(null)
+
+    // DON'T add user message - this is a hidden prompt execution
+    // Instead, add a special "building from template" assistant message
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: '',
+        status: 'streaming',
+        isAgentic: true,
+        tasks: [],
+        files: [],
+        progressUpdates: [{
+          id: `${Date.now()}-0`,
+          text: 'Building your app from template...',
+          timestamp: new Date().toISOString(),
+          variant: 'phase' as ProgressVariant,
+        }],
+        createdAt: new Date().toISOString(),
+      },
+    ])
+
+    const { controller, getJobId } = startAgenticGeneration(appId, promptText, {
+      sessionId: sessionId || undefined,
+      model: selectedModel,
+      isHiddenPrompt: true, // Flag to tell backend not to echo the prompt
+      onEvent: (event) => {
+        // Track job ID from version_draft event (job creates version)
+        const data = event.data as Record<string, unknown>
+        if (event.type === 'version_draft' && data.version_id) {
+          const jobId = getJobId()
+          if (jobId) {
+            setActiveJobId(jobId)
+          }
+        }
+        
+        // For hidden prompts, skip user_message events
+        if (event.type === 'user_message' && isHiddenPromptExecution) {
+          return
+        }
+        
+        handleAgentEvent(event)
+      },
+      onComplete: () => {
+        setIsLoading(false)
+        setAbortController(null)
+        setGeneratingVersionId(null)
+        setActiveJobId(null)
+        setIsHiddenPromptExecution(false)
+        // Invalidate and refetch messages to ensure we have the latest
+        if (sessionId) {
+          queryClient.invalidateQueries({ queryKey: ['chat-messages', sessionId] })
+        }
+      },
+      onError: (error) => {
+        console.error('Agent error:', error)
+        setIsLoading(false)
+        setAbortController(null)
+        setThinkingStartTime(null)
+        setGeneratingVersionId(null)
+        setActiveJobId(null)
+        setIsHiddenPromptExecution(false)
+        setMessages((prev) => {
+          const lastIdx = prev.length - 1
+          if (lastIdx < 0) return prev
+          const lastMsg = prev[lastIdx]
+          if (lastMsg?.role !== 'assistant') return prev
+          
+          return [
+            ...prev.slice(0, lastIdx),
+            {
+              ...lastMsg,
+              status: 'error' as const,
+              error: error.message,
+            },
+          ]
+        })
+      },
+    })
+
+    setAbortController(controller)
+  }
 
   return (
     <div className={cn('relative flex flex-col h-full bg-white', className)}>

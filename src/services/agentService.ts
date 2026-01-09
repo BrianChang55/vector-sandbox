@@ -79,6 +79,8 @@ export type AgentEventCallback = (event: AgentEvent) => void
 export interface AgentGenerateOptions {
   sessionId?: string
   model?: string
+  /** If true, the prompt is from a template and should not be displayed to the user */
+  isHiddenPrompt?: boolean
   onEvent: AgentEventCallback
   onComplete?: () => void
   onError?: (error: Error) => void

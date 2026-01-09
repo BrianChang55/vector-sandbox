@@ -88,11 +88,38 @@ export function AppBuilderPage() {
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [isPublishing, setIsPublishing] = useState(false)
   
-  // Pending prompt from landing page
+  // Pending prompt from landing page (visible - goes in input box)
   const [pendingPrompt, setPendingPrompt] = useState<string | null>(null)
   
-  // Check for pending prompt on mount (use layout effect to run before render)
+  // Hidden prompt from templates (invisible - auto-submitted, never displayed)
+  const [pendingHiddenPrompt, setPendingHiddenPrompt] = useState<string | null>(null)
+  
+  // Check for pending prompts on mount (use layout effect to run before render)
   useLayoutEffect(() => {
+    // Check for hidden prompt from template (takes priority)
+    const storedHiddenPromptRaw = localStorage.getItem('pending_hidden_prompt')
+    if (storedHiddenPromptRaw) {
+      let validHiddenPrompt: string | null = null
+      try {
+        const parsed = JSON.parse(storedHiddenPromptRaw)
+        const age = Date.now() - parsed.timestamp
+        // Hidden prompts have 5-minute expiration
+        if (parsed.hiddenPrompt && parsed.isHidden && parsed.timestamp && age <= 5 * 60 * 1000) {
+          validHiddenPrompt = parsed.hiddenPrompt
+        }
+      } catch {
+        // Invalid JSON format
+      }
+      if (validHiddenPrompt) {
+        setPendingHiddenPrompt(validHiddenPrompt)
+        // Don't set pending prompt - hidden prompts are auto-submitted
+        return
+      } else {
+        localStorage.removeItem('pending_hidden_prompt')
+      }
+    }
+    
+    // Check for regular pending prompt (visible in input box)
     const storedPromptRaw = localStorage.getItem('pending_prompt')
     if (storedPromptRaw) {
       let validPrompt: string | null = null
@@ -117,6 +144,12 @@ export function AppBuilderPage() {
   const handleInitialPromptConsumed = useCallback(() => {
     localStorage.removeItem('pending_prompt')
     setPendingPrompt(null)
+  }, [])
+  
+  // Callback when hidden prompt is consumed by chat panel
+  const handleHiddenPromptConsumed = useCallback(() => {
+    localStorage.removeItem('pending_hidden_prompt')
+    setPendingHiddenPrompt(null)
   }, [])
   const [streamingFiles, setStreamingFiles] = useState<FileChange[]>([]) // Files from active generation
   const [isActivelyGenerating, setIsActivelyGenerating] = useState(false) // Track if generation is in progress
@@ -467,6 +500,8 @@ export function AppBuilderPage() {
                 currentVersionId={selectedVersionId || undefined}
                 initialPrompt={pendingPrompt || undefined}
                 onInitialPromptConsumed={handleInitialPromptConsumed}
+                hiddenPrompt={pendingHiddenPrompt || undefined}
+                onHiddenPromptConsumed={handleHiddenPromptConsumed}
                 className="h-full"
               />
               {/* Resize handle */}

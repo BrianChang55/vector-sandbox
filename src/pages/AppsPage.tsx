@@ -10,7 +10,6 @@ import { useNavigate } from 'react-router-dom'
 import { useAppSelector } from '../store/hooks'
 import { useApps, useCreateApp, useUpdateApp, useDeleteApp, useAppFavorites, useToggleFavorite } from '../hooks/useApps'
 import { useOrgMembers } from '../hooks/useMembers'
-import { aiApi } from '../services/apiService'
 import { Button } from '../components/ui/button'
 import { useDialog } from '../components/ui/dialog-provider'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/dropdown-menu'
@@ -35,6 +34,7 @@ import {
 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { fuzzySearch } from '../utils/fuzzySearch'
+import { getStoredTemplateData, clearStoredTemplateData, TEMPLATE_EXPIRATION_MS } from '../data/appTemplates'
 
 type FilterMode = 'all' | 'created' | 'favorites'
 
@@ -56,24 +56,24 @@ export function AppsPage() {
   
   // Loading state for processing pending prompt from landing page
   const [isCreatingFromPrompt, setIsCreatingFromPrompt] = useState(false)
+  const [creatingTemplateName, setCreatingTemplateName] = useState<string | null>(null)
   
-  const PROMPT_EXPIRATION_TIME = 5 * 60 * 1000 // 5 minutes
-  
-  // Check for pending prompt from landing page and auto-create app
+  // Check for pending template from landing page and auto-create app
   useEffect(() => {
     // Only process once per mount and when we have an org selected
     if (hasProcessedPendingPrompt.current || !selectedOrgId) return
     
-    const pendingPromptRaw = localStorage.getItem('pending_prompt')
-    const pendingTemplate = localStorage.getItem('pending_template')
+    // Check for new template format first
+    const storedTemplate = getStoredTemplateData()
     
-    // Parse pending prompt and check expiration
+    // Also check for legacy pending_prompt format
+    const pendingPromptRaw = localStorage.getItem('pending_prompt')
     let pendingPrompt: string | null = null
-    if (pendingPromptRaw) {
+    if (pendingPromptRaw && !storedTemplate) {
       try {
         const parsed = JSON.parse(pendingPromptRaw)
         const age = Date.now() - parsed.timestamp
-        if (parsed.prompt && parsed.timestamp && age <= PROMPT_EXPIRATION_TIME) {
+        if (parsed.prompt && parsed.timestamp && age <= TEMPLATE_EXPIRATION_MS) {
           pendingPrompt = parsed.prompt
         }
       } catch {
@@ -84,44 +84,8 @@ export function AppsPage() {
       }
     }
     
-    if (pendingPrompt || pendingTemplate) {
+    if (storedTemplate || pendingPrompt) {
       hasProcessedPendingPrompt.current = true
-      
-      // Template definitions with names and prompts
-      const templateDefinitions: Record<string, { name: string; prompt: string }> = {
-        'customer-crm': {
-          name: 'Customer CRM',
-          prompt: 'Build a customer CRM app to view, search, and manage customer profiles with contact details, activity history, and notes'
-        },
-        'order-management': {
-          name: 'Order Management',
-          prompt: 'Build an order management dashboard to track orders, process refunds, update order status, and view order history'
-        },
-        'support-queue': {
-          name: 'Support Queue',
-          prompt: 'Build a support ticket queue to triage tickets, respond to users, assign tickets to team members, and escalate issues'
-        },
-        'billing-dashboard': {
-          name: 'Billing Dashboard',
-          prompt: 'Build a billing dashboard to review invoices, manage subscriptions, issue credits, and track payment history'
-        },
-        'inventory-tracker': {
-          name: 'Inventory Tracker',
-          prompt: 'Build an inventory tracking app to monitor stock levels, set reorder alerts, and look up products by SKU'
-        },
-        'content-moderation': {
-          name: 'Content Moderation',
-          prompt: 'Build a content moderation queue to review flagged content, approve or reject posts, and track moderation actions'
-        },
-        'user-admin': {
-          name: 'User Admin',
-          prompt: 'Build a user admin panel to manage user roles, permissions, and account status with search and filtering'
-        },
-        'analytics-dashboard': {
-          name: 'Analytics Dashboard',
-          prompt: 'Build an analytics dashboard to visualize KPIs, track key metrics, and generate data reports with charts'
-        },
-      }
       
       // Create the app and navigate to builder
       const createAndNavigate = async () => {
@@ -130,38 +94,29 @@ export function AppsPage() {
         try {
           let appName = 'New App'
           let appDescription = ''
-          let promptToUse = pendingPrompt || ''
           
-          // Handle template selection
-          if (pendingTemplate && !pendingPrompt) {
-            const template = templateDefinitions[pendingTemplate]
-            if (template) {
-              appName = template.name
-              appDescription = `Created from ${template.name} template`
-              promptToUse = template.prompt
-              // Set the template prompt as pending_prompt for the builder to use
-              const promptData = {
-                prompt: template.prompt,
-                timestamp: Date.now()
-              }
-              localStorage.setItem('pending_prompt', JSON.stringify(promptData))
+          // Handle new template format (from landing page templates)
+          if (storedTemplate) {
+            appName = storedTemplate.title
+            appDescription = storedTemplate.description
+            setCreatingTemplateName(storedTemplate.title)
+            
+            // Store the hidden prompt for the builder - this is the KEY change
+            // The hidden prompt is stored separately and will be auto-submitted
+            const promptData = {
+              hiddenPrompt: storedTemplate.hiddenPrompt,
+              isHidden: true, // Flag to indicate this should NOT be displayed
+              timestamp: Date.now()
             }
+            localStorage.setItem('pending_hidden_prompt', JSON.stringify(promptData))
           }
-          
-          // If we have a prompt (user-entered or from template), call AI to generate title
-          if (promptToUse) {
-            try {
-              const aiResult = await aiApi.generateAppTitle(promptToUse)
-              appName = aiResult.title || promptToUse.substring(0, 40)
-              appDescription = aiResult.description || ''
-            } catch (aiError) {
-              console.warn('Failed to generate AI title, using fallback:', aiError)
-              // Fallback: use prompt as title
-              appName = promptToUse.length > 40 
-                ? promptToUse.substring(0, 37) + '...' 
-                : promptToUse
-              appDescription = ''
-            }
+          // Handle legacy prompt format (user-typed prompt)
+          else if (pendingPrompt) {
+            // Keep the old behavior for user-typed prompts
+            appName = pendingPrompt.length > 40 
+              ? pendingPrompt.substring(0, 37) + '...' 
+              : pendingPrompt
+            appDescription = ''
           }
           
           const newApp = await createApp.mutateAsync({
@@ -173,17 +128,20 @@ export function AppsPage() {
             },
           })
           
-          // Clear the template (but keep pending_prompt for the builder to use)
-          localStorage.removeItem('pending_template')
+          // Clear the template data (keep pending_hidden_prompt for the builder)
+          clearStoredTemplateData()
+          localStorage.removeItem('pending_prompt')
           
-          // Navigate to the builder - pending_prompt will be picked up there
+          // Navigate to the builder - pending_hidden_prompt will be picked up there
           navigate(`/apps/${newApp.id}`)
         } catch (error) {
-          console.error('Failed to create app from landing page prompt:', error)
+          console.error('Failed to create app from landing page:', error)
           // Clear stored values on error so user doesn't get stuck
+          clearStoredTemplateData()
           localStorage.removeItem('pending_prompt')
-          localStorage.removeItem('pending_template')
+          localStorage.removeItem('pending_hidden_prompt')
           setIsCreatingFromPrompt(false)
+          setCreatingTemplateName(null)
         }
       }
       
@@ -362,22 +320,47 @@ export function AppsPage() {
     )
   }
 
-  // Show loading overlay when creating app from landing page prompt
+  // Show loading overlay when creating app from landing page template
   if (isCreatingFromPrompt) {
     return (
       <div className="flex items-center justify-center h-full bg-gray-50">
-        <div className="flex flex-col items-center gap-4">
+        <div className="flex flex-col items-center gap-5">
+          {/* Animated card */}
           <div className="relative">
-            <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
-              <Sparkles className="h-8 w-8 text-gray-500" />
+            <div className="h-20 w-20 rounded-2xl bg-gradient-to-br from-gray-100 to-gray-50 border border-gray-200 flex items-center justify-center shadow-sm animate-pulse">
+              <Sparkles className="h-10 w-10 text-gray-400" />
             </div>
-            <div className="absolute -bottom-1 -right-1 h-6 w-6 rounded-full bg-white shadow-sm flex items-center justify-center">
+            <div className="absolute -bottom-1.5 -right-1.5 h-7 w-7 rounded-full bg-white shadow-md border border-gray-100 flex items-center justify-center">
               <Loader2 className="h-4 w-4 animate-spin text-gray-600" />
             </div>
           </div>
+          
+          {/* Text content */}
           <div className="text-center">
-            <p className="text-sm font-medium text-gray-900">Creating your app...</p>
-            <p className="text-xs text-gray-500 mt-1">Generating a name and setting things up</p>
+            <p className="text-base font-medium text-gray-900">
+              {creatingTemplateName ? (
+                <>Creating <span className="text-gray-600">{creatingTemplateName}</span></>
+              ) : (
+                'Creating your app...'
+              )}
+            </p>
+            <p className="text-sm text-gray-500 mt-1.5 max-w-xs">
+              {creatingTemplateName 
+                ? 'Setting up your app and preparing to build...'
+                : 'Generating a name and setting things up'
+              }
+            </p>
+          </div>
+          
+          {/* Progress dots */}
+          <div className="flex items-center gap-1.5">
+            {[0, 1, 2].map((i) => (
+              <div
+                key={i}
+                className="h-1.5 w-1.5 rounded-full bg-gray-400 animate-pulse"
+                style={{ animationDelay: `${i * 200}ms` }}
+              />
+            ))}
           </div>
         </div>
       </div>

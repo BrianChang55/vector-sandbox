@@ -10,23 +10,16 @@ import { Button } from '@/components/ui/button'
 import { Logo } from '@/components/Logo'
 import { 
   ArrowRight, 
-  Users,
-  BarChart3,
-  ShoppingCart,
   Zap,
   Shield,
   Code2,
-  CreditCard,
-  Package,
-  MessageSquare,
-  ClipboardList,
-  UserCheck,
   GitBranch,
   Plug,
-  Rocket
+  Rocket,
 } from 'lucide-react'
 import { NeuralDotField } from '@/components/NeuralDotField'
 import { publicApi, type PublicIntegration } from '@/services/apiService'
+import { APP_TEMPLATES, storeTemplateSelection, type AppTemplate } from '@/data/appTemplates'
 
 // Shorten long integration names for display
 const shortenIntegrationName = (name: string): string => {
@@ -104,81 +97,61 @@ const STATIC_PREFIX = 'Build a '
 // Hero title for blur animation
 const HERO_TITLE = 'Build Internal Apps in Seconds'
 
-// Template app data - 8 most common internal tool use cases
-const APP_TEMPLATES = [
-  {
-    id: 'customer-crm',
-    title: 'Customer CRM',
-    description: 'View, search, and manage customer profiles',
-    icon: Users,
-    color: 'bg-blue-50',
-    iconColor: 'text-blue-600',
-    borderHover: 'hover:border-blue-200',
-  },
-  {
-    id: 'order-management',
-    title: 'Order Management',
-    description: 'Track orders, process refunds, update status',
-    icon: ShoppingCart,
-    color: 'bg-emerald-50',
-    iconColor: 'text-emerald-600',
-    borderHover: 'hover:border-emerald-200',
-  },
-  {
-    id: 'support-queue',
-    title: 'Support Queue',
-    description: 'Triage tickets, respond to users, escalate issues',
-    icon: MessageSquare,
-    color: 'bg-violet-50',
-    iconColor: 'text-violet-600',
-    borderHover: 'hover:border-violet-200',
-  },
-  {
-    id: 'billing-dashboard',
-    title: 'Billing Dashboard',
-    description: 'Review invoices, manage subscriptions, issue credits',
-    icon: CreditCard,
-    color: 'bg-amber-50',
-    iconColor: 'text-amber-600',
-    borderHover: 'hover:border-amber-200',
-  },
-  {
-    id: 'inventory-tracker',
-    title: 'Inventory Tracker',
-    description: 'Monitor stock levels, reorder alerts, SKU lookup',
-    icon: Package,
-    color: 'bg-teal-50',
-    iconColor: 'text-teal-600',
-    borderHover: 'hover:border-teal-200',
-  },
-  {
-    id: 'content-moderation',
-    title: 'Content Moderation',
-    description: 'Review flagged content, approve or reject posts',
-    icon: ClipboardList,
-    color: 'bg-pink-50',
-    iconColor: 'text-pink-600',
-    borderHover: 'hover:border-pink-200',
-  },
-  {
-    id: 'user-admin',
-    title: 'User Admin',
-    description: 'Manage roles, permissions, and account status',
-    icon: UserCheck,
-    color: 'bg-indigo-50',
-    iconColor: 'text-indigo-600',
-    borderHover: 'hover:border-indigo-200',
-  },
-  {
-    id: 'analytics-dashboard',
-    title: 'Analytics Dashboard',
-    description: 'Visualize KPIs, track metrics, generate reports',
-    icon: BarChart3,
-    color: 'bg-orange-50',
-    iconColor: 'text-orange-600',
-    borderHover: 'hover:border-orange-200',
-  },
-]
+// Template Grid Component - Shows all 12 templates in 3 rows
+function TemplateGrid({ 
+  templates, 
+  onTemplateClick 
+}: { 
+  templates: AppTemplate[]
+  onTemplateClick: (template: AppTemplate) => void 
+}) {
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-5">
+      {templates.map((template, index) => (
+        <motion.div 
+          key={template.id}
+          className="group cursor-pointer"
+          onClick={() => onTemplateClick(template)}
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.4, delay: index * 0.04 }}
+        >
+          <motion.div 
+            className={`aspect-[4/3] rounded-xl overflow-hidden ${template.color} border border-gray-200 ${template.borderHover} mb-3 flex items-center justify-center transition-all relative`}
+            whileHover={{ 
+              y: -6,
+              boxShadow: '0 16px 32px -12px rgba(0, 0, 0, 0.12)'
+            }}
+            transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+          >
+            {/* Glow effect on hover */}
+            <motion.div
+              className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+              style={{
+                background: `radial-gradient(circle at 50% 50%, rgba(0,0,0,0.03) 0%, transparent 70%)`,
+              }}
+            />
+            <motion.div
+              whileHover={{ scale: 1.15, rotate: 5 }}
+              transition={{ type: 'spring', stiffness: 400, damping: 20 }}
+              className="relative z-10"
+            >
+              <template.Icon className={`h-10 w-10 ${template.iconColor}`} />
+            </motion.div>
+          </motion.div>
+          <h3 className="text-sm font-medium text-gray-900 mb-0.5 group-hover:text-gray-700 transition-colors">
+            {template.title}
+          </h3>
+          <p className="text-xs text-gray-500 line-clamp-2">
+            {template.description}
+          </p>
+        </motion.div>
+      ))}
+    </div>
+  )
+}
+
 
 // Showcase apps - impressive examples of what teams have built
 const SHOWCASE_APPS = [
@@ -351,9 +324,9 @@ export function LandingPage() {
     }
   }
 
-  const handleTemplateClick = (templateId: string) => {
-    // Store template selection
-    localStorage.setItem('pending_template', templateId)
+  const handleTemplateClick = (template: AppTemplate) => {
+    // Store template selection with expiration timestamp
+    storeTemplateSelection(template)
     navigate('/signup')
   }
 
@@ -724,71 +697,27 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* App Templates Section */}
+      {/* App Templates Section - 3 rows of 4 templates */}
       <section id="templates" className="w-full bg-gray-50 border-y border-gray-200 py-24 px-6 lg:px-10">
         <div className="max-w-7xl mx-auto">
           {/* Section Header */}
           <motion.div 
-            className="flex items-end justify-between mb-10"
+            className="mb-10"
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.5 }}
           >
-            <div>
-              <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 mb-2">
-                Start with a Template
-              </h2>
-              <p className="text-gray-600">
-                Jump-start your next internal app
-              </p>
-            </div>
-            <motion.button 
-              type="button"
-              onClick={() => navigate('/signup')}
-              className="text-sm font-medium text-gray-900 hover:text-gray-700 transition-colors flex items-center gap-1.5 group"
-              whileHover={{ x: 3 }}
-            >
-              View all
-              <ArrowRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
-            </motion.button>
+            <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 mb-2">
+              Start with a Template
+            </h2>
+            <p className="text-gray-600">
+              Jump-start your next internal app with one of our ready-to-customize templates
+            </p>
           </motion.div>
 
-          {/* Templates Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
-            {APP_TEMPLATES.map((template, index) => (
-              <motion.div 
-                key={template.id}
-                className="group cursor-pointer"
-                onClick={() => handleTemplateClick(template.id)}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.5, delay: index * 0.05 }}
-              >
-                <motion.div 
-                  className={`aspect-[4/3] rounded-xl overflow-hidden ${template.color} border border-gray-200 ${template.borderHover} mb-3 flex items-center justify-center transition-colors`}
-                  whileHover={{ 
-                    y: -4,
-                    boxShadow: '0 12px 24px -8px rgba(0, 0, 0, 0.08)'
-                  }}
-                >
-                  <motion.div
-                    whileHover={{ scale: 1.1, rotate: 3 }}
-                    transition={{ type: 'spring', stiffness: 300 }}
-                  >
-                    <template.icon className={`h-10 w-10 ${template.iconColor}`} />
-                  </motion.div>
-                </motion.div>
-                <h3 className="text-sm font-medium text-gray-900 mb-0.5 group-hover:text-gray-700 transition-colors">
-                  {template.title}
-                </h3>
-                <p className="text-xs text-gray-500">
-                  {template.description}
-                </p>
-              </motion.div>
-            ))}
-          </div>
+          {/* Templates Grid - 12 templates in 3 rows */}
+          <TemplateGrid templates={APP_TEMPLATES} onTemplateClick={handleTemplateClick} />
         </div>
       </section>
 
