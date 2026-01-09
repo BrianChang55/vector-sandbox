@@ -326,16 +326,28 @@ export function LandingPage() {
     return () => window.removeEventListener('scroll', handleScroll)
   }, [])
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
     if (prompt.trim()) {
-      // Store prompt in localStorage for persistence through auth flow
-      localStorage.setItem('pending_prompt', prompt)
+      // Store prompt with timestamp in localStorage for persistence through auth flow
+      const promptData = {
+        prompt: prompt,
+        timestamp: Date.now()
+      }
+      localStorage.setItem('pending_prompt', JSON.stringify(promptData))
       // Navigate to signup/app creation
       navigate('/signup')
     } else {
       // Just open signup if no prompt
       navigate('/signup')
+    }
+  }
+
+  // Handle Enter key to submit (Shift+Enter for newlines)
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSubmit()
     }
   }
 
@@ -585,6 +597,7 @@ export function LandingPage() {
                       ref={inputRef}
                       value={prompt}
                       onChange={(e) => setPrompt(e.target.value)}
+                      onKeyDown={handleKeyDown}
                       className="w-full h-[80px] text-base sm:text-lg bg-transparent border-0 text-gray-900 placeholder:text-gray-400 focus:ring-0 focus:outline-none resize-none relative z-10"
                     />
                   </div>

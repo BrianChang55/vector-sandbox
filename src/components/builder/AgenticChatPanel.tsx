@@ -58,6 +58,10 @@ interface AgenticChatPanelProps {
   bundlerErrors?: BundlerError[]
   /** Current version ID for error fixing */
   currentVersionId?: string
+  /** Initial prompt to auto-submit (e.g., from landing page) */
+  initialPrompt?: string
+  /** Callback when initial prompt has been consumed */
+  onInitialPromptConsumed?: () => void
   className?: string
 }
 
@@ -420,6 +424,8 @@ export function AgenticChatPanel({
   onGeneratingVersionChange,
   bundlerErrors,
   currentVersionId,
+  initialPrompt,
+  onInitialPromptConsumed,
   className = '',
 }: AgenticChatPanelProps) {
   const [messages, setMessages] = useState<LocalMessage[]>([])
@@ -527,6 +533,9 @@ export function AgenticChatPanel({
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  
+  // Track whether we've auto-submitted the initial prompt
+  const hasAutoSubmittedInitialPrompt = useRef(false)
 
   const appendProgressUpdate = useCallback(
     (
@@ -1428,10 +1437,11 @@ export function AgenticChatPanel({
     checkForActiveJob()
   }, [appId, hasCheckedForActiveJob, handleAgentEvent, onGeneratingVersionChange, messagesFetching, sessionMessages, mapApiMessageToLocal, sessionId])
 
-  const handleSubmit = async () => {
-    if (!input.trim() || isLoading) return
+  const handleSubmit = async (overrideMessage?: string) => {
+    const messageToSend = overrideMessage ?? input.trim()
+    if (!messageToSend || isLoading) return
 
-    const message = input.trim()
+    const message = messageToSend
     setInput('')
     setIsLoading(true)
     setThinkingStartTime(Date.now())
@@ -1657,6 +1667,32 @@ export function AgenticChatPanel({
       }
     }
   }, [waitingOnSessionData, waitingOnMessages])
+
+  // Pre-fill input with initial prompt from landing page when session is ready
+  useEffect(() => {
+    // Only process once per component instance
+    if (hasAutoSubmittedInitialPrompt.current) return
+    // Need a session ID and the initial prompt
+    if (!sessionId || !initialPrompt) return
+    // Wait for session to be hydrated and ready
+    if (waitingOnSessionData || waitingOnMessages) return
+    
+    // Mark as processed immediately to prevent double-processing
+    hasAutoSubmittedInitialPrompt.current = true
+    
+    // Pre-fill the input with the prompt (don't auto-submit)
+    setInput(initialPrompt)
+    
+    // Focus the input after a small delay
+    const focusTimeout = setTimeout(() => {
+      inputRef.current?.focus()
+      // Notify parent that we've consumed the initial prompt
+      onInitialPromptConsumed?.()
+    }, 200)
+    
+    return () => clearTimeout(focusTimeout)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, initialPrompt, waitingOnSessionData, waitingOnMessages])
 
   return (
     <div className={cn('relative flex flex-col h-full bg-white', className)}>

@@ -12,7 +12,7 @@
  * 
  * Light enterprise theme matching the rest of the application.
  */
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { 
   ArrowLeft, 
@@ -87,6 +87,37 @@ export function AppBuilderPage() {
   
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [isPublishing, setIsPublishing] = useState(false)
+  
+  // Pending prompt from landing page
+  const [pendingPrompt, setPendingPrompt] = useState<string | null>(null)
+  
+  // Check for pending prompt on mount (use layout effect to run before render)
+  useLayoutEffect(() => {
+    const storedPromptRaw = localStorage.getItem('pending_prompt')
+    if (storedPromptRaw) {
+      let validPrompt: string | null = null
+      try {
+        const parsed = JSON.parse(storedPromptRaw)
+        const age = Date.now() - parsed.timestamp
+        if (parsed.prompt && parsed.timestamp && age <= 5 * 60 * 1000) {
+          validPrompt = parsed.prompt
+        }
+      } catch {
+        // Invalid JSON format
+      }
+      if (validPrompt) {
+        setPendingPrompt(validPrompt)
+      } else {
+        localStorage.removeItem('pending_prompt')
+      }
+    }
+  }, [])
+  
+  // Callback when initial prompt is consumed by chat panel
+  const handleInitialPromptConsumed = useCallback(() => {
+    localStorage.removeItem('pending_prompt')
+    setPendingPrompt(null)
+  }, [])
   const [streamingFiles, setStreamingFiles] = useState<FileChange[]>([]) // Files from active generation
   const [isActivelyGenerating, setIsActivelyGenerating] = useState(false) // Track if generation is in progress
   const [publishError, setPublishError] = useState<string | null>(null)
@@ -434,6 +465,8 @@ export function AppBuilderPage() {
                 onGeneratingVersionChange={setActiveGeneratingVersionId}
                 bundlerErrors={bundlerErrors}
                 currentVersionId={selectedVersionId || undefined}
+                initialPrompt={pendingPrompt || undefined}
+                onInitialPromptConsumed={handleInitialPromptConsumed}
                 className="h-full"
               />
               {/* Resize handle */}

@@ -5,11 +5,12 @@
  * Follows the established design system: white backgrounds, gray borders,
  * subtle shadows, and minimal design.
  */
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAppSelector } from '../store/hooks'
 import { useApps, useCreateApp, useUpdateApp, useDeleteApp, useAppFavorites, useToggleFavorite } from '../hooks/useApps'
 import { useOrgMembers } from '../hooks/useMembers'
+import { aiApi } from '../services/apiService'
 import { Button } from '../components/ui/button'
 import { useDialog } from '../components/ui/dialog-provider'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '../components/ui/dropdown-menu'
@@ -30,6 +31,7 @@ import {
   Search,
   Star,
   X,
+  Sparkles,
 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { fuzzySearch } from '../utils/fuzzySearch'
@@ -48,6 +50,146 @@ export function AppsPage() {
   const deleteApp = useDeleteApp()
   const { confirm } = useDialog()
   const navigate = useNavigate()
+  
+  // Track if we've already processed the pending prompt to avoid double-processing
+  const hasProcessedPendingPrompt = useRef(false)
+  
+  // Loading state for processing pending prompt from landing page
+  const [isCreatingFromPrompt, setIsCreatingFromPrompt] = useState(false)
+  
+  const PROMPT_EXPIRATION_TIME = 5 * 60 * 1000 // 5 minutes
+  
+  // Check for pending prompt from landing page and auto-create app
+  useEffect(() => {
+    // Only process once per mount and when we have an org selected
+    if (hasProcessedPendingPrompt.current || !selectedOrgId) return
+    
+    const pendingPromptRaw = localStorage.getItem('pending_prompt')
+    const pendingTemplate = localStorage.getItem('pending_template')
+    
+    // Parse pending prompt and check expiration
+    let pendingPrompt: string | null = null
+    if (pendingPromptRaw) {
+      try {
+        const parsed = JSON.parse(pendingPromptRaw)
+        const age = Date.now() - parsed.timestamp
+        if (parsed.prompt && parsed.timestamp && age <= PROMPT_EXPIRATION_TIME) {
+          pendingPrompt = parsed.prompt
+        }
+      } catch {
+        // Invalid JSON format
+      }
+      if (!pendingPrompt) {
+        localStorage.removeItem('pending_prompt')
+      }
+    }
+    
+    if (pendingPrompt || pendingTemplate) {
+      hasProcessedPendingPrompt.current = true
+      
+      // Template definitions with names and prompts
+      const templateDefinitions: Record<string, { name: string; prompt: string }> = {
+        'customer-crm': {
+          name: 'Customer CRM',
+          prompt: 'Build a customer CRM app to view, search, and manage customer profiles with contact details, activity history, and notes'
+        },
+        'order-management': {
+          name: 'Order Management',
+          prompt: 'Build an order management dashboard to track orders, process refunds, update order status, and view order history'
+        },
+        'support-queue': {
+          name: 'Support Queue',
+          prompt: 'Build a support ticket queue to triage tickets, respond to users, assign tickets to team members, and escalate issues'
+        },
+        'billing-dashboard': {
+          name: 'Billing Dashboard',
+          prompt: 'Build a billing dashboard to review invoices, manage subscriptions, issue credits, and track payment history'
+        },
+        'inventory-tracker': {
+          name: 'Inventory Tracker',
+          prompt: 'Build an inventory tracking app to monitor stock levels, set reorder alerts, and look up products by SKU'
+        },
+        'content-moderation': {
+          name: 'Content Moderation',
+          prompt: 'Build a content moderation queue to review flagged content, approve or reject posts, and track moderation actions'
+        },
+        'user-admin': {
+          name: 'User Admin',
+          prompt: 'Build a user admin panel to manage user roles, permissions, and account status with search and filtering'
+        },
+        'analytics-dashboard': {
+          name: 'Analytics Dashboard',
+          prompt: 'Build an analytics dashboard to visualize KPIs, track key metrics, and generate data reports with charts'
+        },
+      }
+      
+      // Create the app and navigate to builder
+      const createAndNavigate = async () => {
+        setIsCreatingFromPrompt(true)
+        
+        try {
+          let appName = 'New App'
+          let appDescription = ''
+          let promptToUse = pendingPrompt || ''
+          
+          // Handle template selection
+          if (pendingTemplate && !pendingPrompt) {
+            const template = templateDefinitions[pendingTemplate]
+            if (template) {
+              appName = template.name
+              appDescription = `Created from ${template.name} template`
+              promptToUse = template.prompt
+              // Set the template prompt as pending_prompt for the builder to use
+              const promptData = {
+                prompt: template.prompt,
+                timestamp: Date.now()
+              }
+              localStorage.setItem('pending_prompt', JSON.stringify(promptData))
+            }
+          }
+          
+          // If we have a prompt (user-entered or from template), call AI to generate title
+          if (promptToUse) {
+            try {
+              const aiResult = await aiApi.generateAppTitle(promptToUse)
+              appName = aiResult.title || promptToUse.substring(0, 40)
+              appDescription = aiResult.description || ''
+            } catch (aiError) {
+              console.warn('Failed to generate AI title, using fallback:', aiError)
+              // Fallback: use prompt as title
+              appName = promptToUse.length > 40 
+                ? promptToUse.substring(0, 37) + '...' 
+                : promptToUse
+              appDescription = ''
+            }
+          }
+          
+          const newApp = await createApp.mutateAsync({
+            orgId: selectedOrgId,
+            data: { 
+              name: appName, 
+              description: appDescription,
+              backend_connection: undefined 
+            },
+          })
+          
+          // Clear the template (but keep pending_prompt for the builder to use)
+          localStorage.removeItem('pending_template')
+          
+          // Navigate to the builder - pending_prompt will be picked up there
+          navigate(`/apps/${newApp.id}`)
+        } catch (error) {
+          console.error('Failed to create app from landing page prompt:', error)
+          // Clear stored values on error so user doesn't get stuck
+          localStorage.removeItem('pending_prompt')
+          localStorage.removeItem('pending_template')
+          setIsCreatingFromPrompt(false)
+        }
+      }
+      
+      createAndNavigate()
+    }
+  }, [selectedOrgId, createApp, navigate])
   
   // Permission checks
   const currentUserRole = membersData?.current_user_role
@@ -215,6 +357,28 @@ export function AppsPage() {
         <div className="text-center">
           <Layers className="h-12 w-12 text-gray-300 mx-auto mb-4" />
           <p className="text-gray-500">Please select an organization</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Show loading overlay when creating app from landing page prompt
+  if (isCreatingFromPrompt) {
+    return (
+      <div className="flex items-center justify-center h-full bg-gray-50">
+        <div className="flex flex-col items-center gap-4">
+          <div className="relative">
+            <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
+              <Sparkles className="h-8 w-8 text-gray-500" />
+            </div>
+            <div className="absolute -bottom-1 -right-1 h-6 w-6 rounded-full bg-white shadow-sm flex items-center justify-center">
+              <Loader2 className="h-4 w-4 animate-spin text-gray-600" />
+            </div>
+          </div>
+          <div className="text-center">
+            <p className="text-sm font-medium text-gray-900">Creating your app...</p>
+            <p className="text-xs text-gray-500 mt-1">Generating a name and setting things up</p>
+          </div>
         </div>
       </div>
     )
@@ -405,10 +569,10 @@ export function AppsPage() {
                   </div>
                 </div>
 
-                <div className="mb-1">
+                <div className="mb-1 min-w-0">
                   {canEditApps ? (
                   <div
-                    className="inline-block -mx-2 px-2 py-1 rounded-[4px] cursor-text transition-colors hover:bg-gray-50"
+                    className="block -mx-2 px-2 py-1 rounded-[4px] cursor-text transition-colors hover:bg-gray-50 min-w-0"
                     onClick={(event) => {
                       event.preventDefault()
                       event.stopPropagation()
@@ -416,20 +580,20 @@ export function AppsPage() {
                     }}
                     onMouseDown={(event) => event.stopPropagation()}
                   >
-                    <span className="font-medium text-gray-900 hover:text-gray-700 truncate">
+                    <span className="block font-medium text-gray-900 hover:text-gray-700 truncate">
                       {app.name || 'Untitled app'}
                     </span>
                   </div>
                   ) : (
-                    <span className="font-medium text-gray-900 truncate">
+                    <span className="block font-medium text-gray-900 truncate">
                       {app.name || 'Untitled app'}
                     </span>
                   )}
                 </div>
-                <div className="mb-4">
+                <div className="mb-4 min-w-0">
                   {canEditApps ? (
                   <div
-                    className="relative -mx-2 px-2 py-1 rounded-[4px] cursor-text transition-colors hover:bg-gray-50"
+                    className="block -mx-2 px-2 py-1 rounded-[4px] cursor-text transition-colors hover:bg-gray-50 min-w-0"
                     onClick={(event) => {
                       event.preventDefault()
                       event.stopPropagation()
@@ -438,12 +602,12 @@ export function AppsPage() {
                     onMouseDown={(event) => event.stopPropagation()}
                   >
                     <p className="text-sm text-gray-500 truncate transition-colors hover:text-gray-600">
-                      {(app.description || 'No description').slice(0, 60)}
+                      {app.description || 'No description'}
                     </p>
                   </div>
                   ) : (
                     <p className="text-sm text-gray-500 truncate">
-                      {(app.description || 'No description').slice(0, 60)}
+                      {app.description || 'No description'}
                     </p>
                   )}
                 </div>

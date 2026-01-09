@@ -1292,6 +1292,24 @@ export const aiApi = {
     const response = await api.post(`/messages/${messageId}/apply/`)
     return response.data
   },
+
+  /**
+   * Generate a short app title and description from a prompt using GPT
+   * @param prompt - User's app description/prompt
+   * @returns title, description, and fallback flag
+   */
+  generateAppTitle: async (prompt: string): Promise<{
+    title: string
+    description: string
+    fallback: boolean
+  }> => {
+    const response = await api.post<{
+      title: string
+      description: string
+      fallback: boolean
+    }>('/generate-app-title/', { prompt })
+    return response.data
+  },
 }
 
 // =============================================================================
