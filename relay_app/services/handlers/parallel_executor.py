@@ -290,6 +290,8 @@ class ParallelStepExecutor:
                         action=file_data.get("action", "create"),
                         language=file_data.get("language", "tsx"),
                         content=file_data.get("content", ""),
+                        lines_added=file_data.get("lines_added", 0),
+                        lines_removed=file_data.get("lines_removed", 0),
                     ))
             
             step.status = "complete"
@@ -350,6 +352,8 @@ class ParallelStepExecutor:
                             action=file_data.get("action", "create"),
                             language=file_data.get("language", "tsx"),
                             content=file_data.get("content", ""),
+                            lines_added=file_data.get("lines_added", 0),
+                            lines_removed=file_data.get("lines_removed", 0),
                         ))
                 
                 step.status = "complete"

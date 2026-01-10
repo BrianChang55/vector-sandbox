@@ -584,6 +584,8 @@ class GenerateHandler(BaseHandler):
                     action=f.action,
                     language=f.language,
                     content=f.content,
+                    lines_added=f.lines_added,
+                    lines_removed=f.lines_removed,
                 )
                 for f in generated_files
             ]
@@ -624,6 +626,8 @@ class GenerateHandler(BaseHandler):
                                 action=file_data.get("action", "modify"),
                                 language=file_data.get("language", "tsx"),
                                 content=file_data.get("content", ""),
+                                lines_added=file_data.get("lines_added", 0),
+                                lines_removed=file_data.get("lines_removed", 0),
                             )
                 except StopIteration:
                     break

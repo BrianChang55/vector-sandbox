@@ -520,11 +520,14 @@ class EditHandler(BaseHandler):
                         continue
 
                     new_content = apply_diff(original, diff)
+                    
                     file_change = FileChange(
                         path=diff.path,
                         action='modify',
                         language=self.get_language(diff.path),
                         content=new_content,
+                        lines_added=diff.lines_added,
+                        lines_removed=diff.lines_removed,
                     )
                     yield self.emit_file_generated(file_change)
                     files.append(file_change)

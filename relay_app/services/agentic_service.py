@@ -111,6 +111,8 @@ class FileChange:
     action: str  # create, modify, delete
     language: str
     content: str
+    lines_added: int = 0
+    lines_removed: int = 0
 
 
 @dataclass
@@ -503,6 +505,8 @@ class AgenticService:
                                 action=file_data.get("action", "modify"),
                                 language=file_data.get("language", "tsx"),
                                 content=file_data.get("content", ""),
+                                lines_added=file_data.get("lines_added", 0),
+                                lines_removed=file_data.get("lines_removed", 0),
                             )
                 except StopIteration:
                     break
@@ -1006,11 +1010,16 @@ class AgenticService:
                 if not normalized_path.startswith('src/'):
                     normalized_path = f"src/{normalized_path}"
                 
+                # For new files: lines_added = total lines, lines_removed = 0
+                lines_in_code = code.count('\n') + (1 if code and not code.endswith('\n') else 0)
+                
                 files.append(FileChange(
                     path=normalized_path,
                     action='create',
                     language=lang_map.get(ext, 'tsx'),
                     content=code,
+                    lines_added=lines_in_code,
+                    lines_removed=0,
                 ))
         
         # If no files found, try to extract any code and create a default file
@@ -1023,18 +1032,21 @@ class AgenticService:
                 largest_block = max(code_blocks, key=len).strip()
                 
                 if len(largest_block) > 50:  # Only if substantial
+                    # Calculate lines for the code block
+                    block_lines = largest_block.count('\n') + (1 if largest_block and not largest_block.endswith('\n') else 0)
+                    
                     # Determine file based on content and step type
                     if 'export default' in largest_block or 'function App' in largest_block:
-                        files.append(FileChange("src/App.tsx", "create", "tsx", largest_block))
+                        files.append(FileChange("src/App.tsx", "create", "tsx", largest_block, lines_added=block_lines, lines_removed=0))
                     elif step.type == "styling":
-                        files.append(FileChange("src/styles/main.css", "create", "css", largest_block))
+                        files.append(FileChange("src/styles/main.css", "create", "css", largest_block, lines_added=block_lines, lines_removed=0))
                     elif step.type == "component":
                         # Try to extract component name
                         name_match = re.search(r'(?:function|const)\s+(\w+)', largest_block)
                         comp_name = name_match.group(1) if name_match else "Component"
-                        files.append(FileChange(f"src/components/{comp_name}.tsx", "create", "tsx", largest_block))
+                        files.append(FileChange(f"src/components/{comp_name}.tsx", "create", "tsx", largest_block, lines_added=block_lines, lines_removed=0))
                     else:
-                        files.append(FileChange("src/App.tsx", "create", "tsx", largest_block))
+                        files.append(FileChange("src/App.tsx", "create", "tsx", largest_block, lines_added=block_lines, lines_removed=0))
         
         logger.info(f"Parsed {len(files)} files from AI response")
         return files

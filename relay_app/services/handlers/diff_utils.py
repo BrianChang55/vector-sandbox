@@ -17,6 +17,8 @@ class FileDiff:
     """A unified diff for a single file."""
     path: str
     hunks: List[str] = field(default_factory=list)
+    lines_added: int = 0
+    lines_removed: int = 0
 
 
 def parse_diffs(full_llm_str: str) -> List[FileDiff]:
@@ -55,6 +57,8 @@ def parse_diffs(full_llm_str: str) -> List[FileDiff]:
             existing = next((d for d in diffs if d.path == fd.path), None)
             if existing:
                 existing.hunks.extend(fd.hunks)
+                existing.lines_added += fd.lines_added
+                existing.lines_removed += fd.lines_removed
             else:
                 diffs.append(fd)
     
@@ -81,7 +85,8 @@ def _parse_diff_block(block: str) -> List[FileDiff]:
             if current_path and (current_hunks or current_hunk_lines):
                 if current_hunk_lines:
                     current_hunks.append('\n'.join(current_hunk_lines))
-                diffs.append(FileDiff(path=current_path, hunks=current_hunks))
+                added, removed = _count_lines_from_hunks(current_hunks)
+                diffs.append(FileDiff(path=current_path, hunks=current_hunks, lines_added=added, lines_removed=removed))
             
             # Parse new file path
             # Handle formats: "--- src/file.tsx", "--- a/src/file.tsx"
@@ -124,7 +129,8 @@ def _parse_diff_block(block: str) -> List[FileDiff]:
     if current_path and (current_hunks or current_hunk_lines):
         if current_hunk_lines:
             current_hunks.append('\n'.join(current_hunk_lines))
-        diffs.append(FileDiff(path=current_path, hunks=current_hunks))
+        added, removed = _count_lines_from_hunks(current_hunks)
+        diffs.append(FileDiff(path=current_path, hunks=current_hunks, lines_added=added, lines_removed=removed))
     
     return diffs
 
@@ -320,3 +326,20 @@ def _splice_lines(
     result = lines[:change_start] + new_lines + lines[end_idx:]
     
     return result
+
+
+def _count_lines_from_hunks(hunks: List[str]) -> Tuple[int, int]:
+    """Count lines added/removed from hunks.
+    
+    Returns:
+        Tuple of (lines_added, lines_removed)
+    """
+    lines_added = 0
+    lines_removed = 0
+    for hunk in hunks:
+        for line in hunk.split('\n'):
+            if line.startswith('+') and not line.startswith('+++'):
+                lines_added += 1
+            elif line.startswith('-') and not line.startswith('---'):
+                lines_removed += 1
+    return lines_added, lines_removed
