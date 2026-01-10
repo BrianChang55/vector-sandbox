@@ -4,9 +4,12 @@ Diff Utilities for Surgical Edits
 Provides utilities to parse unified diffs from LLM output and apply them to files.
 """
 
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -153,8 +156,8 @@ def apply_diff(original_content: str, diff: FileDiff) -> str:
     # Sort by start line descending so we apply from bottom to top
     parsed_hunks.sort(key=lambda h: h[0], reverse=True)
     
-    for start_line, old_count, new_lines, context_before in parsed_hunks:
-        lines = _apply_hunk(lines, start_line, old_count, new_lines, context_before)
+    for start_line, lines_to_remove, new_lines, context_before in parsed_hunks:
+        lines = _apply_hunk(lines, start_line, lines_to_remove, new_lines, context_before)
     
     return '\n'.join(lines)
 
@@ -164,7 +167,8 @@ def _parse_hunk(hunk: str) -> Optional[Tuple[int, int, List[str], List[str]]]:
     Parse a single hunk into its components.
     
     Returns:
-        Tuple of (start_line, old_line_count, new_lines, context_before)
+        Tuple of (start_line, lines_to_remove, new_lines, context_before)
+        where lines_to_remove is the actual count of '-' lines (not old_count from header)
         or None if parsing fails
     """
     lines = hunk.split('\n')
@@ -177,7 +181,6 @@ def _parse_hunk(hunk: str) -> Optional[Tuple[int, int, List[str], List[str]]]:
         return None
     
     old_start = int(header_match.group(1))
-    old_count = int(header_match.group(2)) if header_match.group(2) else 1
     
     # Parse hunk content
     context_before: List[str] = []
@@ -189,31 +192,37 @@ def _parse_hunk(hunk: str) -> Optional[Tuple[int, int, List[str], List[str]]]:
         if line.startswith(' '):
             # Context line
             if not in_change:
+                # Context BEFORE changes - used for matching location
                 context_before.append(line[1:])
-            else:
-                new_lines.append(line[1:])
+            # else: Context AFTER changes - ignore, these already exist in source file
         elif line.startswith('-'):
             # Removal
             in_change = True
             lines_to_remove += 1
         elif line.startswith('+'):
-            # Addition
+            # Addition - these are the actual new lines to insert
             in_change = True
             new_lines.append(line[1:])
         elif line == '':
-            # Empty line - could be context or end of hunk
-            if in_change:
-                new_lines.append('')
-            else:
+            # Empty line without prefix - could be context or end of hunk
+            # Only add to context_before if we haven't started changes yet
+            if not in_change:
                 context_before.append('')
+            # After changes, bare empty lines are context-after - ignore them
     
-    return (old_start, old_count, new_lines, context_before)
+    # DEBUG: Log parsed hunk details
+    logger.debug(f"[DIFF] Parsed hunk: start={old_start}, lines_to_remove={lines_to_remove}, "
+                 f"new_lines_count={len(new_lines)}, context_before_count={len(context_before)}")
+    
+    # Return actual lines_to_remove count (not old_count from header)
+    # This fixes the bug where pure additions incorrectly removed context-after lines
+    return (old_start, lines_to_remove, new_lines, context_before)
 
 
 def _apply_hunk(
     lines: List[str],
     start_line: int,
-    old_count: int,
+    lines_to_remove: int,
     new_lines: List[str],
     context_before: List[str],
 ) -> List[str]:
@@ -222,13 +231,20 @@ def _apply_hunk(
     
     Uses context matching to find the correct location if line numbers
     don't match exactly (handles file drift).
+    
+    Args:
+        lines: Original file lines
+        start_line: 1-indexed start line from hunk header
+        lines_to_remove: Actual count of '-' lines in the hunk
+        new_lines: Lines to insert ('+' lines and context-after)
+        context_before: Context lines before the change for matching
     """
     # Convert to 0-indexed
     start_idx = start_line - 1
     
     # Try exact position first
     if _context_matches(lines, start_idx, context_before):
-        return _splice_lines(lines, start_idx, old_count, new_lines, len(context_before))
+        return _splice_lines(lines, start_idx, lines_to_remove, new_lines, len(context_before))
     
     # Search nearby for matching context (handle drift)
     search_range = 50  # Search up to 50 lines in either direction
@@ -236,15 +252,15 @@ def _apply_hunk(
         # Try above
         if start_idx - offset >= 0:
             if _context_matches(lines, start_idx - offset, context_before):
-                return _splice_lines(lines, start_idx - offset, old_count, new_lines, len(context_before))
+                return _splice_lines(lines, start_idx - offset, lines_to_remove, new_lines, len(context_before))
         
         # Try below
         if start_idx + offset < len(lines):
             if _context_matches(lines, start_idx + offset, context_before):
-                return _splice_lines(lines, start_idx + offset, old_count, new_lines, len(context_before))
+                return _splice_lines(lines, start_idx + offset, lines_to_remove, new_lines, len(context_before))
     
     # Fallback: apply at original position even if context doesn't match
-    return _splice_lines(lines, start_idx, old_count, new_lines, len(context_before))
+    return _splice_lines(lines, start_idx, lines_to_remove, new_lines, len(context_before))
 
 
 def _context_matches(lines: List[str], start_idx: int, context: List[str]) -> bool:
@@ -268,16 +284,22 @@ def _context_matches(lines: List[str], start_idx: int, context: List[str]) -> bo
 def _splice_lines(
     lines: List[str],
     start_idx: int,
-    old_count: int,
+    lines_to_remove: int,
     new_lines: List[str],
     context_len: int,
 ) -> List[str]:
-    """Replace lines from start_idx, removing old_count and inserting new_lines."""
+    """
+    Replace lines from start_idx, removing lines_to_remove and inserting new_lines.
+    
+    Args:
+        lines: Original file lines
+        start_idx: 0-indexed start position
+        lines_to_remove: Actual count of lines to remove (from '-' lines in diff)
+        new_lines: Lines to insert
+        context_len: Number of context-before lines (to skip past)
+    """
     # The actual change starts after the context lines
     change_start = start_idx + context_len
-    
-    # Calculate how many lines to remove (old_count includes context)
-    lines_to_remove = old_count - context_len
     
     # Handle edge cases
     if change_start < 0:
@@ -289,6 +311,10 @@ def _splice_lines(
     if lines_to_remove < 0:
         lines_to_remove = 0
     end_idx = min(change_start + lines_to_remove, len(lines))
+    
+    # DEBUG: Log splice operation
+    logger.debug(f"[DIFF] Splice: change_start={change_start}, lines_to_remove={lines_to_remove}, "
+                 f"new_lines_count={len(new_lines)}, end_idx={end_idx}")
     
     # Splice: keep before, add new, keep after
     result = lines[:change_start] + new_lines + lines[end_idx:]

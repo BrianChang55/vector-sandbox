@@ -545,7 +545,21 @@ class BaseHandler(ABC):
             title=title,
             description=description,
         )
-    
+
+    def get_language(self, path: str) -> str:
+        """Determine language from file extension."""
+        lang_map = {
+            'tsx': 'tsx',
+            'ts': 'ts',
+            'jsx': 'tsx',
+            'js': 'ts',
+            'css': 'css',
+            'json': 'json',
+            'html': 'html',
+        }
+        ext = path.split('.')[-1] if '.' in path else 'tsx'
+        return lang_map.get(ext, 'tsx')
+
     # ===== Validation Utilities =====
     
     def validate_and_fix(

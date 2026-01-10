@@ -9,6 +9,7 @@ import time
 from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
 from .base_handler import BaseHandler, AgentEvent, FileChange, PlanStep
+from .diff_utils import parse_diffs, apply_diff
 
 if TYPE_CHECKING:
     from relay_app.models import InternalApp, AppVersion
@@ -98,22 +99,128 @@ FEATURE_GENERATION_PROMPT = """Add the following feature to the existing applica
 4. Preserve ALL existing functionality
 5. Follow the existing code style exactly
 
-## Output Format
-Output ALL files (new and modified):
+## Output Format: Unified Diff
 
-```filepath:src/components/NewFeature.tsx
-// New component code
+For ALL files (new and modified), output unified diffs inside ```diff code blocks:
+
+```diff
+--- src/path/to/file.tsx
++++ src/path/to/file.tsx
+@@ -LINE,COUNT +LINE,COUNT @@ optional function/class context
+ context line (unchanged, starts with space)
+ context line (unchanged, starts with space)
+ context line (unchanged, starts with space)
+-line to remove (starts with minus)
++line to add (starts with plus)
+ context line (unchanged, starts with space)
+ context line (unchanged, starts with space)
+ context line (unchanged, starts with space)
 ```
 
-```filepath:src/App.tsx
-// COMPLETE updated App.tsx with the new feature integrated
+### Diff Rules
+- Start with `--- path` and `+++ path` header lines
+- Each hunk starts with `@@ -old_start,old_count +new_start,new_count @@`
+- Include exactly 3 lines of unchanged context before and after changes
+- Lines starting with ` ` (space) are unchanged context
+- Lines starting with `-` are removed
+- Lines starting with `+` are added
+- For multiple non-adjacent changes in the same file, use multiple hunks
+
+### For NEW files (components that don't exist yet)
+Use `--- /dev/null` and start line numbers at 1:
+
+```diff
+--- /dev/null
++++ src/components/NewFeature.tsx
+@@ -0,0 +1,25 @@
++import React from "react";
++
++export function NewFeature() {{
++  return <div>New Feature</div>;
++}}
 ```
 
-CRITICAL: 
-- Output COMPLETE file contents, not partial updates
-- Include ALL existing code in modified files
-- Do not remove any existing functionality
-- Match existing code style (naming, patterns, etc.)"""
+### For MODIFIED files (like App.tsx)
+Include context lines from the existing code:
+
+```diff
+--- src/App.tsx
++++ src/App.tsx
+@@ -1,5 +1,6 @@
+ import React from "react";
++import {{ NewFeature }} from "./components/NewFeature";
+ 
+ function App() {{
+   return (
+@@ -10,6 +11,7 @@ function App() {{
+     <div>
+       <Header />
+       <Main />
++      <NewFeature />
+     </div>
+   );
+ }}
+```
+
+### Example with longer removals
+
+When removing multi-line blocks (functions, JSX elements, conditionals), you MUST include BOTH the opening AND closing parts. Never leave orphaned brackets, braces, or tags.
+
+```diff
+--- src/components/Form.tsx
++++ src/components/Form.tsx
+@@ -1,16 +1,8 @@
+ import React, {{ useState }} from "react";
+
+-function validate(value: string): boolean {{
+-  return value.trim().length > 0;
+-}}
+-
+ function Form() {{
+   const [value, setValue] = useState("");
+-  const [hasError, setHasError] = useState(false);
+
+   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {{
+-    const next = e.target.value;
+-    setValue(next);
+-    setHasError(!validate(next));
++    setValue(e.target.value);
+   }}
+
+   return (
+@@ -20,9 +12,6 @@ function Form() {{
+     <form>
+       <input value={{value}} onChange={{handleChange}} />
+-      {{hasError && (
+-        <span className="error">Required</span>
+-      )}}
+       <button type="submit">Save</button>
+     </form>
+   );
+ }}
+```
+
+Key points for removals:
+- Remove the ENTIRE `validate` function including its closing `}}`
+- Remove the ENTIRE conditional `{{hasError && (...)}}` including both `{{` and `)}}`
+- Never leave unmatched brackets, braces, parentheses, or tags
+
+### Syntax Balance Check (REQUIRED before outputting)
+
+Before finalizing each hunk, verify:
+1. Count removed `{{` equals removed `}}`
+2. Count removed `(` equals removed `)`
+3. Count removed `<Tag>` equals removed `</Tag>` or `<Tag />`
+4. If removing an opening line (e.g., `if (condition) {{`), the closing `}}` MUST also be removed
+5. If removing JSX like `{{condition && (`, you MUST also remove the matching `)}}`
+
+If your diff would leave unbalanced syntax, expand the hunk to include the matching closing element.
+
+CRITICAL:
+- Output unified diffs, NOT complete file contents
+- Preserve ALL existing functionality in modified files
+- Match existing code style (naming, patterns, etc.)
+- Do NOT add features that weren't requested"""
 
 
 class FeatureHandler(BaseHandler):
@@ -513,18 +620,48 @@ class FeatureHandler(BaseHandler):
             for warning in final_warnings:
                 yield self.emit_streaming_warning(warning)
             
-            # Parse code files
-            parsed_files = self.parse_code_blocks(full_content)
+            # Parse unified diffs from LLM response
+            diffs = parse_diffs(full_content)
             
-            for f in parsed_files:
-                # Determine if this is a new file or modification
-                if f.path in existing_code:
-                    f.action = 'modify'
-                else:
-                    f.action = 'create'
+            # DEBUG: Log parsed diffs
+            logger.debug(f"[FEATURE] Parsed {len(diffs)} diff(s) from LLM response")
+            for diff in diffs:
+                logger.debug(f"[FEATURE] Diff for {diff.path}: {len(diff.hunks)} hunk(s)")
+                for i, hunk in enumerate(diff.hunks):
+                    logger.debug(f"[FEATURE]   Hunk {i+1}:\n{hunk[:10000]}")
+            
+            if diffs:
+                # Apply diffs to original files
+                for diff in diffs:
+                    # For new files, original is empty; for existing files, get content
+                    original = existing_code.get(diff.path, "")
+                    new_content = apply_diff(original, diff)
+                    
+                    # Determine action based on whether file existed
+                    action = 'modify' if diff.path in existing_code else 'create'
+                    
+                    file_change = FileChange(
+                        path=diff.path,
+                        action=action,
+                        language=self.get_language(diff.path),
+                        content=new_content,
+                    )
+                    yield self.emit_file_generated(file_change)
+                    files.append(file_change)
+            else:
+                # Fallback: try parsing as complete file blocks (backwards compatibility)
+                logger.warning("No diffs found in LLM response, falling back to full file parsing")
+                parsed_files = self.parse_code_blocks(full_content)
                 
-                yield self.emit_file_generated(f)
-                files.append(f)
+                for f in parsed_files:
+                    # Determine if this is a new file or modification
+                    if f.path in existing_code:
+                        f.action = 'modify'
+                    else:
+                        f.action = 'create'
+                    
+                    yield self.emit_file_generated(f)
+                    files.append(f)
             
             return files
             

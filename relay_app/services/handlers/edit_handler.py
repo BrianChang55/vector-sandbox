@@ -73,6 +73,18 @@ EDIT_PROMPT_TEMPLATE = """Make the following TARGETED change to the existing cod
 3. **Make minimal changes**: Change ONLY what's needed to fulfill the request
 4. **Preserve everything else**: Keep all other code exactly as-is
 
+## CRITICAL: Use ONLY the Actual File Content Above
+
+**DO NOT HALLUCINATE OR INVENT CODE.** You MUST:
+- Read the ACTUAL file contents provided above carefully
+- Copy context lines EXACTLY as they appear in the file (character-for-character)
+- Match the REAL structure of the file (if it's a table, use table elements; if it's divs, use divs)
+- Never assume or imagine what the file looks like - USE WHAT IS PROVIDED
+
+If the file uses `<table>`, `<tr>`, `<td>` elements, your diff must use those same elements.
+If the file uses `<div>` with flex classes, your diff must match that structure.
+Context lines that don't exist in the source file will cause the diff to fail.
+
 ## Output Format: Unified Diff
 
 For each file you modify, output a unified diff inside a ```diff code block:
@@ -95,10 +107,11 @@ For each file you modify, output a unified diff inside a ```diff code block:
 - Start with `--- path` and `+++ path` header lines
 - Each hunk starts with `@@ -old_start,old_count +new_start,new_count @@`
 - Include exactly 3 lines of unchanged context before and after changes
-- Lines starting with ` ` (space) are unchanged context
+- Lines starting with ` ` (space) are unchanged context - these MUST be copied EXACTLY from the source file
 - Lines starting with `-` are removed
 - Lines starting with `+` are added
 - For multiple non-adjacent changes in the same file, use multiple hunks
+- **CRITICAL**: Context lines must match the source file EXACTLY. Do not paraphrase, reformat, or invent context lines.
 
 ### Example
 
@@ -161,12 +174,24 @@ Key points for removals:
 - Remove the ENTIRE conditional `{{hasError && (...)}}` including both `{{` and `)}}`
 - Never leave unmatched brackets, braces, parentheses, or tags
 
+### Syntax Balance Check (REQUIRED before outputting)
+
+Before finalizing each hunk, verify:
+1. Count removed `{{` equals removed `}}`
+2. Count removed `(` equals removed `)`
+3. Count removed `<Tag>` equals removed `</Tag>` or `<Tag />`
+4. If removing an opening line (e.g., `if (condition) {{`), the closing `}}` MUST also be removed
+5. If removing JSX like `{{condition && (`, you MUST also remove the matching `)}}`
+
+If your diff would leave unbalanced syntax, expand the hunk to include the matching closing element.
+
 ## Critical Reminders
 - Output ONLY the diff, not the complete file
 - Do NOT add new features or "improvements"
 - Do NOT refactor or reorganize code
 - Do NOT change styling unless specifically requested
-- If unsure about something, leave it unchanged"""
+- If unsure about something, leave it unchanged
+- Context lines MUST be copied exactly from the provided file - NEVER invent or hallucinate code structure"""
 
 
 class EditHandler(BaseHandler):
@@ -404,20 +429,6 @@ class EditHandler(BaseHandler):
             logger.warning(f"Error getting file contents: {e}")
             return {}
     
-    def _get_language(self, path: str) -> str:
-        """Determine language from file extension."""
-        lang_map = {
-            'tsx': 'tsx',
-            'ts': 'ts',
-            'jsx': 'tsx',
-            'js': 'ts',
-            'css': 'css',
-            'json': 'json',
-            'html': 'html',
-        }
-        ext = path.split('.')[-1] if '.' in path else 'tsx'
-        return lang_map.get(ext, 'tsx')
-
     def _generate_edits(
         self,
         user_message: str,
@@ -492,6 +503,13 @@ class EditHandler(BaseHandler):
             # TODO: Add some type of validation + fallback to full file generation here
             # Parse unified diffs from LLM response
             diffs = parse_diffs(full_content)
+            
+            # DEBUG: Log parsed diffs
+            logger.debug(f"[EDIT] Parsed {len(diffs)} diff(s) from LLM response")
+            for diff in diffs:
+                logger.debug(f"[EDIT] Diff for {diff.path}: {len(diff.hunks)} hunk(s)")
+                for i, hunk in enumerate(diff.hunks):
+                    logger.debug(f"[EDIT]   Hunk {i+1}:\n{hunk[:10000]}")
 
             if diffs:
                 # Apply diffs to original files
@@ -505,7 +523,7 @@ class EditHandler(BaseHandler):
                     file_change = FileChange(
                         path=diff.path,
                         action='modify',
-                        language=self._get_language(diff.path),
+                        language=self.get_language(diff.path),
                         content=new_content,
                     )
                     yield self.emit_file_generated(file_change)
