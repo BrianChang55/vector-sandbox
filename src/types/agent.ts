@@ -40,6 +40,7 @@ export interface FileChange {
   diff?: string
   addedLines?: number
   removedLines?: number
+  previousContent?: string // Preserve previous content for diff view
 }
 
 // Agent plan structure

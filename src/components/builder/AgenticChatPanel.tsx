@@ -8,6 +8,7 @@
  */
 import { useState, useRef, useEffect, useCallback, useReducer } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import Editor, { DiffEditor } from '@monaco-editor/react'
 import {
   ArrowUp,
   Loader2,
@@ -216,14 +217,62 @@ function TaskList({ tasks }: { tasks: PlanStep[] }) {
   )
 }
 
+// Helper to get Monaco language from file path
+function getMonacoLanguage(path: string): string {
+  const ext = path.split('.').pop() || ''
+  const langMap: Record<string, string> = {
+    tsx: 'typescript',
+    ts: 'typescript',
+    jsx: 'javascript',
+    js: 'javascript',
+    css: 'css',
+    json: 'json',
+    md: 'markdown',
+    html: 'html',
+    py: 'python',
+    yaml: 'yaml',
+    yml: 'yaml',
+  }
+  return langMap[ext] || 'plaintext'
+}
+
 // File preview with expandable content
-function FilePreview({ file, index }: { file: FileChange; index: number }) {
+function FilePreview({ 
+  file, 
+  index, 
+  previousFile 
+}: { 
+  file: FileChange
+  index: number
+  previousFile?: FileChange 
+}) {
   const [isExpanded, setIsExpanded] = useState(false)
+  const [viewMode, setViewMode] = useState<'editor' | 'diff'>('editor')
   const fileName = file.path.split('/').pop() || file.path
   const lineCount = file.content?.split('\n').length || 0
   const added = file.addedLines ?? (file.action === 'create' ? lineCount : undefined)
   const removed = file.removedLines ?? 0
   const displayAdded = added ?? lineCount
+  const canShowDiff = !!previousFile && !!previousFile.content && previousFile.path === file.path
+
+  const handleToggle = () => {
+    setIsExpanded(!isExpanded)
+  }
+
+  const monacoLanguage = getMonacoLanguage(file.path)
+  const editorOptions = {
+    readOnly: true,
+    minimap: { enabled: false },
+    fontSize: 11,
+    fontFamily: 'JetBrains Mono, Menlo, Monaco, Consolas, monospace',
+    lineNumbers: 'on' as const,
+    scrollBeyondLastLine: false,
+    wordWrap: 'on' as const,
+    tabSize: 2,
+    padding: { top: 8, bottom: 8 },
+    renderLineHighlight: 'none' as const,
+    automaticLayout: true,
+  }
 
   return (
     <motion.div
@@ -233,7 +282,7 @@ function FilePreview({ file, index }: { file: FileChange; index: number }) {
       className="border border-gray-200 rounded-lg overflow-hidden bg-white"
     >
       <button
-        onClick={() => setIsExpanded(!isExpanded)}
+        onClick={handleToggle}
         className="w-full flex items-center gap-2 px-2.5 py-1.5 hover:bg-gray-50 transition-colors text-left"
       >
         <FileCode2 className="h-3.5 w-3.5 text-gray-500" />
@@ -266,9 +315,43 @@ function FilePreview({ file, index }: { file: FileChange; index: number }) {
             exit={{ height: 0 }}
             className="overflow-hidden border-t border-gray-200"
           >
-            <pre className="p-2.5 text-[11px] font-mono text-gray-700 bg-gray-50 overflow-x-auto max-h-56 overflow-y-auto">
-              <code>{file.content}</code>
-            </pre>
+            {/* Diff toggle button */}
+            {canShowDiff && (
+              <div className="px-2.5 py-1.5 border-b border-gray-200 bg-gray-50 flex items-center justify-end">
+                <button
+                  onClick={() => setViewMode(viewMode === 'diff' ? 'editor' : 'diff')}
+                  className="text-[10px] px-2 py-1 rounded text-gray-600 hover:text-gray-900 hover:bg-gray-200 transition-colors font-medium"
+                >
+                  {viewMode === 'diff' ? 'Show Code' : 'Show Diff'}
+                </button>
+              </div>
+            )}
+
+            {viewMode === 'diff' && canShowDiff && previousFile ? (
+              <div className="h-[300px] border-t border-gray-200">
+                <DiffEditor
+                  original={previousFile.content || ''}
+                  modified={file.content || ''}
+                  language={monacoLanguage}
+                  theme="light"
+                  options={{
+                    ...editorOptions,
+                    renderSideBySide: false,
+                  }}
+                  height="300px"
+                />
+              </div>
+            ) : (
+              <div className="h-[300px] border-t border-gray-200">
+                <Editor
+                  value={file.content}
+                  language={monacoLanguage}
+                  theme="light"
+                  options={editorOptions}
+                  height="300px"
+                />
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -1188,7 +1271,7 @@ export function AgenticChatPanel({
             if (lastIdx < 0) return prev
             const lastMsg = prev[lastIdx]
             if (lastMsg?.role !== 'assistant') return prev
-            
+
             const updatedFiles = upsertFileChange(lastMsg.files || [], newFile)
             return [
               ...prev.slice(0, lastIdx),
@@ -2045,9 +2128,26 @@ export function AgenticChatPanel({
                     {/* Generated files */}
                     {message.files && message.files.length > 0 && (
                       <div className="space-y-2 pt-2">
-                        {message.files.map((file, i) => (
-                          <FilePreview key={file.path} file={file} index={i} />
-                        ))}
+                        {message.files.map((file, i) => {
+                          // Use previousContent stored in the file, or construct previousFile object
+                          const previousFile = file.previousContent 
+                            ? {
+                                path: file.path,
+                                content: file.previousContent,
+                                action: 'modify' as const,
+                                language: file.language,
+                              }
+                            : undefined
+                          
+                          return (
+                            <FilePreview 
+                              key={file.path} 
+                              file={file} 
+                              index={i}
+                              previousFile={previousFile}
+                            />
+                          )
+                        })}
                       </div>
                     )}
 
