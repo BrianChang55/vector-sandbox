@@ -126,6 +126,39 @@ For ALL files (new and modified), output unified diffs inside ```diff code block
 - Lines starting with `+` are added
 - For multiple non-adjacent changes in the same file, use multiple hunks
 
+### Hunk Structure Rule (CRITICAL)
+
+Within each hunk, lines MUST appear in this exact order:
+1. Context lines (space prefix) - unchanged lines before the change
+2. ALL removed lines (minus prefix) - grouped together consecutively
+3. ALL added lines (plus prefix) - grouped together consecutively
+4. Context lines (space prefix) - unchanged lines after the change
+
+**NEVER interleave removals and additions.** Each contiguous change region gets its own hunk.
+
+BAD (interleaved - will break):
+```
+@@ -1,10 +1,10 @@
+ import React from 'react';
+-old interface
++new interface
+-old export        <- WRONG: more removals after additions
++new export
+```
+
+GOOD (separate hunks):
+```
+@@ -1,4 +1,4 @@
+ import React from 'react';
+-old interface
++new interface
+
+@@ -8,3 +8,3 @@
+ // context line
+-old export
++new export
+```
+
 ### For NEW files (components that don't exist yet)
 Use `--- /dev/null` and start line numbers at 1:
 
