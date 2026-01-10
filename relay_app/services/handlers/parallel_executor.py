@@ -191,7 +191,7 @@ class ParallelStepExecutor:
     event ordering for streaming to the frontend.
     """
     
-    def __init__(self, max_workers: int = 3):
+    def __init__(self, max_workers: int = 5):
         """
         Initialize the parallel executor.
         
@@ -419,7 +419,7 @@ class ParallelStepExecutor:
         logger.info(f"Completed parallel wave: {[steps[i].title for i in wave]}")
 
 
-def create_parallel_executor(max_workers: int = 3) -> ParallelStepExecutor:
+def create_parallel_executor(max_workers: int = 5) -> ParallelStepExecutor:
     """Create a parallel step executor instance."""
     return ParallelStepExecutor(max_workers=max_workers)
 
