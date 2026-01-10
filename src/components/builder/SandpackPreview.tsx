@@ -1622,9 +1622,10 @@ export function SandpackPreview({
   
   const filesKey = useMemo(() => hashFiles(committedFiles), [committedFiles])
   
-  // Track file count to know when to reset Sandpack
-  // Only use committed files for sandpack key to avoid thrashing during streaming
-  const [sandpackKey, setSandpackKey] = useState(() => `${versionId}-${committedFiles.length}`)
+  // Use total character count for sandpack key to detect content changes
+  // (file count alone missed content-only updates, causing stale previews)
+  const getTotalChars = (f: FileChange[]) => f.reduce((sum, file) => sum + (file.content?.length || 0), 0)
+  const [sandpackKey, setSandpackKey] = useState(() => `${versionId}-${getTotalChars(committedFiles)}`)
   const [initializedFiles, setInitializedFiles] = useState<Record<string, string>>({})
   // Persist saved files without forcing Sandpack to remount (which clears tabs)
   const persistedFilesRef = useRef<Record<string, string>>({})
@@ -1635,10 +1636,10 @@ export function SandpackPreview({
     return converted
   }, [committedFiles, appId, versionId, appName])
   
-  // Reset Sandpack when version changes or committed file count changes
+  // Reset Sandpack when version changes or file content changes
   // This preserves user edits when just switching tabs, but ensures new version loads after generation
   useEffect(() => {
-    const newKey = `${versionId}-${committedFiles.length}`
+    const newKey = `${versionId}-${getTotalChars(committedFiles)}`
     if (newKey !== sandpackKey) {
       setSandpackKey(newKey)
       setInitializedFiles(sandpackFiles)
@@ -1647,7 +1648,7 @@ export function SandpackPreview({
       // Immediately show loading overlay when switching (before Sandpack remounts)
       setIsBundlerReady(false)
     }
-  }, [versionId, committedFiles.length, sandpackFiles, sandpackKey])
+  }, [versionId, committedFiles, sandpackFiles, sandpackKey])
 
   // Keep initializedFiles in sync after a successful autosave so rehydration uses the just-saved snapshot
   const handlePersistLocalFiles = useCallback(
