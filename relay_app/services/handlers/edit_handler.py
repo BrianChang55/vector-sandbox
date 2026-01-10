@@ -9,6 +9,7 @@ import time
 from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
 from .base_handler import BaseHandler, AgentEvent, FileChange, PlanStep
+from .diff_utils import parse_diffs, apply_diff
 
 if TYPE_CHECKING:
     from relay_app.models import InternalApp, AppVersion
@@ -22,8 +23,8 @@ logger = logging.getLogger(__name__)
 from relay_app.prompts.agentic import DESIGN_STYLE_PROMPT, OVER_EAGERNESS_GUARD
 
 
-# Prompt for surgical edits
-EDIT_SYSTEM_PROMPT = f"""You are an expert React/TypeScript developer making targeted, surgical edits to existing code.
+# Prompt for surgical edits using unified diff format
+EDIT_SYSTEM_PROMPT = f"""You are an expert React/TypeScript developer making targeted, surgical edits to existing code using unified diffs.
 
 {OVER_EAGERNESS_GUARD}
 
@@ -47,10 +48,12 @@ EDIT_SYSTEM_PROMPT = f"""You are an expert React/TypeScript developer making tar
    - Use the same semicolon conventions
    - Match the existing naming conventions
 
-4. **Output Requirements**
-   - Output the COMPLETE modified file(s)
-   - Include ALL existing code unchanged
-   - Only the specific requested changes should differ
+4. **Output Format: Unified Diff**
+   - Output changes as unified diffs (like git diff)
+   - Include 3 lines of context before and after each change
+   - Use `-` prefix for removed lines, `+` for added lines
+   - Space prefix for unchanged context lines
+   - Multiple hunks allowed for non-adjacent changes in the same file
 
 {DESIGN_STYLE_PROMPT}"""
 
@@ -70,14 +73,96 @@ EDIT_PROMPT_TEMPLATE = """Make the following TARGETED change to the existing cod
 3. **Make minimal changes**: Change ONLY what's needed to fulfill the request
 4. **Preserve everything else**: Keep all other code exactly as-is
 
-## Output Format
-For each file you modify, use this EXACT format:
-```filepath:path/to/file.tsx
-// Complete file content with your surgical changes applied
+## Output Format: Unified Diff
+
+For each file you modify, output a unified diff inside a ```diff code block:
+
+```diff
+--- src/path/to/file.tsx
++++ src/path/to/file.tsx
+@@ -LINE,COUNT +LINE,COUNT @@ optional function/class context
+ context line (unchanged, starts with space)
+ context line (unchanged, starts with space)
+ context line (unchanged, starts with space)
+-line to remove (starts with minus)
++line to add (starts with plus)
+ context line (unchanged, starts with space)
+ context line (unchanged, starts with space)
+ context line (unchanged, starts with space)
 ```
 
+### Diff Rules
+- Start with `--- path` and `+++ path` header lines
+- Each hunk starts with `@@ -old_start,old_count +new_start,new_count @@`
+- Include exactly 3 lines of unchanged context before and after changes
+- Lines starting with ` ` (space) are unchanged context
+- Lines starting with `-` are removed
+- Lines starting with `+` are added
+- For multiple non-adjacent changes in the same file, use multiple hunks
+
+### Example
+
+If changing a button's text from "Submit" to "Save":
+
+```diff
+--- src/components/Form.tsx
++++ src/components/Form.tsx
+@@ -15,7 +15,7 @@ function Form() {{
+   return (
+     <form onSubmit={{handleSubmit}}>
+       <input value={{value}} onChange={{handleChange}} />
+-      <button type="submit">Submit</button>
++      <button type="submit">Save</button>
+     </form>
+   );
+ }}
+```
+
+### Example with longer removals
+
+When removing multi-line blocks (functions, JSX elements, conditionals), you MUST include BOTH the opening AND closing parts. Never leave orphaned brackets, braces, or tags.
+
+```diff
+--- src/components/Form.tsx
++++ src/components/Form.tsx
+@@ -1,16 +1,8 @@
+ import React, {{ useState }} from "react";
+
+-function validate(value: string): boolean {{
+-  return value.trim().length > 0;
+-}}
+-
+ function Form() {{
+   const [value, setValue] = useState("");
+-  const [hasError, setHasError] = useState(false);
+
+   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {{
+-    const next = e.target.value;
+-    setValue(next);
+-    setHasError(!validate(next));
++    setValue(e.target.value);
+   }}
+
+   return (
+@@ -20,9 +12,6 @@ function Form() {{
+     <form>
+       <input value={{value}} onChange={{handleChange}} />
+-      {{hasError && (
+-        <span className="error">Required</span>
+-      )}}
+       <button type="submit">Save</button>
+     </form>
+   );
+ }}
+```
+
+Key points for removals:
+- Remove the ENTIRE `validate` function including its closing `}}`
+- Remove the ENTIRE conditional `{{hasError && (...)}}` including both `{{` and `)}}`
+- Never leave unmatched brackets, braces, parentheses, or tags
+
 ## Critical Reminders
-- Output the COMPLETE file content, not just changed parts
+- Output ONLY the diff, not the complete file
 - Do NOT add new features or "improvements"
 - Do NOT refactor or reorganize code
 - Do NOT change styling unless specifically requested
@@ -170,7 +255,6 @@ class EditHandler(BaseHandler):
                 "Could not read existing files - generating new content",
                 "reflection",
             )
-        
         # Generate edits
         try:
             edited_files = yield from self._generate_edits(
@@ -320,6 +404,20 @@ class EditHandler(BaseHandler):
             logger.warning(f"Error getting file contents: {e}")
             return {}
     
+    def _get_language(self, path: str) -> str:
+        """Determine language from file extension."""
+        lang_map = {
+            'tsx': 'tsx',
+            'ts': 'ts',
+            'jsx': 'tsx',
+            'js': 'ts',
+            'css': 'css',
+            'json': 'json',
+            'html': 'html',
+        }
+        ext = path.split('.')[-1] if '.' in path else 'tsx'
+        return lang_map.get(ext, 'tsx')
+
     def _generate_edits(
         self,
         user_message: str,
@@ -339,13 +437,18 @@ class EditHandler(BaseHandler):
         if not files_context:
             files_context = "No existing files to modify."
         
+        # Escape curly braces in file contents to prevent .format() errors
+        # JSX code contains {variable} which breaks Python's .format()
+        escaped_files_context = files_context.replace('{', '{{').replace('}', '}}')
+        escaped_user_message = user_message.replace('{', '{{').replace('}', '}}')
+
         # Build the user prompt with additional context
-        prompt_parts = [
-            EDIT_PROMPT_TEMPLATE.format(
-                user_message=user_message,
-                files_context=files_context,
-            )
-        ]
+        formatted_template = EDIT_PROMPT_TEMPLATE.format(
+            user_message=escaped_user_message,
+            files_context=escaped_files_context,
+        )
+
+        prompt_parts = [formatted_template]
         
         # Add data store context if available
         if data_store_context and "No data tables" not in data_store_context:
@@ -380,23 +483,45 @@ class EditHandler(BaseHandler):
                 
                 if chunk_count % 10 == 0:
                     yield self.emit_step_progress(0, min(80, chunk_count), "Generating edits...")
-            
+
             # Final validation check
             final_warnings = validator.final_check(full_content)
             for warning in final_warnings:
                 yield self.emit_streaming_warning(warning)
-            
-            # Parse the edited files
-            edited_files = self.parse_code_blocks(full_content)
-            
-            # Mark as modify action
-            for f in edited_files:
-                f.action = 'modify'
-                yield self.emit_file_generated(f)
-                files.append(f)
-            
+
+            # TODO: Add some type of validation + fallback to full file generation here
+            # Parse unified diffs from LLM response
+            diffs = parse_diffs(full_content)
+
+            if diffs:
+                # Apply diffs to original files
+                for diff in diffs:
+                    original = file_contents.get(diff.path, "")
+                    if not original:
+                        logger.warning(f"No original content found for {diff.path}, skipping")
+                        continue
+
+                    new_content = apply_diff(original, diff)
+                    file_change = FileChange(
+                        path=diff.path,
+                        action='modify',
+                        language=self._get_language(diff.path),
+                        content=new_content,
+                    )
+                    yield self.emit_file_generated(file_change)
+                    files.append(file_change)
+            else:
+                # Fallback: try parsing as complete file blocks (backwards compatibility)
+                logger.warning("No diffs found in LLM response, falling back to full file parsing")
+                edited_files = self.parse_code_blocks(full_content)
+
+                for f in edited_files:
+                    f.action = 'modify'
+                    yield self.emit_file_generated(f)
+                    files.append(f)
+
             return files
-            
+
         except Exception as e:
             logger.error(f"Edit generation error: {e}")
             raise
