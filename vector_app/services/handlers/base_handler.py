@@ -1697,6 +1697,77 @@ export const dataStore: DataStore = {} as DataStore;
             "warnings": warnings,
         }
 
+    def _build_field_fix_prompt(
+        self,
+        original_content: str,
+        errors: List[str],
+        data_store_context: Optional[str] = None
+    ) -> str:
+        """Build a prompt to ask Claude to fix field name errors."""
+        error_list = "\n".join(f"- {error}" for error in errors)
+
+        # Check if any errors are about missing tables
+        has_missing_tables = any('non-existent table' in error or 'not found' in error.lower() for error in errors)
+
+        # Include data_store_context so Claude sees the current schema
+        schema_section = ""
+        if data_store_context:
+            schema_section = f"\n\n**CURRENT DATABASE SCHEMA:**\n{data_store_context}\n"
+
+        missing_table_instructions = ""
+        if has_missing_tables:
+            missing_table_instructions = """
+
+**🚨 MISSING TABLES DETECTED:**
+Some errors indicate you're trying to use tables that don't exist yet. To fix this:
+
+1. **CREATE THE MISSING TABLES FIRST** using TABLE_DEFINITION blocks:
+   ```table:table-slug
+   name: Table Name
+   description: What this table stores
+   columns:
+     - name: field_name, type: string, nullable: false
+     - name: another_field, type: integer, default: 0
+   ```
+
+2. **DO NOT define reserved fields** (id, created_at, updated_at) - these are auto-generated
+3. **THEN generate the code** that uses these tables
+
+**IMPORTANT:** If you need to create tables, output the TABLE_DEFINITION blocks FIRST, then the code blocks.
+"""
+
+        return f"""Your previous code generation had field name validation errors. You used incorrect field names that don't match the database schema.
+
+**ERRORS FOUND:**
+{error_list}
+{schema_section}
+{missing_table_instructions}
+**🚨 CRITICAL RULES TO FIX THESE ERRORS:**
+
+1. **EACH TABLE HAS ITS OWN FIELDS** - You CANNOT use fields from one table when querying another!
+   - Example: `sprint_number` belongs to the `sprints` table, NOT the `projects` table
+   - You MUST check the schema above to see which fields belong to which table
+
+2. **USE EXACT FIELD NAMES** - Do NOT rename or transform field names
+   - If schema defines `title`, use `title` (not `taskTitle`, `task_title`, or `titleText`)
+   - If schema defines `total_story_points`, use `total_story_points` (not `totalStoryPoints`)
+
+3. **CHECK WHICH TABLE YOU'RE QUERYING** - Before using a field, verify it exists in THAT specific table
+   - When calling `dataStore.query('projects', ...)`, you can ONLY use fields from the `projects` table
+   - Look at the schema above - each table lists its available fields
+
+**YOUR TASK:**
+Please regenerate the ENTIRE code fixing ALL field name errors. Pay special attention to:
+- Creating any missing tables FIRST (if errors mention "non-existent table") using TABLE_DEFINITION blocks
+- Which table you're querying (the first parameter to dataStore.query/insert/update)
+- Which fields are available in THAT specific table (check the schema above)
+- Using exact field names as defined in the schema
+
+**PREVIOUS CODE (WITH ERRORS):**
+{original_content}
+
+Generate the complete corrected code now."""
+
     def _parse_tsc_errors(self, output: str, temp_dir: str) -> List[Dict[str, Any]]:
         """Parse TypeScript compiler output."""
         import os

@@ -398,7 +398,67 @@ class GenerateHandler(BaseHandler):
             
             # Parse generated files
             files = self.parse_code_blocks(full_content)
-            
+
+            # Validate dataStore field names against schema
+            if app and files:
+                validation_result = self._validate_datastore_field_names(files, app)
+                if not validation_result["passed"]:
+                    # BLOCK generation and request fix from Claude
+                    error_summary = "\n".join(validation_result["errors"])
+
+                    yield self.emit_thinking(
+                        f"❌ Field validation failed with {len(validation_result['errors'])} error(s). Requesting fix from Claude...",
+                        "reflection",
+                    )
+
+                    logger.error(f"🚨 [FIELD VALIDATION] BLOCKING generation due to field errors")
+
+                    # Build fix prompt with schema context
+                    from vector_app.services.data_store_context import build_data_store_context
+                    data_store_context = build_data_store_context(app)
+
+                    fix_prompt = self._build_field_fix_prompt(
+                        original_content=full_content,
+                        errors=validation_result["errors"],
+                        data_store_context=data_store_context,
+                    )
+
+                    # Request fix from Claude
+                    fixed_content = ""
+                    async for chunk in self.llm.astream_text(
+                        messages=[{"role": "user", "content": fix_prompt}],
+                        model=model,
+                    ):
+                        fixed_content += chunk
+
+                    # Re-parse fixed content
+                    files = self.parse_code_blocks(fixed_content)
+
+                    # Check if Claude created new tables in the fix response
+                    fix_tables = self._parse_table_definitions(fixed_content)
+                    if fix_tables:
+                        logger.info(f"🔧 [FIX TABLES] Found {len(fix_tables)} table definitions in fix response")
+                        for event in self._apply_table_definitions(fix_tables, app, version):
+                            yield event
+
+                        # Refresh context after creating tables
+                        data_store_context = build_data_store_context(app)
+
+                    # Re-validate
+                    revalidation = self._validate_datastore_field_names(files, app)
+                    if revalidation["passed"]:
+                        yield self.emit_thinking(
+                            "✅ Field validation passed after fix",
+                            "observation",
+                        )
+                    else:
+                        # Still has errors after fix - emit error but continue
+                        logger.error(f"❌ [FIELD VALIDATION] Still has errors after fix: {revalidation['errors']}")
+                        yield self.emit_thinking(
+                            f"⚠️ Field validation still has {len(revalidation['errors'])} error(s) after fix attempt",
+                            "reflection",
+                        )
+
             for file in files:
                 yield self.emit_file_generated(file)
                 
