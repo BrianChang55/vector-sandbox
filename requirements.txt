@@ -25,6 +25,7 @@ cryptography>=41.0.0  # Encryption for secrets
 postgrest>=0.13.0  # Supabase PostgREST client
 jsonschema>=4.20.0  # JSON schema validation
 python-jsonschema-objects>=0.5.0  # JSON schema objects
+whatthepatch==1.0.7  # Unified diff parsing and application
 # Note: esbuild is a Node.js tool, install via npm if needed
 supabase>=2.0.0  # Supabase Python client
 PyMySQL>=1.1.0  # MySQL database connector

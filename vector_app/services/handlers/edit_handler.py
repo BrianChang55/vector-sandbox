@@ -9,6 +9,7 @@ import time
 from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
 from .base_handler import BaseHandler, AgentEvent, FileChange, PlanStep
+from .diff_utils import parse_diffs, apply_diff, format_with_line_numbers
 
 if TYPE_CHECKING:
     from vector_app.models import InternalApp, AppVersion
@@ -22,8 +23,8 @@ logger = logging.getLogger(__name__)
 from vector_app.prompts.agentic import DESIGN_STYLE_PROMPT, OVER_EAGERNESS_GUARD
 
 
-# Prompt for surgical edits
-EDIT_SYSTEM_PROMPT = f"""You are an expert React/TypeScript developer making targeted, surgical edits to existing code.
+# Prompt for surgical edits using unified diff format
+EDIT_SYSTEM_PROMPT = f"""You are an expert React/TypeScript developer making targeted, surgical edits to existing code using unified diffs.
 
 {OVER_EAGERNESS_GUARD}
 
@@ -47,10 +48,12 @@ EDIT_SYSTEM_PROMPT = f"""You are an expert React/TypeScript developer making tar
    - Use the same semicolon conventions
    - Match the existing naming conventions
 
-4. **Output Requirements**
-   - Output the COMPLETE modified file(s)
-   - Include ALL existing code unchanged
-   - Only the specific requested changes should differ
+4. **Output Format: Unified Diff**
+   - Output changes as unified diffs (like git diff)
+   - Include 3 lines of context before and after each change
+   - Use `-` prefix for removed lines, `+` for added lines
+   - Space prefix for unchanged context lines
+   - Multiple hunks allowed for non-adjacent changes in the same file
 
 {DESIGN_STYLE_PROMPT}"""
 
@@ -60,8 +63,18 @@ EDIT_PROMPT_TEMPLATE = """Make the following TARGETED change to the existing cod
 ## User Request
 {user_message}
 
-## Current File Contents
+## Current File Contents (with line numbers)
 {files_context}
+
+**LINE NUMBERS**: The file contents above include line numbers in the format "  42| code here".
+Use these line numbers for your @@ hunk headers. The patch system has fuzz matching (±3 lines tolerance), but accurate numbers improve reliability.
+Do NOT include the line number prefix (e.g., "  42| ") in your diff output.
+
+**CRITICAL - CONTEXT LINES MUST BE EXACT**:
+The patch system can tolerate slight line number errors, but context lines MUST match the source file CHARACTER-FOR-CHARACTER.
+- Copy context lines exactly as shown (same whitespace, same quotes, same everything)
+- If the source has `  return <div className="p-4">` your context must be identical
+- Mismatched context lines will cause the patch to fail
 
 ## Surgical Edit Instructions
 
@@ -70,18 +83,180 @@ EDIT_PROMPT_TEMPLATE = """Make the following TARGETED change to the existing cod
 3. **Make minimal changes**: Change ONLY what's needed to fulfill the request
 4. **Preserve everything else**: Keep all other code exactly as-is
 
-## Output Format
-For each file you modify, use this EXACT format:
-```filepath:path/to/file.tsx
-// Complete file content with your surgical changes applied
+## CRITICAL: Use ONLY the Actual File Content Above
+
+**DO NOT HALLUCINATE OR INVENT CODE.** You MUST:
+- Read the ACTUAL file contents provided above carefully
+- Copy context lines EXACTLY as they appear in the file (character-for-character)
+- Match the REAL structure of the file (if it's a table, use table elements; if it's divs, use divs)
+- Never assume or imagine what the file looks like - USE WHAT IS PROVIDED
+
+If the file uses `<table>`, `<tr>`, `<td>` elements, your diff must use those same elements.
+If the file uses `<div>` with flex classes, your diff must match that structure.
+Context lines that don't exist in the source file will cause the diff to fail.
+
+## Output Format: Unified Diff
+
+For each file you modify, output a unified diff inside a ```diff code block:
+
+```diff
+--- src/path/to/file.tsx
++++ src/path/to/file.tsx
+@@ -LINE,COUNT +LINE,COUNT @@
+ context line (unchanged, starts with space)
+ context line (unchanged, starts with space)
+ context line (unchanged, starts with space)
+-line to remove (starts with minus)
++line to add (starts with plus)
+ context line (unchanged, starts with space)
+ context line (unchanged, starts with space)
+ context line (unchanged, starts with space)
 ```
 
+### Diff Rules
+- Start with `--- path` and `+++ path` header lines
+- Each hunk starts with `@@ -old_start,old_count +new_start,new_count @@`
+- Include exactly 3 lines of unchanged context before and after changes
+- Lines starting with ` ` (space) are unchanged context - these MUST be copied EXACTLY from the source file
+- Lines starting with `-` are removed
+- Lines starting with `+` are added
+- For multiple non-adjacent changes in the same file, use multiple hunks
+- **CRITICAL**: Context lines must match the source file EXACTLY. Do not paraphrase, reformat, or invent context lines.
+
+### Hunk Structure Rule (CRITICAL)
+
+Within each hunk, lines MUST appear in this exact order:
+1. Context lines (space prefix) - unchanged lines before the change
+2. ALL removed lines (minus prefix) - grouped together consecutively
+3. ALL added lines (plus prefix) - grouped together consecutively
+4. Context lines (space prefix) - unchanged lines after the change
+
+**NEVER interleave removals and additions.** Each contiguous change region gets its own hunk.
+
+BAD (interleaved - will break):
+```
+@@ -1,10 +1,10 @@
+ import React from 'react';
+-old interface
++new interface
+-old export        <- WRONG: more removals after additions
++new export
+```
+
+GOOD (separate hunks):
+```
+@@ -1,4 +1,4 @@
+ import React from 'react';
+-old interface
++new interface
+
+@@ -8,3 +8,3 @@
+ // context line
+-old export
++new export
+```
+
+### Example: Modifying an existing file
+
+If changing a button's text from "Submit" to "Save":
+
+```diff
+--- src/components/Form.tsx
++++ src/components/Form.tsx
+@@ -15,7 +15,7 @@
+   return (
+     <form onSubmit={{handleSubmit}}>
+       <input value={{value}} onChange={{handleChange}} />
+-      <button type="submit">Submit</button>
++      <button type="submit">Save</button>
+     </form>
+   );
+ }}
+```
+
+### Example: Creating a NEW file
+
+For new files that don't exist yet, use `--- /dev/null` and start line numbers at 1.
+The `+1,N` in the hunk header means "starting at line 1, adding N lines":
+
+```diff
+--- /dev/null
++++ src/components/NewComponent.tsx
+@@ -0,0 +1,12 @@
++import React from "react";
++
++interface NewComponentProps {{
++  title: string;
++}}
++
++export function NewComponent({{ title }}: NewComponentProps) {{
++  return (
++    <div className="p-4">{{title}}</div>
++  );
++}}
+```
+
+### Example with longer removals
+
+When removing multi-line blocks (functions, JSX elements, conditionals), you MUST include BOTH the opening AND closing parts. Never leave orphaned brackets, braces, or tags.
+
+```diff
+--- src/components/Form.tsx
++++ src/components/Form.tsx
+@@ -1,16 +1,8 @@
+ import React, {{ useState }} from "react";
+
+-function validate(value: string): boolean {{
+-  return value.trim().length > 0;
+-}}
+-
+ function Form() {{
+   const [value, setValue] = useState("");
+-  const [hasError, setHasError] = useState(false);
+
+   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {{
+-    const next = e.target.value;
+-    setValue(next);
+-    setHasError(!validate(next));
++    setValue(e.target.value);
+   }}
+
+   return (
+@@ -20,9 +12,6 @@
+     <form>
+       <input value={{value}} onChange={{handleChange}} />
+-      {{hasError && (
+-        <span className="error">Required</span>
+-      )}}
+       <button type="submit">Save</button>
+     </form>
+   );
+ }}
+```
+
+Key points for removals:
+- Remove the ENTIRE `validate` function including its closing `}}`
+- Remove the ENTIRE conditional `{{hasError && (...)}}` including both `{{` and `)}}`
+- Never leave unmatched brackets, braces, parentheses, or tags
+
+### Syntax Balance Check (REQUIRED before outputting)
+
+Before finalizing each hunk, verify:
+1. Count removed `{{` equals removed `}}`
+2. Count removed `(` equals removed `)`
+3. Count removed `<Tag>` equals removed `</Tag>` or `<Tag />`
+4. If removing an opening line (e.g., `if (condition) {{`), the closing `}}` MUST also be removed
+5. If removing JSX like `{{condition && (`, you MUST also remove the matching `)}}`
+
+If your diff would leave unbalanced syntax, expand the hunk to include the matching closing element.
+
 ## Critical Reminders
-- Output the COMPLETE file content, not just changed parts
+- Output ONLY the diff, not the complete file
 - Do NOT add new features or "improvements"
 - Do NOT refactor or reorganize code
 - Do NOT change styling unless specifically requested
-- If unsure about something, leave it unchanged"""
+- If unsure about something, leave it unchanged
+- Context lines MUST be copied exactly from the provided file - NEVER invent or hallucinate code structure"""
 
 
 class EditHandler(BaseHandler):
@@ -170,7 +345,6 @@ class EditHandler(BaseHandler):
                 "Could not read existing files - generating new content",
                 "reflection",
             )
-        
         # Generate edits
         try:
             edited_files = yield from self._generate_edits(
@@ -331,21 +505,27 @@ class EditHandler(BaseHandler):
         """Generate edited versions of files."""
         files = []
         
-        # Build context of files to edit
+        # Build context of files to edit with line numbers for accurate diff generation
         files_context = ""
         for path, content in file_contents.items():
-            files_context += f"\n### {path}\n```\n{content}\n```\n"
-        
+            numbered_content = format_with_line_numbers(content)
+            files_context += f"\n### {path}\n```\n{numbered_content}\n```\n"
+
         if not files_context:
             files_context = "No existing files to modify."
         
+        # Escape curly braces in file contents to prevent .format() errors
+        # JSX code contains {variable} which breaks Python's .format()
+        escaped_files_context = files_context.replace('{', '{{').replace('}', '}}')
+        escaped_user_message = user_message.replace('{', '{{').replace('}', '}}')
+
         # Build the user prompt with additional context
-        prompt_parts = [
-            EDIT_PROMPT_TEMPLATE.format(
-                user_message=user_message,
-                files_context=files_context,
-            )
-        ]
+        formatted_template = EDIT_PROMPT_TEMPLATE.format(
+            user_message=escaped_user_message,
+            files_context=escaped_files_context,
+        )
+
+        prompt_parts = [formatted_template]
         
         # Add data store context if available
         if data_store_context and "No data tables" not in data_store_context:
@@ -380,23 +560,59 @@ class EditHandler(BaseHandler):
                 
                 if chunk_count % 10 == 0:
                     yield self.emit_step_progress(0, min(80, chunk_count), "Generating edits...")
-            
+
             # Final validation check
             final_warnings = validator.final_check(full_content)
             for warning in final_warnings:
                 yield self.emit_streaming_warning(warning)
+
+            # TODO: Add some type of validation + fallback to full file generation here
+            # Parse unified diffs from LLM response
+            diffs = parse_diffs(full_content)
             
-            # Parse the edited files
-            edited_files = self.parse_code_blocks(full_content)
-            
-            # Mark as modify action
-            for f in edited_files:
-                f.action = 'modify'
-                yield self.emit_file_generated(f)
-                files.append(f)
-            
+            # DEBUG: Log parsed diffs
+            logger.debug(f"[EDIT] Parsed {len(diffs)} diff(s) from LLM response")
+            for diff in diffs:
+                original = file_contents.get(diff.path, "")
+                numbered = format_with_line_numbers(original)
+                logger.debug(f"[EDIT] Original file {diff.path} ({len(original)} chars):\n{numbered[:8000]}")
+                logger.debug(f"[EDIT] Diff for {diff.path}: {len(diff.hunks)} hunk(s)")
+                for i, hunk in enumerate(diff.hunks):
+                    logger.debug(f"[EDIT]   Hunk {i+1}:\n{hunk[:10000]}")
+
+            if diffs:
+                # Apply diffs to original files
+                for diff in diffs:
+                    original = file_contents.get(diff.path, "")
+                    if not original:
+                        logger.warning(f"No original content found for {diff.path}, skipping")
+                        continue
+
+                    new_content = apply_diff(original, diff)
+                    
+                    file_change = FileChange(
+                        path=diff.path,
+                        action='modify',
+                        language=self.get_language(diff.path),
+                        content=new_content,
+                        previous_content=original,
+                        lines_added=diff.lines_added,
+                        lines_removed=diff.lines_removed,
+                    )
+                    yield self.emit_file_generated(file_change)
+                    files.append(file_change)
+            else:
+                # Fallback: try parsing as complete file blocks (backwards compatibility)
+                logger.warning("No diffs found in LLM response, falling back to full file parsing")
+                edited_files = self.parse_code_blocks(full_content)
+
+                for f in edited_files:
+                    f.action = 'modify'
+                    yield self.emit_file_generated(f)
+                    files.append(f)
+
             return files
-            
+
         except Exception as e:
             logger.error(f"Edit generation error: {e}")
             raise
@@ -423,6 +639,7 @@ class EditHandler(BaseHandler):
                         action='create',
                         language=vf.path.split('.')[-1] if '.' in vf.path else 'tsx',
                         content=vf.content or '',
+                        previous_content=vf.content or '',
                     ))
             except Exception as e:
                 logger.warning(f"Error getting existing files: {e}")

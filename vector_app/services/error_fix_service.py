@@ -316,6 +316,9 @@ class ErrorFixService:
         fixed_files = []
         seen_paths = set()
         
+        # Build lookup for original file content
+        original_by_path = {f.path: f.content for f in original_files}
+        
         # Pattern to match file blocks - order matters
         patterns = [
             # Pattern 1: ```filepath:path/to/file.ext (highest priority)
@@ -359,12 +362,23 @@ class ErrorFixService:
                 # Determine language
                 ext = filepath.split('.')[-1] if '.' in filepath else 'tsx'
                 lang_map = {'tsx': 'tsx', 'ts': 'ts', 'css': 'css', 'json': 'json'}
+
+                # TODO: Add better line counting logic here
+                # Calculate lines added/removed
+                original_content = original_by_path.get(filepath, "")
+                original_lines = original_content.count('\n') + (1 if original_content and not original_content.endswith('\n') else 0)
+                new_lines = code.count('\n') + (1 if code and not code.endswith('\n') else 0)
+                lines_added = max(0, new_lines - original_lines)
+                lines_removed = max(0, original_lines - new_lines)
                 
                 fixed_files.append(FileChange(
                     path=filepath,
                     action='modify',
                     language=lang_map.get(ext, 'tsx'),
                     content=code,
+                    previous_content=original_content,
+                    lines_added=lines_added,
+                    lines_removed=lines_removed,
                 ))
         
         logger.info(f"Parsed {len(fixed_files)} fixed files from response")

@@ -1614,6 +1614,7 @@ class FixErrorsView(View):
                 action='modify',
                 language=f.path.split('.')[-1] if '.' in f.path else 'tsx',
                 content=f.content,
+                previous_content=f.content,
             )
             for f in version.files.all()
         ]

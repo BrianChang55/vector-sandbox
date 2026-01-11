@@ -31,6 +31,9 @@ class FileChange:
     action: str  # create, modify, delete
     language: str
     content: str
+    previous_content: str = ""
+    lines_added: int = 0
+    lines_removed: int = 0
     
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -528,11 +531,16 @@ class BaseHandler(ABC):
                 # Clean up the code - remove trailing ```
                 code = re.sub(r'```\s*$', '', code).strip()
                 
+                # For new files: lines_added = total lines, lines_removed = 0
+                lines_in_code = code.count('\n') + (1 if code and not code.endswith('\n') else 0)
+                
                 files.append(FileChange(
                     path=normalized_path,
                     action='create',
                     language=lang_map.get(ext, 'tsx'),
                     content=code,
+                    lines_added=lines_in_code,
+                    lines_removed=0,
                 ))
         
         return files
@@ -545,7 +553,21 @@ class BaseHandler(ABC):
             title=title,
             description=description,
         )
-    
+
+    def get_language(self, path: str) -> str:
+        """Determine language from file extension."""
+        lang_map = {
+            'tsx': 'tsx',
+            'ts': 'ts',
+            'jsx': 'tsx',
+            'js': 'ts',
+            'css': 'css',
+            'json': 'json',
+            'html': 'html',
+        }
+        ext = path.split('.')[-1] if '.' in path else 'tsx'
+        return lang_map.get(ext, 'tsx')
+
     # ===== Validation Utilities =====
     
     def validate_and_fix(
@@ -602,6 +624,9 @@ class BaseHandler(ABC):
                     action=f.action,
                     language=f.language,
                     content=f.content,
+                    previous_content=f.previous_content,
+                    lines_added=f.lines_added,
+                    lines_removed=f.lines_removed,
                 )
                 for f in generated_files
             ]
@@ -639,6 +664,9 @@ class BaseHandler(ABC):
                                 action=file_data.get("action", "modify"),
                                 language=file_data.get("language", "tsx"),
                                 content=file_data.get("content", ""),
+                                previous_content=file_data.get("previous_content", ""),
+                                lines_added=file_data.get("lines_added", 0),
+                                lines_removed=file_data.get("lines_removed", 0),
                             )
                 except StopIteration:
                     break
