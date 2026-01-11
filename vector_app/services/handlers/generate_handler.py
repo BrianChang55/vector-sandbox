@@ -520,9 +520,46 @@ class GenerateHandler(BaseHandler):
             if existing:
                 logger.info(f"Table {slug} already exists, skipping")
                 continue
-            
-            schema = {'columns': table_def['columns']}
-            
+
+            # 🚨 CRITICAL: Auto-generate system columns (id, created_at, updated_at)
+            # These should be filtered out by _parse_single_table, but be defensive
+            columns = table_def['columns'].copy()
+
+            # Check if 'id' column already exists (shouldn't, but be defensive)
+            has_id = any(col.get('name', '').lower() == 'id' for col in columns)
+
+            if not has_id:
+                # Prepend the auto-generated id column
+                columns.insert(0, {
+                    'name': 'id',
+                    'type': 'uuid',
+                    'primary_key': True,
+                    'auto_generate': True,
+                    'nullable': False,
+                })
+
+            # Check for created_at
+            has_created_at = any(col.get('name', '').lower() == 'created_at' for col in columns)
+            if not has_created_at:
+                columns.append({
+                    'name': 'created_at',
+                    'type': 'datetime',
+                    'auto_now_add': True,
+                    'nullable': False,
+                })
+
+            # Check for updated_at
+            has_updated_at = any(col.get('name', '').lower() == 'updated_at' for col in columns)
+            if not has_updated_at:
+                columns.append({
+                    'name': 'updated_at',
+                    'type': 'datetime',
+                    'auto_now': True,
+                    'nullable': False,
+                })
+
+            schema = {'columns': columns}
+
             table, errors = AppDataService.create_table_versioned(
                 app=app,
                 version=version,
