@@ -17,7 +17,7 @@ from rest_framework.test import APIClient
 from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from relay_app.models import (
+from vector_app.models import (
     User, Organization, UserOrganization, InternalApp,
     ChatSession, ChatMessage, CodeGenerationJob, AppVersion,
 )
@@ -66,7 +66,7 @@ class JobCreationTestCase(TestCase):
         # Get auth header for JWT (needed for View-based endpoints)
         self.auth_header = get_auth_header(self.user)
     
-    @patch('relay_app.tasks.run_agentic_generation.delay')
+    @patch('vector_app.tasks.run_agentic_generation.delay')
     def test_post_creates_job_and_queues_task(self, mock_delay):
         """POST /apps/{id}/generate/agentic/ creates a job and queues Celery task."""
         url = reverse('generate-agentic', args=[self.app.id])
@@ -94,7 +94,7 @@ class JobCreationTestCase(TestCase):
         # Verify Celery task was queued
         mock_delay.assert_called_once_with(job_id)
     
-    @patch('relay_app.tasks.run_agentic_generation.delay')
+    @patch('vector_app.tasks.run_agentic_generation.delay')
     def test_post_with_session_id(self, mock_delay):
         """POST with session_id links to existing session."""
         session = ChatSession.objects.create(
@@ -494,11 +494,11 @@ class CeleryTaskTestCase(TransactionTestCase):
             created_by=self.user,
         )
     
-    @patch('relay_app.services.agentic_service.get_agentic_service')
+    @patch('vector_app.services.agentic_service.get_agentic_service')
     def test_task_runs_generation(self, mock_get_service):
         """Task runs agentic generation and stores events."""
-        from relay_app.tasks import run_agentic_generation
-        from relay_app.services.handlers.base_handler import AgentEvent
+        from vector_app.tasks import run_agentic_generation
+        from vector_app.services.handlers.base_handler import AgentEvent
         
         # Mock the agentic service to yield events
         mock_service = MagicMock()
@@ -532,11 +532,11 @@ class CeleryTaskTestCase(TransactionTestCase):
         self.assertIn('plan_created', event_types)
         self.assertIn('done', event_types)
     
-    @patch('relay_app.services.agentic_service.get_agentic_service')
+    @patch('vector_app.services.agentic_service.get_agentic_service')
     def test_task_handles_cancellation(self, mock_get_service):
         """Task checks for cancellation and stops."""
-        from relay_app.tasks import run_agentic_generation
-        from relay_app.services.handlers.base_handler import AgentEvent
+        from vector_app.tasks import run_agentic_generation
+        from vector_app.services.handlers.base_handler import AgentEvent
         
         call_count = 0
         
@@ -571,10 +571,10 @@ class CeleryTaskTestCase(TransactionTestCase):
         # Job should stay cancelled
         self.assertEqual(job.status, CodeGenerationJob.STATUS_CANCELLED)
     
-    @patch('relay_app.services.agentic_service.get_agentic_service')
+    @patch('vector_app.services.agentic_service.get_agentic_service')
     def test_task_handles_error(self, mock_get_service):
         """Task handles errors and marks job as failed."""
-        from relay_app.tasks import run_agentic_generation
+        from vector_app.tasks import run_agentic_generation
         
         mock_service = MagicMock()
         mock_service.generate_app.side_effect = Exception('LLM API error')

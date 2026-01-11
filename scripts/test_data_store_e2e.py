@@ -36,12 +36,12 @@ from django.contrib.auth import get_user_model
 from django.test import Client, RequestFactory
 from rest_framework.test import APIClient
 
-from relay_app.models import (
+from vector_app.models import (
     InternalApp, AppVersion, AppDataTable, AppDataRow, 
     AppDataTableSnapshot, Organization, UserOrganization
 )
-from relay_app.services.app_data_service import AppDataService
-from relay_app.services.data_store_context import build_data_store_context
+from vector_app.services.app_data_service import AppDataService
+from vector_app.services.data_store_context import build_data_store_context
 
 
 # =============================================================================

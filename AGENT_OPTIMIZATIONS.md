@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-This document summarizes the comprehensive optimizations made to the Relay coding agent based on analysis of Cursor's system prompts and best practices. The goal was to improve code generation quality, reduce over-engineering, and enhance the agent's ability to make intelligent decisions about code modifications.
+This document summarizes the comprehensive optimizations made to the Vector coding agent based on analysis of Cursor's system prompts and best practices. The goal was to improve code generation quality, reduce over-engineering, and enhance the agent's ability to make intelligent decisions about code modifications.
 
 **Key Metrics:**
 - 9 major optimization areas implemented
@@ -25,9 +25,9 @@ This document summarizes the comprehensive optimizations made to the Relay codin
 Added explicit guards to prevent the agent from adding unnecessary complexity, features, or abstractions that weren't requested by the user.
 
 **Files Modified:**
-- `relay_app/prompts/agentic.py` - Added `OVER_EAGERNESS_GUARD` constant
-- `relay_app/services/handlers/edit_handler.py` - Imported and applied guard
-- `relay_app/services/handlers/feature_handler.py` - Imported and applied guard
+- `vector_app/prompts/agentic.py` - Added `OVER_EAGERNESS_GUARD` constant
+- `vector_app/services/handlers/edit_handler.py` - Imported and applied guard
+- `vector_app/services/handlers/feature_handler.py` - Imported and applied guard
 
 **Key Rules Enforced:**
 - Only implement what is explicitly requested
@@ -38,7 +38,7 @@ Added explicit guards to prevent the agent from adding unnecessary complexity, f
 
 **Code Location:**
 ```python
-# relay_app/prompts/agentic.py
+# vector_app/prompts/agentic.py
 OVER_EAGERNESS_GUARD = """
 ## Anti-Over-Engineering Rules (CRITICAL)
 ...
@@ -61,7 +61,7 @@ OVER_EAGERNESS_GUARD = """
 Improved the `EditHandler` prompts to enforce minimal, targeted changes rather than regenerating entire files.
 
 **Files Modified:**
-- `relay_app/services/handlers/edit_handler.py` - Enhanced `EDIT_SYSTEM_PROMPT` and `EDIT_PROMPT_TEMPLATE`
+- `vector_app/services/handlers/edit_handler.py` - Enhanced `EDIT_SYSTEM_PROMPT` and `EDIT_PROMPT_TEMPLATE`
 
 **Key Improvements:**
 - Explicit rules to preserve everything except what's requested
@@ -86,7 +86,7 @@ Improved the `EditHandler` prompts to enforce minimal, targeted changes rather t
 Added explicit guidelines to prevent generic, overused AI aesthetic patterns in UI generation.
 
 **Files Modified:**
-- `relay_app/prompts/agentic.py` - Added `ANTI_AI_SLOP_GUIDE` constant and appended to `DESIGN_STYLE_PROMPT`
+- `vector_app/prompts/agentic.py` - Added `ANTI_AI_SLOP_GUIDE` constant and appended to `DESIGN_STYLE_PROMPT`
 
 **Patterns to Avoid:**
 - Inter, Roboto, Arial fonts
@@ -117,7 +117,7 @@ Added explicit guidelines to prevent generic, overused AI aesthetic patterns in 
 Added automatic detection of existing codebase patterns to ensure generated code matches the project's style.
 
 **Files Modified:**
-- `relay_app/services/context_analyzer.py` - Added `CodebaseStyle` dataclass and `_analyze_codebase_style()` method
+- `vector_app/services/context_analyzer.py` - Added `CodebaseStyle` dataclass and `_analyze_codebase_style()` method
 
 **Detected Patterns:**
 - Naming conventions (camelCase, snake_case, PascalCase)
@@ -155,7 +155,7 @@ class CodebaseStyle:
 Implemented component dependency graph analysis to identify all files that might be affected by a change.
 
 **Files Modified:**
-- `relay_app/services/context_analyzer.py` - Added `reverse_graph`, `_build_reverse_graph()`, and `find_cascade_affected_files()`
+- `vector_app/services/context_analyzer.py` - Added `reverse_graph`, `_build_reverse_graph()`, and `find_cascade_affected_files()`
 
 **Graph Tracking:**
 - Forward dependencies (files this file imports)
@@ -185,8 +185,8 @@ affected = analyzer.find_cascade_affected_files(context, 'src/components/Button.
 Added automatic detection of existing components that could be reused for new features.
 
 **Files Modified:**
-- `relay_app/services/context_analyzer.py` - Added `find_reusable_components()`, `_extract_feature_keywords()`, and `build_reusable_components_prompt()`
-- `relay_app/services/handlers/feature_handler.py` - Integrated reusable components into prompts
+- `vector_app/services/context_analyzer.py` - Added `find_reusable_components()`, `_extract_feature_keywords()`, and `build_reusable_components_prompt()`
+- `vector_app/services/handlers/feature_handler.py` - Integrated reusable components into prompts
 
 **Detection Algorithm:**
 1. Extract keywords from user's feature request
@@ -211,8 +211,8 @@ Added automatic detection of existing components that could be reused for new fe
 Enhanced intent classification to consider existing database schema when classifying user requests.
 
 **Files Modified:**
-- `relay_app/prompts/intent_classification.py` - Added `table_columns` parameter and schema-aware classification section
-- `relay_app/services/intent_classifier.py` - Updated to pass detailed table columns to classification prompt
+- `vector_app/prompts/intent_classification.py` - Added `table_columns` parameter and schema-aware classification section
+- `vector_app/services/intent_classifier.py` - Updated to pass detailed table columns to classification prompt
 
 **Classification Logic:**
 - If field exists in schema → likely EDIT_CODE or ADD_FEATURE
@@ -236,7 +236,7 @@ Enhanced intent classification to consider existing database schema when classif
 Added optional plan confirmation for high-impact changes that emit events for client-side handling.
 
 **Files Modified:**
-- `relay_app/services/intent_router.py` - Added confirmation logic and event emission
+- `vector_app/services/intent_router.py` - Added confirmation logic and event emission
 
 **Confirmation Triggers:**
 - Intent confidence below 80%
@@ -269,7 +269,7 @@ AgentEvent("plan_confirmation_suggested", {
 Added real-time validation during code streaming to catch issues early.
 
 **Files Modified:**
-- `relay_app/services/handlers/base_handler.py` - Added `StreamingValidator` class and helper methods
+- `vector_app/services/handlers/base_handler.py` - Added `StreamingValidator` class and helper methods
 
 **Detected Issues:**
 - Excessive `as any` type usage (>3 occurrences)
@@ -296,7 +296,7 @@ Added real-time validation during code streaming to catch issues early.
 Parallelized the gathering of data store and MCP tools context for faster response times.
 
 **Files Modified:**
-- `relay_app/services/agentic_service.py` - Added `_gather_context_parallel()` method using `ThreadPoolExecutor`
+- `vector_app/services/agentic_service.py` - Added `_gather_context_parallel()` method using `ThreadPoolExecutor`
 
 **Parallelized Operations:**
 - Data store context building
@@ -319,7 +319,7 @@ Parallelized the gathering of data store and MCP tools context for faster respon
 ## Testing Summary
 
 ### New Test File
-`relay_app/tests/test_agent_optimizations.py` - 40 comprehensive tests
+`vector_app/tests/test_agent_optimizations.py` - 40 comprehensive tests
 
 ### Test Categories
 | Category | Tests | Status |
@@ -440,7 +440,7 @@ Clients can optionally handle these new events:
 
 ## Conclusion
 
-These optimizations bring the Relay coding agent closer to the quality and intelligence of leading coding assistants like Cursor. The focus on preventing over-engineering, matching existing code styles, and providing intelligent confirmation for high-impact changes should significantly improve the developer experience and code quality.
+These optimizations bring the Vector coding agent closer to the quality and intelligence of leading coding assistants like Cursor. The focus on preventing over-engineering, matching existing code styles, and providing intelligent confirmation for high-impact changes should significantly improve the developer experience and code quality.
 
 The future optimizations outlined for each area provide a roadmap for continued improvement, with emphasis on deeper codebase understanding, better user feedback loops, and more intelligent decision-making.
 

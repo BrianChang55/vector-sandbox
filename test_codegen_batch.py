@@ -16,9 +16,9 @@ import re
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'internal_apps.settings')
 django.setup()
 
-from relay_app.services.handlers.base_handler import FileChange, PlanStep
-from relay_app.services.handlers.generate_handler import GenerateHandler
-from relay_app.prompts.agentic import (
+from vector_app.services.handlers.base_handler import FileChange, PlanStep
+from vector_app.services.handlers.generate_handler import GenerateHandler
+from vector_app.prompts.agentic import (
     build_plan_prompt,
     build_step_prompt,
     build_codegen_system_prompt,

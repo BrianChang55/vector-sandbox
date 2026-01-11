@@ -11,11 +11,11 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'internal_apps.settings')
 sys.path.insert(0, os.path.dirname(__file__))
 django.setup()
 
-from relay_app.models import User, Organization, UserOrganization, BackendConnection, InternalApp
-from relay_app.utils.encryption import encrypt_string, decrypt_string, encrypt_json, decrypt_json
-from relay_app.adapters.supabase import SupabaseAdapter
-from relay_app.services.validation import AppSpecValidationService
-from relay_app.services.codegen import CodegenService
+from vector_app.models import User, Organization, UserOrganization, BackendConnection, InternalApp
+from vector_app.utils.encryption import encrypt_string, decrypt_string, encrypt_json, decrypt_json
+from vector_app.adapters.supabase import SupabaseAdapter
+from vector_app.services.validation import AppSpecValidationService
+from vector_app.services.codegen import CodegenService
 
 def test_encryption():
     """Test encryption utilities."""
@@ -103,7 +103,7 @@ def test_adapter():
     assert adapter.type == "supabase"
     print(f"✓ Adapter type: {adapter.type}")
     
-    from relay_app.adapters.base import AdapterContext
+    from vector_app.adapters.base import AdapterContext
     ctx = AdapterContext(
         backend_url="https://test.supabase.co",
         service_role_key="test_key"
@@ -174,7 +174,7 @@ def test_codegen():
 
 if __name__ == "__main__":
     print("=" * 60)
-    print("Testing Relay Internal Apps Implementation")
+    print("Testing Vector Internal Apps Implementation")
     print("=" * 60)
     print()
     

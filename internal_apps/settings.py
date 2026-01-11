@@ -17,7 +17,7 @@ if RENDER_EXTERNAL_HOSTNAME:
     ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
 
 # Custom User Model
-AUTH_USER_MODEL = 'relay_app.User'
+AUTH_USER_MODEL = 'vector_app.User'
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -28,7 +28,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'corsheaders',
     'rest_framework',
-    'relay_app',
+    'vector_app',
 ]
 
 MIDDLEWARE = [
@@ -179,8 +179,8 @@ CORS_ALLOWED_ORIGINS = [
     'https://localhost:3000',
     'https://localhost:3001',
     # Production custom domain
-    'https://relayapps.ai',
-    'https://www.relayapps.ai',
+    'https://govector.ai',
+    'https://www.govector.ai',
 ]
 
 # Allow Sandpack/CodeSandbox iframe origins for the preview runtime
@@ -189,7 +189,7 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
     r'^https://.*\.codesandbox\.io$',
     r'^https://.*-sandpack\.codesandbox\.io$',
     r'^https://internal-apps-frontend.*\.onrender\.com$',
-    r'^https://.*\.relayapps\.ai$',  # All subdomains of relayapps.ai
+    r'^https://.*\.govector\.ai$',  # All subdomains of govector.ai
 ]
 
 FRONTEND_URL = env('FRONTEND_URL', default='http://localhost:5176')
@@ -222,10 +222,10 @@ CSRF_TRUSTED_ORIGINS = [
     'https://localhost:3000',
     'https://localhost:3001',
     # Production custom domain
-    'https://relayapps.ai',
-    'https://www.relayapps.ai',
-    'https://app.relayapps.ai',
-    'https://api.relayapps.ai',
+    'https://govector.ai',
+    'https://www.govector.ai',
+    'https://app.govector.ai',
+    'https://api.govector.ai',
 ]
 
 if RENDER_EXTERNAL_HOSTNAME:
