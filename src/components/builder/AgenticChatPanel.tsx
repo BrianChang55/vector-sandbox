@@ -59,6 +59,8 @@ interface AgenticChatPanelProps {
   bundlerErrors?: BundlerError[]
   /** Current version ID for error fixing */
   currentVersionId?: string
+  /** Callback when errors are successfully fixed (clears bundlerErrors in parent) */
+  onErrorsCleared?: () => void
   /** Initial prompt to auto-submit (e.g., from landing page) - VISIBLE in input */
   initialPrompt?: string
   /** Callback when initial prompt has been consumed */
@@ -511,6 +513,7 @@ export function AgenticChatPanel({
   onGeneratingVersionChange,
   bundlerErrors,
   currentVersionId,
+  onErrorsCleared,
   initialPrompt,
   onInitialPromptConsumed,
   hiddenPrompt,
@@ -947,6 +950,9 @@ export function AgenticChatPanel({
       onComplete: () => {
         console.log('[AgenticChatPanel] Fix completed')
         setIsFixingErrors(false)
+        
+        // Notify parent that errors are cleared so bundlerErrors state is reset
+        onErrorsCleared?.()
 
         // Update the fix message to complete
         setMessages(prev => {
@@ -1009,7 +1015,7 @@ export function AgenticChatPanel({
     })
 
     fixControllerRef.current = controller
-  }, [bundlerErrors, currentVersionId, isFixingErrors, isLoading, fixAttempt, selectedModel, createErrorSignature, onFilesGenerated])
+  }, [bundlerErrors, currentVersionId, isFixingErrors, isLoading, fixAttempt, selectedModel, createErrorSignature, onFilesGenerated, onErrorsCleared])
 
   // Reset fix attempt counter when errors are cleared (compilation succeeds)
   useEffect(() => {

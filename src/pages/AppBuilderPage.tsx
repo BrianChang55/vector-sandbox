@@ -328,6 +328,11 @@ export function AppBuilderPage() {
     }
   }, [dispatch])
 
+  // Callback when AgenticChatPanel successfully fixes errors
+  const handleErrorsCleared = useCallback(() => {
+    setBundlerErrors(undefined)
+  }, [])
+
   const handlePublish = async () => {
     if (!appId) return
     setPublishError(null)
@@ -498,6 +503,7 @@ export function AppBuilderPage() {
                 onGeneratingVersionChange={setActiveGeneratingVersionId}
                 bundlerErrors={bundlerErrors}
                 currentVersionId={selectedVersionId || undefined}
+                onErrorsCleared={handleErrorsCleared}
                 initialPrompt={pendingPrompt || undefined}
                 onInitialPromptConsumed={handleInitialPromptConsumed}
                 hiddenPrompt={pendingHiddenPrompt || undefined}
