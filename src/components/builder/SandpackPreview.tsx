@@ -1278,6 +1278,21 @@ function SandpackErrorHandler({
     }
   }, [sandpack.error])
   
+  // Reset bundler failure count and notify parent when errors are cleared (compilation succeeds)
+  useEffect(() => {
+    if (errors.length === 0 && hasInitialized) {
+      // Reset failure count so future network errors can be retried
+      bundlerFailureCountRef.current = 0
+      
+      // Notify parent that errors are cleared (if we previously reported errors)
+      if (lastReportedSignatureRef.current !== '') {
+        lastReportedSignatureRef.current = ''
+        console.log('[SandpackErrorHandler] Compilation successful, clearing errors')
+        onBundlerErrors?.([])
+      }
+    }
+  }, [errors.length, hasInitialized, onBundlerErrors])
+  
   // Report errors to parent when detected (parent handles the fix)
   useEffect(() => {
     if (

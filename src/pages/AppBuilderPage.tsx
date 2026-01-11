@@ -328,6 +328,11 @@ export function AppBuilderPage() {
     }
   }, [dispatch])
 
+  // Callback when AgenticChatPanel successfully fixes errors
+  const handleErrorsCleared = useCallback(() => {
+    setBundlerErrors(undefined)
+  }, [])
+
   const handlePublish = async () => {
     if (!appId) return
     setPublishError(null)
@@ -498,6 +503,7 @@ export function AppBuilderPage() {
                 onGeneratingVersionChange={setActiveGeneratingVersionId}
                 bundlerErrors={bundlerErrors}
                 currentVersionId={selectedVersionId || undefined}
+                onErrorsCleared={handleErrorsCleared}
                 initialPrompt={pendingPrompt || undefined}
                 onInitialPromptConsumed={handleInitialPromptConsumed}
                 hiddenPrompt={pendingHiddenPrompt || undefined}
@@ -524,6 +530,16 @@ export function AppBuilderPage() {
                   onFilesChange={(files) => {
                     setStreamingFiles(files)
                     setIsActivelyGenerating(true) // Show edited files instead of version files
+                    // Enable auto-fix when user edits code (same as during generation)
+                    setAutoFixEnabled(true)
+                    // Reset timeout to disable after 15 seconds of no edits
+                    if (autoFixTimeoutRef.current) {
+                      clearTimeout(autoFixTimeoutRef.current)
+                    }
+                    autoFixTimeoutRef.current = setTimeout(() => {
+                      setAutoFixEnabled(false)
+                      autoFixTimeoutRef.current = null
+                    }, 15000)
                   }}
                   showVersionsSidebar={showVersionsSidebar}
                   onToggleVersionsSidebar={() => setShowVersionsSidebar(!showVersionsSidebar)}
