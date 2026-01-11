@@ -26,7 +26,7 @@ import django
 django.setup()
 
 from rest_framework_simplejwt.tokens import RefreshToken
-from relay_app.models import User, Organization, UserOrganization, InternalApp, CodeGenerationJob
+from vector_app.models import User, Organization, UserOrganization, InternalApp, CodeGenerationJob
 
 
 BASE_URL = "http://localhost:8001/api/v1"

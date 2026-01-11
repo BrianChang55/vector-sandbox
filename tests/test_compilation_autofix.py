@@ -34,14 +34,14 @@ from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 import base64
 
-from relay_app.models import (
+from vector_app.models import (
     Organization, InternalApp, AppVersion, UserOrganization, VersionFile
 )
-from relay_app.services.agentic_service import (
+from vector_app.services.agentic_service import (
     AgenticService, FileChange, CompilationError, ValidationResult, AgentEvent
 )
-from relay_app.services.error_fix_service import ErrorFixService, get_error_fix_service
-from relay_app.prompts.error_fix import (
+from vector_app.services.error_fix_service import ErrorFixService, get_error_fix_service
+from vector_app.prompts.error_fix import (
     ERROR_FIX_SYSTEM_PROMPT, build_error_fix_prompt, build_bundler_error_fix_prompt
 )
 
@@ -326,7 +326,7 @@ class TestErrorFixService(TestCase):
         # Should not yield any events for empty errors
         self.assertEqual(len(result), 0)
     
-    @patch('relay_app.services.error_fix_service.httpx.Client')
+    @patch('vector_app.services.error_fix_service.httpx.Client')
     def test_fix_errors_yields_events(self, mock_client_class):
         """Test fix_errors yields appropriate events"""
         # Mock the HTTP response
@@ -1787,7 +1787,7 @@ class TestFixStreamingEvents(TestCase):
     def setUp(self):
         self.fix_service = ErrorFixService()
     
-    @patch('relay_app.services.error_fix_service.httpx.Client')
+    @patch('vector_app.services.error_fix_service.httpx.Client')
     def test_fix_emits_correct_event_sequence(self, mock_client_class):
         """Test that fix process emits key events"""
         # Mock successful fix response
@@ -1952,13 +1952,13 @@ class TestTemporaryFileCleanup(TestCase):
         
         # Get initial temp dir count
         temp_dir = tempfile.gettempdir()
-        initial_items = len([i for i in os.listdir(temp_dir) if i.startswith('relay_tsc_')])
+        initial_items = len([i for i in os.listdir(temp_dir) if i.startswith('vector_tsc_')])
         
         # Run validation
         service._validate_typescript(files)
         
-        # Check that relay_tsc_ dirs are cleaned up (or same count)
-        final_items = len([i for i in os.listdir(temp_dir) if i.startswith('relay_tsc_')])
+        # Check that vector_tsc_ dirs are cleaned up (or same count)
+        final_items = len([i for i in os.listdir(temp_dir) if i.startswith('vector_tsc_')])
         
         # Should be cleaned up (same or fewer items)
         self.assertLessEqual(final_items, initial_items + 1)  # Allow 1 in case of timing

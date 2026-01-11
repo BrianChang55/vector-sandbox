@@ -14,7 +14,7 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 import json
 
-from relay_app.models import (
+from vector_app.models import (
     User, Organization, UserOrganization,
     BackendConnection, ProjectUserBackendAuth,
     InternalApp, ResourceRegistryEntry,
@@ -197,7 +197,7 @@ def test_encryption():
     print("=" * 60)
     
     try:
-        from relay_app.utils.encryption import encrypt_string, decrypt_string, encrypt_json, decrypt_json
+        from vector_app.utils.encryption import encrypt_string, decrypt_string, encrypt_json, decrypt_json
         
         # Test string encryption
         plaintext = "secret_key_12345"
@@ -225,8 +225,8 @@ def test_adapter_architecture():
     print("=" * 60)
     
     try:
-        from relay_app.adapters.base import AdapterContext, UserContext, ResourceSchema
-        from relay_app.adapters.supabase import SupabaseAdapter
+        from vector_app.adapters.base import AdapterContext, UserContext, ResourceSchema
+        from vector_app.adapters.supabase import SupabaseAdapter
         
         # Test adapter
         adapter = SupabaseAdapter()
@@ -272,7 +272,7 @@ def test_services():
     
     # Test validation service
     try:
-        from relay_app.services.validation import AppSpecValidationService
+        from vector_app.services.validation import AppSpecValidationService
         
         # Test invalid spec
         invalid_spec = {}
@@ -285,7 +285,7 @@ def test_services():
     
     # Test codegen service
     try:
-        from relay_app.services.codegen import CodegenService
+        from vector_app.services.codegen import CodegenService
         
         assert len(CodegenService.ALLOWLISTED_PATHS) > 0
         assert 'src/app/page.tsx' in CodegenService.ALLOWLISTED_PATHS
@@ -300,7 +300,7 @@ def test_services():
     
     # Test AI service
     try:
-        from relay_app.services.ai_service import AIService
+        from vector_app.services.ai_service import AIService
         
         ai_service = AIService()
         # Just test it exists and has the method (won't actually call OpenAI)
@@ -327,7 +327,7 @@ def test_api_endpoints():
     
     try:
         from django.urls import resolve
-        from relay_app import urls
+        from vector_app import urls
         
         # Expected endpoints from design doc
         expected_endpoints = [

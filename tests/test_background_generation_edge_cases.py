@@ -23,7 +23,7 @@ from rest_framework.test import APIClient
 from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from relay_app.models import (
+from vector_app.models import (
     User, Organization, UserOrganization, InternalApp,
     ChatSession, ChatMessage, CodeGenerationJob, AppVersion,
 )
@@ -97,7 +97,7 @@ class ConcurrentJobTestCase(TransactionTestCase):
         
         self.auth_header = get_auth_header(self.user)
     
-    @patch('relay_app.tasks.run_agentic_generation.delay')
+    @patch('vector_app.tasks.run_agentic_generation.delay')
     def test_concurrent_job_creation(self, mock_delay):
         """Multiple concurrent job creation requests should all succeed."""
         url = reverse('generate-agentic', args=[self.app.id])
@@ -373,7 +373,7 @@ class MalformedRequestTestCase(BaseTestCase):
         
         self.assertEqual(response.status_code, 400)
     
-    @patch('relay_app.tasks.run_agentic_generation.delay')
+    @patch('vector_app.tasks.run_agentic_generation.delay')
     def test_create_job_with_whitespace_message(self, mock_delay):
         """Whitespace-only message is accepted (server trims later)."""
         url = reverse('generate-agentic', args=[self.app.id])
@@ -638,7 +638,7 @@ class CeleryTaskEdgeCasesTestCase(TransactionTestCase):
     
     def test_task_with_missing_job(self):
         """Task should handle missing job gracefully."""
-        from relay_app.tasks import run_agentic_generation
+        from vector_app.tasks import run_agentic_generation
         
         # Try to run task with non-existent job
         result = run_agentic_generation('00000000-0000-0000-0000-000000000000')
@@ -646,11 +646,11 @@ class CeleryTaskEdgeCasesTestCase(TransactionTestCase):
         # Should return error result, not raise
         self.assertIsNone(result)
     
-    @patch('relay_app.services.agentic_service.get_agentic_service')
+    @patch('vector_app.services.agentic_service.get_agentic_service')
     def test_task_mid_generation_cancellation(self, mock_get_service):
         """Task should stop immediately when cancelled mid-generation."""
-        from relay_app.tasks import run_agentic_generation
-        from relay_app.services.handlers.base_handler import AgentEvent
+        from vector_app.tasks import run_agentic_generation
+        from vector_app.services.handlers.base_handler import AgentEvent
         
         events_yielded = []
         
@@ -685,11 +685,11 @@ class CeleryTaskEdgeCasesTestCase(TransactionTestCase):
         job.refresh_from_db()
         self.assertEqual(job.status, CodeGenerationJob.STATUS_CANCELLED)
     
-    @patch('relay_app.services.agentic_service.get_agentic_service')
+    @patch('vector_app.services.agentic_service.get_agentic_service')
     def test_task_stores_version_from_event(self, mock_get_service):
         """Task should create version and link it to job."""
-        from relay_app.tasks import run_agentic_generation
-        from relay_app.services.handlers.base_handler import AgentEvent
+        from vector_app.tasks import run_agentic_generation
+        from vector_app.services.handlers.base_handler import AgentEvent
         
         def mock_generate(*args, **kwargs):
             yield AgentEvent(type='agent_start', data={'goal': 'Test'})
@@ -719,7 +719,7 @@ class CeleryTaskEdgeCasesTestCase(TransactionTestCase):
 class SessionHandlingTestCase(BaseTestCase):
     """Test chat session handling in job creation."""
     
-    @patch('relay_app.tasks.run_agentic_generation.delay')
+    @patch('vector_app.tasks.run_agentic_generation.delay')
     def test_valid_session_id_accepted(self, mock_delay):
         """Valid session_id should be used for the job."""
         session = ChatSession.objects.create(
@@ -745,7 +745,7 @@ class SessionHandlingTestCase(BaseTestCase):
         job = CodeGenerationJob.objects.get(pk=response.json()['job_id'])
         self.assertEqual(job.session_id, session.id)
     
-    @patch('relay_app.tasks.run_agentic_generation.delay')
+    @patch('vector_app.tasks.run_agentic_generation.delay')
     def test_job_without_session_succeeds(self, mock_delay):
         """Job without session_id should still be created."""
         url = reverse('generate-agentic', args=[self.app.id])
