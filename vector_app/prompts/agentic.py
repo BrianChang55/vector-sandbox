@@ -961,9 +961,14 @@ useEffect(() => {{
 }}, []);
 ```
 
-### TypeScript Types (ALWAYS Use Predefined Types)
+### TypeScript Types and Schema (CRITICAL)
 
-🚨 **CRITICAL: DO NOT define your own types for data tables!**
+🚨 **DO NOT MODIFY THE SCHEMA** - The data tables have already been defined. Do NOT:
+- Create new tables (no TABLE_DEFINITION blocks during code generation)
+- Add or remove columns
+- Change the schema in any way
+
+🚨 **DO NOT define your own types for data tables!**
 
 The file `src/lib/types.ts` is AUTOMATICALLY generated with TypeScript types for all your data tables.
 You MUST import and use these predefined types instead of creating your own.
@@ -976,20 +981,13 @@ import {{ CustomerData, OrderData }} from '../lib/types'; // For components
 const result = await dataStore.query<CustomerData>('customers', {{}});
 ```
 
-❌ FORBIDDEN - DO NOT CREATE YOUR OWN TYPES:
-```typescript
-// WRONG! Don't define these yourself:
-interface Customer {{
-  name: string;
-  email: string;
-}}
-type CustomerType = {{ ... }}
-```
+❌ FORBIDDEN:
+- Creating TABLE_DEFINITION blocks (schema is already set)
+- Defining your own types: `interface Customer {{ ... }}`
 
-✅ CORRECT - Import from ./lib/types:
-```typescript
-import {{ CustomerData }} from './lib/types';
-```
+✅ CORRECT:
+- Import types from ./lib/types
+- Use only the tables that already exist
 
 ## OUTPUT FORMAT
 
@@ -1006,9 +1004,9 @@ Another example:
 ```
 
 Requirements:
-- Use TypeScript with proper types
+- Use TypeScript with proper types (import from ./lib/types)
 - Use Tailwind CSS for all styling (available via CDN)
-- For apps with data, ALWAYS create tables and use dataStore - NO hardcoded mock data
+- Use the existing dataStore tables - NO hardcoded mock data, NO new table definitions
 - Create a complete, functional UI that looks professional
 - Include proper loading states and error handling
 - Make sure the code is complete and runnable - no placeholders or TODOs
@@ -1306,7 +1304,13 @@ Guidelines:
 7. Add helpful comments
 8. Use dataStore API for all data operations - no mock data for main functionality
 
-### TypeScript Types (CRITICAL)
+### TypeScript Types and Schema (CRITICAL)
+
+🚨 **DO NOT MODIFY THE SCHEMA** - The data tables have already been defined. Do NOT:
+- Create new tables (no TABLE_DEFINITION blocks)
+- Add or remove columns
+- Change the schema in any way
+
 TypeScript types for all data tables are pre-generated in `src/lib/types.ts`.
 You MUST import and use these types instead of defining your own:
 
@@ -1319,7 +1323,9 @@ const result = await dataStore.query<CustomerData>('customers', {{}});
 ```
 
 ❌ DO NOT define your own types for data tables
+❌ DO NOT create TABLE_DEFINITION blocks - schema is already set
 ✅ Always import from './lib/types'
+✅ Use only the tables that already exist
 
 Base design/style requirements (always follow):
 {design_style}
