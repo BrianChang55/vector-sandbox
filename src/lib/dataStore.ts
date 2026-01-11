@@ -105,7 +105,7 @@ export interface BulkDeleteResult {
 // Get runtime config from window (injected by preview/runtime)
 declare global {
   interface Window {
-    __RELAY_CONFIG__?: {
+    __VECTOR_CONFIG__?: {
       appId: string;
       versionId?: string;
       apiBaseUrl: string;
@@ -115,9 +115,9 @@ declare global {
 }
 
 function getConfig() {
-  const config = window.__RELAY_CONFIG__;
+  const config = window.__VECTOR_CONFIG__;
   if (!config) {
-    throw new Error('Relay runtime config not found. Make sure the app is running in the Relay environment.');
+    throw new Error('Vector runtime config not found. Make sure the app is running in the Vector environment.');
   }
   return config;
 }

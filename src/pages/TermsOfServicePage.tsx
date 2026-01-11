@@ -14,7 +14,7 @@ export function TermsOfServicePage() {
 
   // Set page title
   useEffect(() => {
-    document.title = 'Terms of Service | Relay'
+    document.title = 'Terms of Service | Vector'
   }, [])
 
   useEffect(() => {
@@ -38,7 +38,7 @@ export function TermsOfServicePage() {
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
           <Link to="/" className="flex items-center gap-2.5">
             <Logo size="md" />
-            <span className="text-xl font-semibold text-gray-900">Relay</span>
+            <span className="text-xl font-semibold text-gray-900">Vector</span>
           </Link>
 
           <nav className="hidden md:flex items-center gap-8">
@@ -80,7 +80,7 @@ export function TermsOfServicePage() {
             <section className="mb-10">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">1. Acceptance of Terms</h2>
               <p className="text-gray-700 leading-relaxed mb-4">
-                By accessing or using Relay's services ("Services"), you agree to be bound by these Terms of Service ("Terms"). If you do not agree to these Terms, you may not access or use the Services.
+                By accessing or using Vector's services ("Services"), you agree to be bound by these Terms of Service ("Terms"). If you do not agree to these Terms, you may not access or use the Services.
               </p>
               <p className="text-gray-700 leading-relaxed">
                 We reserve the right to update these Terms at any time. Continued use of the Services after changes constitutes acceptance of the modified Terms.
@@ -90,7 +90,7 @@ export function TermsOfServicePage() {
             <section className="mb-10">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">2. Description of Services</h2>
               <p className="text-gray-700 leading-relaxed">
-                Relay is an AI-powered internal application generation platform that enables users to create internal applications through natural language conversations. The platform connects to your data sources, discovers resources, and generates interactive applications that respect your security policies. Our Services include web applications, APIs, and related tools and features.
+                Vector is an AI-powered internal application generation platform that enables users to create internal applications through natural language conversations. The platform connects to your data sources, discovers resources, and generates interactive applications that respect your security policies. Our Services include web applications, APIs, and related tools and features.
               </p>
             </section>
 
@@ -111,7 +111,7 @@ export function TermsOfServicePage() {
             <section className="mb-10">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">4. Organizations and Teams</h2>
               <p className="text-gray-700 leading-relaxed mb-4">
-                Relay allows you to create and manage organizations. As an organization owner or administrator:
+                Vector allows you to create and manage organizations. As an organization owner or administrator:
               </p>
               <ul className="list-disc pl-6 text-gray-700 space-y-2">
                 <li>You are responsible for managing team member access and permissions</li>
@@ -139,7 +139,7 @@ export function TermsOfServicePage() {
             <section className="mb-10">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">6. Data and Security</h2>
               <p className="text-gray-700 leading-relaxed mb-4">
-                When connecting your data sources to Relay:
+                When connecting your data sources to Vector:
               </p>
               <ul className="list-disc pl-6 text-gray-700 space-y-2">
                 <li>All connection credentials are encrypted at rest using industry-standard encryption</li>
@@ -162,7 +162,7 @@ export function TermsOfServicePage() {
                 <li>Attempt to gain unauthorized access to our systems</li>
                 <li>Resell or redistribute Services without authorization</li>
                 <li>Interfere with or disrupt the Services or servers</li>
-                <li>Use the Services to compete directly with Relay</li>
+                <li>Use the Services to compete directly with Vector</li>
               </ul>
             </section>
 
@@ -175,7 +175,7 @@ export function TermsOfServicePage() {
                 <strong>Generated Applications:</strong> Subject to these Terms and your subscription plan, you own the applications generated through our Services. You may use and deploy generated applications for your internal business purposes.
               </p>
               <p className="text-gray-700 leading-relaxed">
-                <strong>Our Content:</strong> The Services, including software, design, and trademarks, are owned by Relay and protected by intellectual property laws.
+                <strong>Our Content:</strong> The Services, including software, design, and trademarks, are owned by Vector and protected by intellectual property laws.
               </p>
             </section>
 
@@ -195,7 +195,7 @@ export function TermsOfServicePage() {
             <section className="mb-10">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">10. Limitation of Liability</h2>
               <p className="text-gray-700 leading-relaxed">
-                TO THE MAXIMUM EXTENT PERMITTED BY LAW, RELAY SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, OR ANY LOSS OF PROFITS OR REVENUES, WHETHER INCURRED DIRECTLY OR INDIRECTLY. OUR TOTAL LIABILITY SHALL NOT EXCEED THE AMOUNT PAID BY YOU FOR THE SERVICES IN THE TWELVE MONTHS PRECEDING THE CLAIM.
+                TO THE MAXIMUM EXTENT PERMITTED BY LAW, VECTOR SHALL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, OR ANY LOSS OF PROFITS OR REVENUES, WHETHER INCURRED DIRECTLY OR INDIRECTLY. OUR TOTAL LIABILITY SHALL NOT EXCEED THE AMOUNT PAID BY YOU FOR THE SERVICES IN THE TWELVE MONTHS PRECEDING THE CLAIM.
               </p>
             </section>
 
@@ -217,8 +217,8 @@ export function TermsOfServicePage() {
               <h2 className="text-xl font-semibold text-gray-900 mb-4">13. Contact Us</h2>
               <p className="text-gray-700 leading-relaxed">
                 If you have any questions about these Terms, please contact us at{' '}
-                <a href="mailto:legal@relay.app" className="text-gray-900 font-medium hover:underline">
-                  legal@relay.app
+                <a href="mailto:legal@govector.ai" className="text-gray-900 font-medium hover:underline">
+                  legal@govector.ai
                 </a>
               </p>
             </section>
@@ -234,7 +234,7 @@ export function TermsOfServicePage() {
             <div className="col-span-2 md:col-span-1">
               <Link to="/" className="flex items-center gap-2.5 mb-4">
                 <Logo size="md" />
-                <span className="text-lg font-semibold text-gray-900">Relay</span>
+                <span className="text-lg font-semibold text-gray-900">Vector</span>
               </Link>
               <p className="text-sm text-gray-600 max-w-xs">
                 AI-powered internal apps platform. Build faster, ship sooner.
@@ -263,12 +263,12 @@ export function TermsOfServicePage() {
               <h4 className="text-sm font-semibold text-gray-900 mb-4">Company</h4>
               <ul className="space-y-3">
                 <li>
-                  <a href="mailto:hello@relay.app" className="text-sm text-gray-600 hover:text-gray-900 transition-colors">
+                  <a href="mailto:hello@govector.ai" className="text-sm text-gray-600 hover:text-gray-900 transition-colors">
                     Contact
                   </a>
                 </li>
                 <li>
-                  <a href="mailto:support@relay.app" className="text-sm text-gray-600 hover:text-gray-900 transition-colors">
+                  <a href="mailto:support@govector.ai" className="text-sm text-gray-600 hover:text-gray-900 transition-colors">
                     Support
                   </a>
                 </li>
@@ -295,7 +295,7 @@ export function TermsOfServicePage() {
 
           <div className="mt-12 pt-8 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-4">
             <p className="text-sm text-gray-500">
-              © {new Date().getFullYear()} Relay. All rights reserved.
+              © {new Date().getFullYear()} Vector. All rights reserved.
             </p>
           </div>
         </div>

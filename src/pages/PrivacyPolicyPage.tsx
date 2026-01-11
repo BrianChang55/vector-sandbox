@@ -14,7 +14,7 @@ export function PrivacyPolicyPage() {
 
   // Set page title
   useEffect(() => {
-    document.title = 'Privacy Policy | Relay'
+    document.title = 'Privacy Policy | Vector'
   }, [])
 
   useEffect(() => {
@@ -38,7 +38,7 @@ export function PrivacyPolicyPage() {
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
           <Link to="/" className="flex items-center gap-2.5">
             <Logo size="md" />
-            <span className="text-xl font-semibold text-gray-900">Relay</span>
+            <span className="text-xl font-semibold text-gray-900">Vector</span>
           </Link>
 
           <nav className="hidden md:flex items-center gap-8">
@@ -80,10 +80,10 @@ export function PrivacyPolicyPage() {
             <section className="mb-10">
               <h2 className="text-xl font-semibold text-gray-900 mb-4">1. Introduction</h2>
               <p className="text-gray-700 leading-relaxed mb-4">
-                Relay ("we," "our," or "us") values your privacy. This Privacy Policy details important information regarding the use and disclosure of your information collected on relay.app. This Privacy Policy is incorporated into and is subject to Relay's Terms of Service.
+                Vector ("we," "our," or "us") values your privacy. This Privacy Policy details important information regarding the use and disclosure of your information collected on govector.ai. This Privacy Policy is incorporated into and is subject to Vector's Terms of Service.
               </p>
               <p className="text-gray-700 leading-relaxed">
-                Your use of relay.app and any personal information you provide on or through relay.app remains subject to this Privacy Policy and Relay's Terms of Service.
+                Your use of govector.ai and any personal information you provide on or through govector.ai remains subject to this Privacy Policy and Vector's Terms of Service.
               </p>
             </section>
 
@@ -191,8 +191,8 @@ export function PrivacyPolicyPage() {
               <h2 className="text-xl font-semibold text-gray-900 mb-4">10. Contact Us</h2>
               <p className="text-gray-700 leading-relaxed">
                 If you have any questions about this Privacy Policy, please contact us at{' '}
-                <a href="mailto:privacy@relay.app" className="text-gray-900 font-medium hover:underline">
-                  privacy@relay.app
+                <a href="mailto:privacy@govector.ai" className="text-gray-900 font-medium hover:underline">
+                  privacy@govector.ai
                 </a>
               </p>
             </section>
@@ -208,7 +208,7 @@ export function PrivacyPolicyPage() {
             <div className="col-span-2 md:col-span-1">
               <Link to="/" className="flex items-center gap-2.5 mb-4">
                 <Logo size="md" />
-                <span className="text-lg font-semibold text-gray-900">Relay</span>
+                <span className="text-lg font-semibold text-gray-900">Vector</span>
               </Link>
               <p className="text-sm text-gray-600 max-w-xs">
                 AI-powered internal apps platform. Build faster, ship sooner.
@@ -237,12 +237,12 @@ export function PrivacyPolicyPage() {
               <h4 className="text-sm font-semibold text-gray-900 mb-4">Company</h4>
               <ul className="space-y-3">
                 <li>
-                  <a href="mailto:hello@relay.app" className="text-sm text-gray-600 hover:text-gray-900 transition-colors">
+                  <a href="mailto:hello@govector.ai" className="text-sm text-gray-600 hover:text-gray-900 transition-colors">
                     Contact
                   </a>
                 </li>
                 <li>
-                  <a href="mailto:support@relay.app" className="text-sm text-gray-600 hover:text-gray-900 transition-colors">
+                  <a href="mailto:support@govector.ai" className="text-sm text-gray-600 hover:text-gray-900 transition-colors">
                     Support
                   </a>
                 </li>
@@ -269,7 +269,7 @@ export function PrivacyPolicyPage() {
 
           <div className="mt-12 pt-8 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-4">
             <p className="text-sm text-gray-500">
-              © {new Date().getFullYear()} Relay. All rights reserved.
+              © {new Date().getFullYear()} Vector. All rights reserved.
             </p>
           </div>
         </div>

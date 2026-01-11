@@ -20,11 +20,11 @@ export function Logo({ size = 'md', showText = false, className = '' }: LogoProp
     <div className={`flex items-center gap-2 ${className}`}>
       <img 
         src="/logo.png" 
-        alt="Relay" 
+        alt="Vector" 
         className={sizeMap[size]}
       />
       {showText && (
-        <span className="font-semibold text-gray-900">Relay</span>
+        <span className="font-semibold text-gray-900">Vector</span>
       )}
     </div>
   )

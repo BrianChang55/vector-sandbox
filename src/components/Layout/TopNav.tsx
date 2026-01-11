@@ -1,6 +1,6 @@
 /**
  * Top Navigation Bar
- * Clean light enterprise theme with Relay branding
+ * Clean light enterprise theme with Vector branding
  */
 import { Link } from 'react-router-dom'
 import { useLogout } from '../../hooks/useAuth'

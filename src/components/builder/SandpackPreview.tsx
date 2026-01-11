@@ -136,7 +136,7 @@ export default function App() {
   '/lib/runtime.ts': `// Runtime API Client
 declare global {
   interface Window {
-    __RELAY_CONFIG__?: {
+    __VECTOR_CONFIG__?: {
       appId: string;
       versionId: string;
       apiBaseUrl: string;
@@ -157,9 +157,9 @@ export interface QuerySpec {
 const FALLBACK_API_URL = 'http://localhost:8001/api/v1';
 
 function getConfig() {
-  const config = window.__RELAY_CONFIG__;
+  const config = window.__VECTOR_CONFIG__;
   if (!config?.apiBaseUrl) {
-    console.warn('[runtime] RELAY_CONFIG not found - using fallback:', FALLBACK_API_URL);
+    console.warn('[runtime] VECTOR_CONFIG not found - using fallback:', FALLBACK_API_URL);
   }
   return {
     appId: config?.appId || '',
@@ -241,7 +241,7 @@ export function useQuery<T = any>(resourceId: string, querySpec?: QuerySpec, dep
 
 declare global {
   interface Window {
-    __RELAY_CONFIG__?: {
+    __VECTOR_CONFIG__?: {
       appId: string;
       versionId?: string;
       apiBaseUrl: string;
@@ -254,9 +254,9 @@ declare global {
 const FALLBACK_API_URL = 'http://localhost:8001/api/v1';
 
 function getConfig() {
-  const config = window.__RELAY_CONFIG__;
+  const config = window.__VECTOR_CONFIG__;
   if (!config?.apiBaseUrl) {
-    console.warn('[dataStore] RELAY_CONFIG not found - using fallback:', FALLBACK_API_URL);
+    console.warn('[dataStore] VECTOR_CONFIG not found - using fallback:', FALLBACK_API_URL);
   }
   return {
     appId: config?.appId || '',
@@ -809,7 +809,7 @@ export function useQuery<T = any>(resourceId: string, querySpec?: QuerySpec, dep
   <title>${appName} - Preview</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
-    window.__RELAY_CONFIG__ = {
+    window.__VECTOR_CONFIG__ = {
       appId: '${appId}',
       versionId: '${versionId}',
       apiBaseUrl: '${RUNTIME_API_BASE_URL}',

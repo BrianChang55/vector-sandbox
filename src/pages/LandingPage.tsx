@@ -287,7 +287,7 @@ export function LandingPage() {
 
   // Set page title
   useEffect(() => {
-    document.title = 'Relay | Build Internal Apps in Seconds'
+    document.title = 'Vector | Build Internal Apps in Seconds'
   }, [])
 
   // Track scroll position for header background
@@ -442,7 +442,7 @@ export function LandingPage() {
               <Link to="/" className="flex items-center gap-2.5 group">
                 <Logo size="md" />
                 <span className="text-xl font-semibold text-gray-900 group-hover:text-gray-700 transition-colors">
-                  Relay
+                  Vector
                 </span>
               </Link>
 
@@ -632,7 +632,7 @@ export function LandingPage() {
         </div>
       </div>
 
-      {/* Built with Relay Section */}
+      {/* Built with Vector Section */}
       <section id="showcase" className="w-full bg-white py-24 px-6 lg:px-10">
         <div className="max-w-7xl mx-auto">
           {/* Section Header */}
@@ -644,7 +644,7 @@ export function LandingPage() {
             transition={{ duration: 0.5 }}
           >
             <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 mb-2">
-              Built with Relay
+              Built with Vector
             </h2>
             <p className="text-gray-600">
               Real apps made by real teams
@@ -945,7 +945,7 @@ export function LandingPage() {
             transition={{ duration: 0.5 }}
           >
             <h2 className="text-2xl sm:text-3xl font-semibold text-gray-900 mb-3">
-              Why teams choose Relay
+              Why teams choose Vector
             </h2>
             <p className="text-gray-600 max-w-2xl mx-auto">
               The fastest way to build internal tools. AI-powered and secure by default.
@@ -1057,7 +1057,7 @@ export function LandingPage() {
             </motion.div>
             <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
               <button
-                onClick={() => window.location.href = 'mailto:hello@relay.app'}
+                onClick={() => window.location.href = 'mailto:demo@govector.ai'}
                 className="h-11 px-8 rounded-md text-sm font-medium border border-gray-600 bg-transparent text-white hover:bg-white/10 transition-colors w-full sm:w-auto"
               >
                 Book a Demo
@@ -1075,7 +1075,7 @@ export function LandingPage() {
             <div className="col-span-2 md:col-span-1">
               <Link to="/" className="flex items-center gap-2.5 mb-4 group">
                 <Logo size="md" />
-                <span className="text-lg font-semibold text-gray-900 group-hover:text-gray-700 transition-colors">Relay</span>
+                <span className="text-lg font-semibold text-gray-900 group-hover:text-gray-700 transition-colors">Vector</span>
               </Link>
               <p className="text-sm text-gray-600 max-w-xs leading-relaxed">
                 AI-powered internal apps. Build faster, ship sooner.
@@ -1107,7 +1107,7 @@ export function LandingPage() {
                   </a>
                 </li>
                 <li>
-                  <a href="mailto:support@relay.app" className="text-sm text-gray-600 hover:text-gray-900 transition-colors">
+                  <a href="mailto:support@govector.ai" className="text-sm text-gray-600 hover:text-gray-900 transition-colors">
                     Support
                   </a>
                 </li>
@@ -1137,7 +1137,7 @@ export function LandingPage() {
               <ul className="space-y-3">
                 <li>
                   <a 
-                    href="https://twitter.com/relay" 
+                    href="https://twitter.com/vector" 
                     target="_blank" 
                     rel="noopener noreferrer"
                     className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
@@ -1147,7 +1147,7 @@ export function LandingPage() {
                 </li>
                 <li>
                   <a 
-                    href="https://github.com/relay" 
+                    href="https://github.com/vector" 
                     target="_blank" 
                     rel="noopener noreferrer"
                     className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
@@ -1157,7 +1157,7 @@ export function LandingPage() {
                 </li>
                 <li>
                   <a 
-                    href="mailto:hello@relay.app"
+                    href="mailto:help@govector.ai"
                     className="text-sm text-gray-600 hover:text-gray-900 transition-colors"
                   >
                     Contact
@@ -1169,11 +1169,11 @@ export function LandingPage() {
 
           <div className="mt-14 pt-8 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-4">
             <p className="text-sm text-gray-500">
-              © {new Date().getFullYear()} Relay. All rights reserved.
+              © {new Date().getFullYear()} Vector. All rights reserved.
             </p>
             <div className="flex items-center gap-4">
               <a 
-                href="https://twitter.com/relay" 
+                href="https://twitter.com/vector" 
                 target="_blank" 
                 rel="noopener noreferrer"
                 className="text-gray-400 hover:text-gray-600 transition-colors"
@@ -1183,7 +1183,7 @@ export function LandingPage() {
                 </svg>
               </a>
               <a 
-                href="https://github.com/relay" 
+                href="https://github.com/vector" 
                 target="_blank" 
                 rel="noopener noreferrer"
                 className="text-gray-400 hover:text-gray-600 transition-colors"
@@ -1193,7 +1193,7 @@ export function LandingPage() {
                 </svg>
               </a>
               <a 
-                href="https://linkedin.com/company/relay" 
+                href="https://linkedin.com/company/vector" 
                 target="_blank" 
                 rel="noopener noreferrer"
                 className="text-gray-400 hover:text-gray-600 transition-colors"

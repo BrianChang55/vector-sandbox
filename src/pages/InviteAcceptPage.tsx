@@ -159,10 +159,10 @@ export function InviteAcceptPage() {
           <div className="flex items-center gap-2">
             <img 
               src="/logo.png" 
-              alt="Relay" 
+              alt="Vector" 
               className="h-8 w-8 rounded"
             />
-            <span className="text-lg font-semibold text-gray-900">Relay</span>
+            <span className="text-lg font-semibold text-gray-900">Vector</span>
           </div>
         </div>
 
