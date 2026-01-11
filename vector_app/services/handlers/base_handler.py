@@ -1515,7 +1515,358 @@ export const dataStore: DataStore = {} as DataStore;
                     shutil.rmtree(temp_dir)
                 except Exception:
                     pass
-    
+
+    def _build_table_schemas(self, app: 'InternalApp') -> Dict[str, Dict[str, Any]]:
+        """Build a mapping of table slugs to their schema information."""
+        from vector_app.models import AppDataTable
+
+        tables = AppDataTable.objects.filter(internal_app=app)
+        table_schemas = {}
+
+        for table in tables:
+            schema = table.schema_json or {}
+            columns = schema.get('columns', [])
+            column_names = {c.get('name') for c in columns if c.get('name')}
+
+            # Build required fields list (not nullable, no default, not auto-generated)
+            required_fields = set()
+            for col in columns:
+                col_name = col.get('name')
+                if not col_name:
+                    continue
+
+                # Skip if auto-generated (id, created_at, updated_at)
+                if col.get('auto_generate') or col.get('auto_now_add') or col.get('auto_now'):
+                    continue
+
+                # Required if: not nullable AND no default
+                is_nullable = col.get('nullable', True)
+                has_default = 'default' in col
+
+                if not is_nullable and not has_default:
+                    required_fields.add(col_name)
+
+            table_schemas[table.slug] = {
+                'name': table.name,
+                'columns': column_names,
+                'required_fields': required_fields,
+            }
+
+        return table_schemas
+
+    def _validate_table_references(
+        self,
+        files: List[FileChange],
+        table_schemas: Dict[str, Dict[str, Any]]
+    ) -> List[str]:
+        """Validate that all dataStore operations reference existing tables."""
+        import re
+
+        errors = []
+        pattern = r'dataStore\.(query|insert|update|delete|updateRow|deleteRow|bulkInsert|bulkDelete)\s*\(\s*[\'"]([^\'\"]+)[\'"]'
+
+        for file in files:
+            if file.language not in ('tsx', 'ts'):
+                continue
+
+            for match in re.finditer(pattern, file.content):
+                operation = match.group(1)
+                table_slug = match.group(2)
+
+                if table_slug not in table_schemas:
+                    error_msg = (
+                        f"{file.path}: {operation.upper()} references non-existent table '{table_slug}'. "
+                        f"Available tables: {', '.join(sorted(table_schemas.keys()))}. "
+                        f"Did you forget to create this table in a TABLE_DEFINITION block?"
+                    )
+                    errors.append(error_msg)
+                    logger.error(f"🚨 [TABLE VALIDATION] {error_msg}")
+
+        return errors
+
+    def _validate_field_names_in_operations(
+        self,
+        files: List[FileChange],
+        table_schemas: Dict[str, Dict[str, Any]]
+    ) -> List[str]:
+        """Validate field names in insert/update/filter/orderBy operations."""
+        import re
+
+        errors = []
+        patterns = {
+            'insert': r'dataStore\.(?:insert|bulkInsert)\s*\(\s*[\'"]([^\'\"]+)[\'"]\s*,\s*(?:\[)?\s*\{([^}]+)\}',
+            'update': r'dataStore\.update\s*\(\s*[\'"]([^\'\"]+)[\'"]\s*,\s*[^,]+,\s*\{([^}]+)\}',
+            'filter': r'field:\s*[\'"]([^\'\"]+)[\'"]',
+            'orderBy': r'field:\s*[\'"]([^\'\"]+)[\'"]',
+        }
+
+        for file in files:
+            if file.language not in ('tsx', 'ts'):
+                continue
+
+            for op_type, pattern in patterns.items():
+                if op_type in ('insert', 'update'):
+                    errors.extend(self._validate_insert_update_fields(
+                        file, op_type, pattern, table_schemas
+                    ))
+                elif op_type in ('filter', 'orderBy'):
+                    errors.extend(self._validate_filter_orderby_fields(
+                        file, op_type, pattern, table_schemas
+                    ))
+
+        return errors
+
+    def _validate_insert_update_fields(
+        self,
+        file: FileChange,
+        op_type: str,
+        pattern: str,
+        table_schemas: Dict[str, Dict[str, Any]]
+    ) -> List[str]:
+        """Validate fields in insert/update operations."""
+        import re
+
+        errors = []
+
+        for match in re.finditer(pattern, file.content, re.DOTALL):
+            table_slug = match.group(1)
+            fields_str = match.group(2)
+
+            if table_slug not in table_schemas:
+                continue
+
+            valid_columns = table_schemas[table_slug]['columns']
+            required_fields = table_schemas[table_slug]['required_fields']
+
+            # Extract field names from the object
+            field_matches = re.findall(r'(\w+):\s*[^,}]+', fields_str)
+            provided_fields = set()
+
+            for field_name in field_matches:
+                # Skip common non-field keys
+                if field_name in ('row', 'data', 'id', 'const', 'let', 'var'):
+                    continue
+
+                provided_fields.add(field_name)
+
+                if field_name not in valid_columns:
+                    error_msg = (
+                        f"{file.path}: {op_type.upper()} uses unknown field '{field_name}' "
+                        f"for table '{table_slug}'. Valid fields: {', '.join(sorted(valid_columns))}"
+                    )
+                    errors.append(error_msg)
+                    logger.error(f"🚨 [FIELD VALIDATION] {error_msg}")
+
+            # Check for missing required fields (only for INSERT operations)
+            if op_type == 'insert':
+                missing_required = required_fields - provided_fields
+                if missing_required:
+                    error_msg = (
+                        f"{file.path}: INSERT is missing required field(s) for table '{table_slug}': "
+                        f"{', '.join(sorted(missing_required))}. These fields are required (not nullable, no default)."
+                    )
+                    errors.append(error_msg)
+                    logger.error(f"🚨 [FIELD VALIDATION] {error_msg}")
+
+        return errors
+
+    def _validate_filter_orderby_fields(
+        self,
+        file: FileChange,
+        op_type: str,
+        pattern: str,
+        table_schemas: Dict[str, Dict[str, Any]]
+    ) -> List[str]:
+        """Validate fields in filter/orderBy operations."""
+        import re
+
+        errors = []
+
+        for match in re.finditer(pattern, file.content):
+            field_name = match.group(1)
+
+            # Try to determine which table this refers to (look back for table slug)
+            start_pos = max(0, match.start() - 200)
+            context_str = file.content[start_pos:match.start()]
+            table_match = re.search(r'dataStore\.query\s*\(\s*[\'"]([^\'\"]+)[\'"]', context_str)
+
+            if table_match:
+                table_slug = table_match.group(1)
+                if table_slug in table_schemas:
+                    valid_columns = table_schemas[table_slug]['columns']
+                    if field_name not in valid_columns:
+                        error_msg = (
+                            f"{file.path}: {op_type} references unknown field '{field_name}' "
+                            f"for table '{table_slug}'. Valid fields: {', '.join(sorted(valid_columns))}"
+                        )
+                        errors.append(error_msg)
+                        logger.error(f"🚨 [FIELD VALIDATION] {error_msg}")
+
+        return errors
+
+    def _validate_row_id_patterns(self, files: List[FileChange]) -> List[str]:
+        """Validate correct usage of row.id vs row.data.id."""
+        import re
+
+        errors = []
+
+        # Check for row.data.id usage in update/delete (common mistake)
+        row_data_id_pattern = r'dataStore\.(update|delete)\s*\([^,]+,\s*row\.data\.id'
+        for file in files:
+            if file.language not in ('tsx', 'ts'):
+                continue
+
+            for match in re.finditer(row_data_id_pattern, file.content):
+                operation = match.group(1)
+                error_msg = (
+                    f"{file.path}: {operation.upper()} uses 'row.data.id' which is WRONG! "
+                    f"Must use 'row.id' instead. This causes 'Row not found' 404 errors at runtime. "
+                    f"❌ WRONG: dataStore.{operation}('table', row.data.id, ...) "
+                    f"✅ CORRECT: dataStore.{operation}('table', row.id, ...)"
+                )
+                errors.append(error_msg)
+                logger.error(f"🚨 [ROW ID VALIDATION] {error_msg}")
+
+        # Check for id overwriting pattern (spreading row.data after setting id)
+        id_overwrite_pattern = r'\{\s*id:\s*row\.id\s*,\s*\.\.\.row\.data\s*\}'
+        for file in files:
+            if file.language not in ('tsx', 'ts'):
+                continue
+
+            for match in re.finditer(id_overwrite_pattern, file.content, re.MULTILINE | re.DOTALL):
+                error_msg = (
+                    f"{file.path}: Dangerous pattern - '{{ id: row.id, ...row.data }}' "
+                    f"will be overwritten if row.data contains an 'id' field! "
+                    f"❌ WRONG: {{ id: row.id, ...row.data }} (data.id overwrites row.id) "
+                    f"✅ CORRECT: {{ ...row.data, id: row.id }} (row.id overwrites data.id) "
+                    f"This causes 'Row not found' errors when updating/deleting."
+                )
+                errors.append(error_msg)
+                logger.error(f"🚨 [ID OVERWRITE] {error_msg}")
+
+        return errors
+
+    def _validate_datastore_field_names(
+        self,
+        files: List[FileChange],
+        app: Optional['InternalApp']
+    ) -> Dict[str, Any]:
+        """
+        Validate that generated code uses exact field names from schemas.
+
+        Returns:
+            Dict with 'passed' (bool), 'errors' (list), 'warnings' (list)
+        """
+        if not app:
+            return {"passed": True, "errors": [], "warnings": []}
+
+        # Build table schemas
+        table_schemas = self._build_table_schemas(app)
+        if not table_schemas:
+            return {"passed": True, "errors": [], "warnings": []}
+
+        logger.info(f"🔍 [FIELD VALIDATION] Validating {len(files)} files against {len(table_schemas)} table schemas")
+
+        # Collect all validation errors
+        errors = []
+        warnings = []
+
+        # Validate table references exist
+        errors.extend(self._validate_table_references(files, table_schemas))
+
+        # Validate field names in operations
+        errors.extend(self._validate_field_names_in_operations(files, table_schemas))
+
+        # Validate row.id patterns
+        errors.extend(self._validate_row_id_patterns(files))
+
+        # Report results
+        passed = len(errors) == 0
+
+        if errors:
+            logger.error(f"🚨 [FIELD VALIDATION] FAILED: {len(errors)} field name errors found")
+        elif warnings:
+            logger.warning(f"⚠️ [FIELD VALIDATION] PASSED with {len(warnings)} warnings")
+        else:
+            logger.info(f"✅ [FIELD VALIDATION] PASSED: All field names match schema")
+
+        return {
+            "passed": passed,
+            "errors": errors,
+            "warnings": warnings,
+        }
+
+    def _build_field_fix_prompt(
+        self,
+        original_content: str,
+        errors: List[str],
+        data_store_context: Optional[str] = None
+    ) -> str:
+        """Build a prompt to ask Claude to fix field name errors."""
+        error_list = "\n".join(f"- {error}" for error in errors)
+
+        # Check if any errors are about missing tables
+        has_missing_tables = any('non-existent table' in error or 'not found' in error.lower() for error in errors)
+
+        # Include data_store_context so Claude sees the current schema
+        schema_section = ""
+        if data_store_context:
+            schema_section = f"\n\n**CURRENT DATABASE SCHEMA:**\n{data_store_context}\n"
+
+        missing_table_instructions = ""
+        if has_missing_tables:
+            missing_table_instructions = """
+
+**🚨 MISSING TABLES DETECTED:**
+Some errors indicate you're trying to use tables that don't exist yet. To fix this:
+
+1. **CREATE THE MISSING TABLES FIRST** using TABLE_DEFINITION blocks:
+   ```table:table-slug
+   name: Table Name
+   description: What this table stores
+   columns:
+     - name: field_name, type: string, nullable: false
+     - name: another_field, type: integer, default: 0
+   ```
+
+2. **DO NOT define reserved fields** (id, created_at, updated_at) - these are auto-generated
+3. **THEN generate the code** that uses these tables
+
+**IMPORTANT:** If you need to create tables, output the TABLE_DEFINITION blocks FIRST, then the code blocks.
+"""
+
+        return f"""Your previous code generation had field name validation errors. You used incorrect field names that don't match the database schema.
+
+**ERRORS FOUND:**
+{error_list}
+{schema_section}
+{missing_table_instructions}
+**🚨 CRITICAL RULES TO FIX THESE ERRORS:**
+
+1. **EACH TABLE HAS ITS OWN FIELDS** - You CANNOT use fields from one table when querying another!
+   - Example: `sprint_number` belongs to the `sprints` table, NOT the `projects` table
+   - You MUST check the schema above to see which fields belong to which table
+
+2. **USE EXACT FIELD NAMES** - Do NOT rename or transform field names
+   - If schema defines `title`, use `title` (not `taskTitle`, `task_title`, or `titleText`)
+   - If schema defines `total_story_points`, use `total_story_points` (not `totalStoryPoints`)
+
+3. **CHECK WHICH TABLE YOU'RE QUERYING** - Before using a field, verify it exists in THAT specific table
+   - When calling `dataStore.query('projects', ...)`, you can ONLY use fields from the `projects` table
+   - Look at the schema above - each table lists its available fields
+
+**YOUR TASK:**
+Please regenerate the ENTIRE code fixing ALL field name errors. Pay special attention to:
+- Creating any missing tables FIRST (if errors mention "non-existent table") using TABLE_DEFINITION blocks
+- Which table you're querying (the first parameter to dataStore.query/insert/update)
+- Which fields are available in THAT specific table (check the schema above)
+- Using exact field names as defined in the schema
+
+**PREVIOUS CODE (WITH ERRORS):**
+{original_content}
+
+Generate the complete corrected code now."""
+
     def _parse_tsc_errors(self, output: str, temp_dir: str) -> List[Dict[str, Any]]:
         """Parse TypeScript compiler output."""
         import os
