@@ -18,46 +18,28 @@ import type {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type EventData = Record<string, any>
 
-function lcsLength(a: string[], b: string[]): number {
-  const n = b.length
-  const dp = new Array(n + 1).fill(0)
-
-  for (let i = 1; i <= a.length; i++) {
-    let prev = 0
-    for (let j = 1; j <= n; j++) {
-      const temp = dp[j]
-      dp[j] = a[i - 1] === b[j - 1] ? prev + 1 : Math.max(dp[j], dp[j - 1])
-      prev = temp
-    }
-  }
-
-  return dp[n]
-}
-
-function calculateLineDelta(prevContent?: string, nextContent?: string) {
-  const toLines = (value?: string) =>
-    value === undefined || value === '' ? [] : value.split('\n')
-
-  const prevLines = toLines(prevContent)
-  const nextLines = toLines(nextContent)
-  const common = lcsLength(prevLines, nextLines)
-
-  return {
-    addedLines: Math.max(0, nextLines.length - common),
-    removedLines: Math.max(0, prevLines.length - common),
-  }
-}
-
 export function upsertFileChange(
   existing: FileChange[],
-  change: FileChange
+  change: FileChange & { 
+    lines_added?: number
+    lines_removed?: number
+    hunks?: string[]
+    previous_content?: string
+  }
 ): FileChange[] {
   const index = existing.findIndex((f) => f.path === change.path)
   const previous = index >= 0 ? existing[index] : undefined
-  const { addedLines, removedLines } = calculateLineDelta(
-    previous?.content,
-    change.content
-  )
+  
+  // Use line counts from backend FileDiff (snake_case) or existing camelCase properties
+  const addedLines = change.lines_added ?? change.addedLines ?? 0
+  const removedLines = change.lines_removed ?? change.removedLines ?? 0
+
+  // Use previous_content from backend (snake_case) if provided
+  // Otherwise fall back to existing logic for multiple updates
+  const hasPreviousContent = !!previous?.content
+  const contentChanged = previous?.content !== change.content
+  const previousContent = change.previous_content 
+    ?? (hasPreviousContent && contentChanged ? previous.content : previous?.previousContent)
 
   const merged: FileChange = {
     ...previous,
@@ -65,6 +47,7 @@ export function upsertFileChange(
     action: previous ? 'modify' : change.action || 'create',
     addedLines,
     removedLines,
+    previousContent, // Store previous content for diff comparison
   }
 
   if (index >= 0) {
@@ -653,9 +636,10 @@ export function agentStateReducer(
     }
 
     case 'file_generated': {
+      const updatedFiles = upsertFileChange(state.generatedFiles, data.file)
       return {
         ...state,
-        generatedFiles: upsertFileChange(state.generatedFiles, data.file),
+        generatedFiles: updatedFiles,
       }
     }
 
