@@ -4,6 +4,8 @@ Error Fix Service
 LLM-based service for automatically fixing TypeScript compilation errors.
 Yields streaming events for Live Activity progress visibility.
 
+Uses unified diffs for minimal, surgical fixes (matching edit_handler approach).
+
 Key constraints:
 - Maximum 2 fix attempts
 - Agent must NOT change core functionality
@@ -28,6 +30,10 @@ from vector_app.services.types import (
     FileChange,
     CompilationError,
 )
+from vector_app.services.handlers.diff_utils import (
+    parse_diffs,
+    apply_diff,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +44,9 @@ class ErrorFixService:
     
     Uses an LLM with carefully constrained prompts to fix errors without
     changing core functionality. Streams progress events for Live Activity.
+    
+    Now uses unified diffs for minimal changes, with fallback to full-file
+    parsing for backwards compatibility.
     """
     
     OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -70,6 +79,9 @@ class ErrorFixService:
         
         Yields Live Activity events for progress visibility.
         Returns list of fixed FileChange objects.
+        
+        Uses unified diffs for minimal changes, with fallback to full-file
+        parsing if no diffs are found.
         
         Args:
             files: Current list of generated files
@@ -159,8 +171,13 @@ class ErrorFixService:
                             except json.JSONDecodeError:
                                 continue
                     
-                    # Parse fixed files from response
-                    fixed_files = self._parse_fixed_files(full_content, files)
+                    # Try diff-based parsing first, fallback to full-file parsing
+                    fixed_files = self._apply_diff_fixes(full_content, files)
+                    
+                    if not fixed_files:
+                        # Fallback to full-file parsing for backwards compatibility
+                        logger.warning("No diffs found in LLM response, falling back to full-file parsing")
+                        fixed_files = self._parse_fixed_files(full_content, files)
                     
                     # Emit events for each fixed file
                     for fixed_file in fixed_files:
@@ -215,6 +232,7 @@ class ErrorFixService:
         Fix bundler/runtime errors that TypeScript didn't catch.
         
         Similar to fix_errors but uses bundler-specific prompts.
+        Uses unified diffs for minimal changes, with fallback to full-file parsing.
         """
         if not bundler_errors:
             return files
@@ -259,6 +277,8 @@ class ErrorFixService:
                     response.raise_for_status()
                     
                     full_content = ""
+                    chunk_count = 0
+                    progress_emitted = False
                     
                     for line in response.iter_lines():
                         if not line:
@@ -276,11 +296,26 @@ class ErrorFixService:
                                 
                                 if content:
                                     full_content += content
+                                    chunk_count += 1
                                     
+                                    # Emit progress only once after receiving initial content
+                                    if not progress_emitted and chunk_count >= 10:
+                                        progress_emitted = True
+                                        yield AgentEvent("fix_progress", {
+                                            "attempt": attempt,
+                                            "message": "Generating fixes...",
+                                        })
+                                        
                             except json.JSONDecodeError:
                                 continue
                     
-                    fixed_files = self._parse_fixed_files(full_content, files)
+                    # Try diff-based parsing first, fallback to full-file parsing
+                    fixed_files = self._apply_diff_fixes(full_content, files)
+                    
+                    if not fixed_files:
+                        # Fallback to full-file parsing for backwards compatibility
+                        logger.warning("No diffs found in bundler fix response, falling back to full-file parsing")
+                        fixed_files = self._parse_fixed_files(full_content, files)
                     
                     for fixed_file in fixed_files:
                         yield AgentEvent("fix_file_updated", {
@@ -297,6 +332,17 @@ class ErrorFixService:
                             }
                         })
                     
+                    if fixed_files:
+                        yield AgentEvent("thinking", {
+                            "content": f"Fixed {len(fixed_files)} file(s)",
+                            "type": "decision",
+                        })
+                    else:
+                        yield AgentEvent("thinking", {
+                            "content": "No fixes applied - errors may require manual review",
+                            "type": "reflection",
+                        })
+                    
                     return self._merge_fixed_files(files, fixed_files)
                     
         except Exception as e:
@@ -307,12 +353,102 @@ class ErrorFixService:
             })
             return files
     
+    def _apply_diff_fixes(
+        self,
+        content: str,
+        original_files: List[FileChange],
+    ) -> List[FileChange]:
+        """
+        Parse unified diffs from LLM response and apply them to files.
+        
+        Uses diff_utils.parse_diffs and apply_diff for surgical changes.
+        
+        Args:
+            content: Full LLM response content
+            original_files: List of original FileChange objects
+            
+        Returns:
+            List of FileChange objects with diffs applied (empty if no diffs found)
+        """
+        # Build lookup for original file content
+        original_by_path = {f.path: f for f in original_files}
+        
+        # Parse unified diffs from LLM response
+        diffs = parse_diffs(content)
+        
+        if not diffs:
+            logger.debug("No unified diffs found in LLM response")
+            return []
+        
+        logger.info(f"Parsed {len(diffs)} diff(s) from LLM response")
+        
+        fixed_files = []
+        
+        for diff in diffs:
+            file_path = diff.path
+            
+            # Normalize path to match original files
+            if not file_path.startswith('src/') and not file_path.startswith('/'):
+                file_path = f"src/{file_path}"
+            
+            # Find the original file
+            original_file = original_by_path.get(file_path)
+            if not original_file:
+                # Try without src/ prefix
+                alt_path = file_path[4:] if file_path.startswith('src/') else file_path
+                original_file = original_by_path.get(alt_path)
+                if original_file:
+                    file_path = alt_path
+            
+            if not original_file:
+                logger.warning(f"No original file found for diff path: {diff.path} (tried: {file_path})")
+                continue
+            
+            original_content = original_file.content
+            
+            # Apply the diff
+            try:
+                new_content = apply_diff(original_content, diff)
+                
+                # Verify the diff actually changed something
+                if new_content == original_content:
+                    logger.debug(f"Diff for {file_path} resulted in no changes")
+                    continue
+                
+                # Determine language from extension
+                ext = file_path.split('.')[-1] if '.' in file_path else 'tsx'
+                lang_map = {'tsx': 'tsx', 'ts': 'ts', 'css': 'css', 'json': 'json'}
+                
+                fixed_files.append(FileChange(
+                    path=file_path,
+                    action='modify',
+                    language=lang_map.get(ext, 'tsx'),
+                    content=new_content,
+                    previous_content=original_content,
+                    lines_added=diff.lines_added,
+                    lines_removed=diff.lines_removed,
+                ))
+                
+                logger.debug(f"Applied diff to {file_path}: +{diff.lines_added}/-{diff.lines_removed} lines")
+                
+            except Exception as e:
+                logger.error(f"Failed to apply diff to {file_path}: {e}")
+                continue
+        
+        logger.info(f"Successfully applied {len(fixed_files)} diff(s)")
+        return fixed_files
+    
     def _parse_fixed_files(
         self,
         content: str,
         original_files: List[FileChange],
     ) -> List[FileChange]:
-        """Parse fixed files from LLM response."""
+        """
+        Parse fixed files from LLM response (full-file format).
+        
+        This is the fallback method when unified diffs are not found.
+        Kept for backwards compatibility with older LLM responses.
+        """
         fixed_files = []
         seen_paths = set()
         
@@ -340,7 +476,7 @@ class ErrorFixService:
                     filepath = filepath[9:].strip()
                 
                 # Skip language-only markers
-                if filepath.lower() in ('tsx', 'ts', 'js', 'jsx', 'css', 'json', 'typescript'):
+                if filepath.lower() in ('tsx', 'ts', 'js', 'jsx', 'css', 'json', 'typescript', 'diff'):
                     continue
                 
                 # Skip if path contains 'filepath:' (malformed)
@@ -363,7 +499,6 @@ class ErrorFixService:
                 ext = filepath.split('.')[-1] if '.' in filepath else 'tsx'
                 lang_map = {'tsx': 'tsx', 'ts': 'ts', 'css': 'css', 'json': 'json'}
 
-                # TODO: Add better line counting logic here
                 # Calculate lines added/removed
                 original_content = original_by_path.get(filepath, "")
                 original_lines = original_content.count('\n') + (1 if original_content and not original_content.endswith('\n') else 0)
@@ -381,7 +516,7 @@ class ErrorFixService:
                     lines_removed=lines_removed,
                 ))
         
-        logger.info(f"Parsed {len(fixed_files)} fixed files from response")
+        logger.info(f"Parsed {len(fixed_files)} fixed files from response (full-file fallback)")
         return fixed_files
     
     def _merge_fixed_files(
@@ -415,4 +550,3 @@ def get_error_fix_service() -> ErrorFixService:
     if _error_fix_service is None:
         _error_fix_service = ErrorFixService()
     return _error_fix_service
-
