@@ -1146,6 +1146,9 @@ function AutoRunOnTab({ viewMode }: { viewMode: ViewMode }) {
  * This component listens for Sandpack bundler errors and reports them
  * via callback. The actual error fixing is handled by AgenticChatPanel.
  */
+// Maximum retries for bundler network failures before stopping auto-fix
+const MAX_BUNDLER_RETRIES = 3
+
 function SandpackErrorHandler({
   onBundlerErrors,
   enableAutoFix = false,
@@ -1158,6 +1161,7 @@ function SandpackErrorHandler({
   const [errors, setErrors] = useState<BundlerError[]>([])
   const [hasInitialized, setHasInitialized] = useState(false)
   const lastReportedSignatureRef = useRef<string>('')
+  const bundlerFailureCountRef = useRef(0)
   
   // Create error signature for deduplication
   const createSignature = useCallback((errs: BundlerError[]) => {
@@ -1199,6 +1203,7 @@ function SandpackErrorHandler({
       if (msg.type === 'done' || (msg as { type: string }).type === 'success') {
         setErrors([])
         lastReportedSignatureRef.current = ''
+        bundlerFailureCountRef.current = 0  // Reset failure count on success
       }
       
       // Track bundler status
@@ -1222,9 +1227,35 @@ function SandpackErrorHandler({
   useEffect(() => {
     const sandpackError = sandpack.error
     if (sandpackError) {
+      const msg = sandpackError.message || ''
+      
+      // Detect network/infrastructure errors (not fixable by code changes)
+      const isNetworkError = 
+        msg.includes('Network') ||
+        msg.includes('fetch') ||
+        msg.includes('Failed to load') ||
+        msg.includes('Could not reach') ||
+        msg.includes('timeout') ||
+        msg.includes('CORS') ||
+        msg.includes('ERR_')
+      
+      if (isNetworkError) {
+        bundlerFailureCountRef.current++
+        console.warn(`[SandpackErrorHandler] Bundler network error (${bundlerFailureCountRef.current}/${MAX_BUNDLER_RETRIES}):`, msg)
+        
+        // Don't report network errors as fixable bundler errors
+        if (bundlerFailureCountRef.current >= MAX_BUNDLER_RETRIES) {
+          console.error('[SandpackErrorHandler] Max bundler retries reached, stopping auto-fix')
+        }
+        return
+      }
+      
+      // Reset failure count on actual compilation errors
+      bundlerFailureCountRef.current = 0
+      
       const error: BundlerError = {
         title: 'Bundler Error',
-        message: sandpackError.message || 'Unknown error',
+        message: msg || 'Unknown error',
       }
       
       setErrors(prev => {
@@ -1590,6 +1621,9 @@ export function SandpackPreview({
   
   // Track when Sandpack is ready (used for overlay outside SandpackProvider)
   const [isBundlerReady, setIsBundlerReady] = useState(false)
+  
+  // Track when Sandpack is remounting to prevent immediate error detection
+  const [isRemounting, setIsRemounting] = useState(false)
 
   // OPTIMIZATION: Defer file updates to Sandpack during streaming
   // This prevents constant re-bundling of incomplete code during generation
@@ -1649,6 +1683,14 @@ export function SandpackPreview({
       setIsBundlerReady(false)
     }
   }, [versionId, committedFiles, sandpackFiles, sandpackKey])
+
+  // Cooldown after Sandpack remounts to prevent immediate error detection
+  // This gives the bundler time to stabilize before we start checking for errors
+  useEffect(() => {
+    setIsRemounting(true)
+    const t = setTimeout(() => setIsRemounting(false), 2000)
+    return () => clearTimeout(t)
+  }, [sandpackKey])
 
   // Keep initializedFiles in sync after a successful autosave so rehydration uses the just-saved snapshot
   const handlePersistLocalFiles = useCallback(
@@ -1851,7 +1893,7 @@ export function SandpackPreview({
         {versionId && (
           <SandpackErrorHandler
             onBundlerErrors={onBundlerErrors}
-            enableAutoFix={enableAutoFix}
+            enableAutoFix={enableAutoFix && !isRemounting}
           />
         )}
         {/* Flex container - uses absolute positioning to ensure footer stays pinned */}
