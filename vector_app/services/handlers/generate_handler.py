@@ -437,9 +437,11 @@ class GenerateHandler(BaseHandler):
 
                     # Request fix from Claude
                     fixed_content = ""
-                    async for chunk in self.llm.astream_text(
-                        messages=[{"role": "user", "content": fix_prompt}],
+                    for chunk in self.stream_llm_response(
+                        system_prompt="You are a code generation assistant. Fix the code based on validation errors.",
+                        user_prompt=fix_prompt,
                         model=model,
+                        temperature=0.3,
                     ):
                         fixed_content += chunk
 
