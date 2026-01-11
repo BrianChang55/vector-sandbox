@@ -10,7 +10,7 @@ import json
 import logging
 import time
 import uuid
-from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, Generator, List, Optional, Union, TYPE_CHECKING
 
 from .base_handler import BaseHandler, AgentEvent, FileChange, PlanStep
 from .parallel_executor import create_parallel_executor, ParallelStepExecutor
@@ -365,14 +365,17 @@ class GenerateHandler(BaseHandler):
         full_content: str,
         app: Optional['InternalApp'],
         version: Optional['AppVersion']
-    ) -> Generator[AgentEvent, None, bool]:
-        """Handle table creation from generated content. Returns True if tables were created."""
+    ) -> Generator[Union[AgentEvent, bool], None, None]:
+        """
+        Handle table creation from generated content.
+        Yields events, and yields True as final item if tables were created (signals early return).
+        """
         if not (app and version):
-            return False
+            return
 
         table_defs = self._parse_table_definitions(full_content)
         if not table_defs:
-            return False
+            return
 
         yield self.emit_thinking(
             f"Creating {len(table_defs)} data table(s)...",
@@ -387,7 +390,8 @@ class GenerateHandler(BaseHandler):
             "Data tables created successfully. Code generation will happen in next step with complete schema.",
             "observation"
         )
-        return True
+        # Yield True as signal to exit early
+        yield True
 
     def _validate_and_fix_fields(
         self,
@@ -484,15 +488,21 @@ class GenerateHandler(BaseHandler):
 
         try:
             # Stream LLM response with validation
-            full_content = ""
-            for warnings, content in self._stream_llm_with_validation(
+            generator = self._stream_llm_with_validation(
                 system_prompt, prompt, model, step_index
-            ):
-                full_content = content
-                for warning in warnings:
-                    yield self.emit_streaming_warning(warning)
-                if not warnings:  # Progress signal
-                    yield self.emit_step_progress(step_index, min(90, len(full_content) // 50), "Generating code...")
+            )
+            full_content = ""
+            try:
+                while True:
+                    warnings, content = next(generator)
+                    full_content = content
+                    for warning in warnings:
+                        yield self.emit_streaming_warning(warning)
+                    if not warnings:  # Progress signal
+                        yield self.emit_step_progress(step_index, min(90, len(full_content) // 50), "Generating code...")
+            except StopIteration as e:
+                # Capture the return value from the generator
+                full_content = e.value if e.value is not None else full_content
 
             # Handle table creation (with early return if tables created)
             for event in self._handle_table_creation(full_content, app, version):
@@ -539,16 +549,18 @@ class GenerateHandler(BaseHandler):
     
     def _parse_single_table(self, slug: str, content: str) -> Optional[Dict[str, Any]]:
         """Parse a single table definition."""
+        RESERVED_FIELDS = {'id', 'created_at', 'updated_at'}
+
         lines = content.strip().split('\n')
-        
+
         name = slug.replace('-', ' ').title()
         description = ''
         columns = []
         in_columns = False
-        
+
         for line in lines:
             line = line.strip()
-            
+
             if line.startswith('name:'):
                 name = line[5:].strip()
             elif line.startswith('description:'):
@@ -558,11 +570,18 @@ class GenerateHandler(BaseHandler):
             elif in_columns and line.startswith('- '):
                 col = self._parse_column(line[2:].strip())
                 if col:
-                    columns.append(col)
-        
+                    # Filter out reserved fields - they're auto-generated
+                    col_name = col.get('name', '').lower()
+                    if col_name not in RESERVED_FIELDS:
+                        columns.append(col)
+                    else:
+                        logger.info(f"Filtered out reserved field '{col_name}' from table '{slug}'")
+
+        # Reject tables that only have reserved fields (no user-defined columns)
         if not columns:
+            logger.warning(f"Table '{slug}' has no user-defined columns after filtering reserved fields")
             return None
-        
+
         return {
             'slug': slug,
             'name': name,
