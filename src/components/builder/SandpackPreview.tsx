@@ -1239,7 +1239,31 @@ function SandpackErrorHandler({
   useEffect(() => {
     const sandpackError = sandpack.error
     if (sandpackError) {
-      const msg = sandpackError.message || ''
+      // Safely extract error message - SyntaxError objects have read-only message properties
+      // that can throw TypeError when accessed in certain contexts
+      let msg = ''
+      try {
+        msg = sandpackError.message || ''
+      } catch (e) {
+        // If accessing message throws, use fallbacks
+        try {
+          msg = String(sandpackError) || ''
+        } catch {
+          msg = sandpackError?.toString?.() || 'Unknown bundler error'
+        }
+      }
+      
+      // If message is still empty, try alternative extraction methods
+      if (!msg) {
+        try {
+          msg = (sandpackError as any)?.error?.message || 
+                (sandpackError as any)?.title || 
+                String(sandpackError) || 
+                'Unknown bundler error'
+        } catch {
+          msg = 'Unknown bundler error'
+        }
+      }
       
       // Detect network/infrastructure errors (not fixable by code changes)
       const isNetworkError = 
@@ -1275,6 +1299,9 @@ function SandpackErrorHandler({
         if (exists) return prev
         return [...prev, error]
       })
+      
+      // Mark as initialized when we detect an error from sandpack.error
+      setHasInitialized(true)
     }
   }, [sandpack.error])
   
@@ -1295,24 +1322,17 @@ function SandpackErrorHandler({
   
   // Report errors to parent when detected (parent handles the fix)
   useEffect(() => {
-    if (
-      errors.length === 0 ||
-      !hasInitialized ||
-      !enableAutoFix
-    ) {
-      return
-    }
-    
-    // Check if these are new errors (avoid reporting duplicates)
     const signature = createSignature(errors)
-    if (signature === lastReportedSignatureRef.current) {
+    const isDuplicate = signature === lastReportedSignatureRef.current
+    const willReport = errors.length > 0 && hasInitialized && enableAutoFix && !isDuplicate && !!onBundlerErrors
+    
+    if (!willReport) {
       return
     }
     
     // Debounce to ensure errors are stable before reporting
     const timeout = setTimeout(() => {
       lastReportedSignatureRef.current = signature
-      console.log('[SandpackErrorHandler] Reporting bundler errors to parent:', errors)
       onBundlerErrors?.(errors)
     }, 1500)
     
