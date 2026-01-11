@@ -638,3 +638,128 @@ class BaseHandler(ABC):
             validation_passed = final.passed
         
         return (validation_passed, fix_attempts)
+
+    def _validate_datastore_field_names(
+        self,
+        files: List[FileChange],
+        app: Optional['InternalApp']
+    ) -> Dict[str, Any]:
+        """
+        Validate that generated code uses exact field names from schemas.
+        
+        Orchestrates business logic by coordinating validation service methods.
+
+        Returns:
+            Dict with 'passed' (bool), 'errors' (list), 'warnings' (list)
+        """
+        if not app:
+            return {"passed": True, "errors": [], "warnings": []}
+
+        validation_service = get_validation_service()
+
+        # Build table schemas
+        table_schemas = validation_service.build_table_schemas(app)
+        if not table_schemas:
+            return {"passed": True, "errors": [], "warnings": []}
+
+        logger.info(f"🔍 [FIELD VALIDATION] Validating {len(files)} files against {len(table_schemas)} table schemas")
+
+        # Collect all validation errors
+        errors = []
+        warnings = []
+
+        # Validate table references exist
+        errors.extend(validation_service.validate_table_references(files, table_schemas))
+
+        # Validate field names in operations
+        errors.extend(validation_service.validate_field_names_in_operations(files, table_schemas))
+
+        # Validate row.id patterns
+        errors.extend(validation_service.validate_row_id_patterns(files))
+
+        # Report results
+        passed = len(errors) == 0
+
+        if errors:
+            logger.error(f"🚨 [FIELD VALIDATION] FAILED: {len(errors)} field name errors found")
+        elif warnings:
+            logger.warning(f"⚠️ [FIELD VALIDATION] PASSED with {len(warnings)} warnings")
+        else:
+            logger.info(f"✅ [FIELD VALIDATION] PASSED: All field names match schema")
+
+        return {
+            "passed": passed,
+            "errors": errors,
+            "warnings": warnings,
+        }
+
+    def _build_field_fix_prompt(
+        self,
+        original_content: str,
+        errors: List[str],
+        data_store_context: Optional[str] = None
+    ) -> str:
+        """Build a prompt to ask Claude to fix field name errors."""
+        error_list = "\n".join(f"- {error}" for error in errors)
+
+        # Check if any errors are about missing tables
+        has_missing_tables = any('non-existent table' in error or 'not found' in error.lower() for error in errors)
+
+        # Include data_store_context so Claude sees the current schema
+        schema_section = ""
+        if data_store_context:
+            schema_section = f"\n\n**CURRENT DATABASE SCHEMA:**\n{data_store_context}\n"
+
+        missing_table_instructions = ""
+        if has_missing_tables:
+            missing_table_instructions = """
+
+**🚨 MISSING TABLES DETECTED:**
+Some errors indicate you're trying to use tables that don't exist yet. To fix this:
+
+1. **CREATE THE MISSING TABLES FIRST** using TABLE_DEFINITION blocks:
+   ```table:table-slug
+   name: Table Name
+   description: What this table stores
+   columns:
+     - name: field_name, type: string, nullable: false
+     - name: another_field, type: integer, default: 0
+   ```
+
+2. **DO NOT define reserved fields** (id, created_at, updated_at) - these are auto-generated
+3. **THEN generate the code** that uses these tables
+
+**IMPORTANT:** If you need to create tables, output the TABLE_DEFINITION blocks FIRST, then the code blocks.
+"""
+
+        return f"""Your previous code generation had field name validation errors. You used incorrect field names that don't match the database schema.
+
+**ERRORS FOUND:**
+{error_list}
+{schema_section}
+{missing_table_instructions}
+**🚨 CRITICAL RULES TO FIX THESE ERRORS:**
+
+1. **EACH TABLE HAS ITS OWN FIELDS** - You CANNOT use fields from one table when querying another!
+   - Example: `sprint_number` belongs to the `sprints` table, NOT the `projects` table
+   - You MUST check the schema above to see which fields belong to which table
+
+2. **USE EXACT FIELD NAMES** - Do NOT rename or transform field names
+   - If schema defines `title`, use `title` (not `taskTitle`, `task_title`, or `titleText`)
+   - If schema defines `total_story_points`, use `total_story_points` (not `totalStoryPoints`)
+
+3. **CHECK WHICH TABLE YOU'RE QUERYING** - Before using a field, verify it exists in THAT specific table
+   - When calling `dataStore.query('projects', ...)`, you can ONLY use fields from the `projects` table
+   - Look at the schema above - each table lists its available fields
+
+**YOUR TASK:**
+Please regenerate the ENTIRE code fixing ALL field name errors. Pay special attention to:
+- Creating any missing tables FIRST (if errors mention "non-existent table") using TABLE_DEFINITION blocks
+- Which table you're querying (the first parameter to dataStore.query/insert/update)
+- Which fields are available in THAT specific table (check the schema above)
+- Using exact field names as defined in the schema
+
+**PREVIOUS CODE (WITH ERRORS):**
+{original_content}
+
+Generate the complete corrected code now."""

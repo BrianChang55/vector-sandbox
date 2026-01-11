@@ -10,7 +10,7 @@ import json
 import logging
 import time
 import uuid
-from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, Generator, List, Optional, Union, TYPE_CHECKING
 
 from .base_handler import BaseHandler, AgentEvent, FileChange, PlanStep
 from .parallel_executor import create_parallel_executor, ParallelStepExecutor
@@ -323,6 +323,142 @@ class GenerateHandler(BaseHandler):
                                 "Add professional styling with Tailwind"),
             ]
     
+    def _stream_llm_with_validation(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        model: str,
+        step_index: int
+    ) -> Generator[tuple, None, str]:
+        """Stream LLM response with real-time validation. Yields (warnings, content_so_far), returns full_content."""
+        validator = self.create_streaming_validator()
+        full_content = ""
+        chunk_count = 0
+
+        for chunk in self.stream_llm_response(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            model=model,
+            temperature=0.3,
+        ):
+            full_content += chunk
+            chunk_count += 1
+
+            # Real-time validation during streaming
+            streaming_warnings = validator.check_chunk(chunk, full_content)
+            if streaming_warnings:
+                yield (streaming_warnings, full_content)
+
+            # Emit progress periodically
+            if chunk_count % 20 == 0:
+                yield ([], full_content)  # Signal progress without warnings
+
+        # Final validation check
+        final_warnings = validator.final_check(full_content)
+        if final_warnings:
+            yield (final_warnings, full_content)
+
+        return full_content
+
+    def _handle_table_creation(
+        self,
+        full_content: str,
+        app: Optional['InternalApp'],
+        version: Optional['AppVersion']
+    ) -> Generator[Union[AgentEvent, bool], None, None]:
+        """
+        Handle table creation from generated content.
+        Yields events, and yields True as final item if tables were created (signals early return).
+        """
+        if not (app and version):
+            return
+
+        table_defs = self._parse_table_definitions(full_content)
+        if not table_defs:
+            return
+
+        yield self.emit_thinking(
+            f"Creating {len(table_defs)} data table(s)...",
+            "decision",
+        )
+        for event in self._apply_table_definitions(table_defs, app, version):
+            yield event
+
+        # Early return after table creation (table/code separation)
+        logger.info(f"🚫 [TABLE/CODE SEPARATION] Tables created - returning early")
+        yield self.emit_thinking(
+            "Data tables created successfully. Code generation will happen in next step with complete schema.",
+            "observation"
+        )
+        # Yield True as signal to exit early
+        yield True
+
+    def _validate_and_fix_fields(
+        self,
+        files: List[FileChange],
+        full_content: str,
+        app: Optional['InternalApp'],
+        version: Optional['AppVersion'],
+        model: str
+    ) -> Generator[AgentEvent, None, List[FileChange]]:
+        """Validate field names and request fix if needed. Returns final files."""
+        if not (app and files):
+            return files
+
+        validation_result = self._validate_datastore_field_names(files, app)
+        if validation_result["passed"]:
+            return files
+
+        # Validation failed - request fix
+        yield self.emit_thinking(
+            f"❌ Field validation failed with {len(validation_result['errors'])} error(s). Requesting fix from Claude...",
+            "reflection",
+        )
+        logger.error(f"🚨 [FIELD VALIDATION] BLOCKING generation due to field errors")
+
+        # Build fix prompt with fresh schema context
+        from vector_app.services.data_store_context import build_data_store_context
+        data_store_context = build_data_store_context(app)
+
+        fix_prompt = self._build_field_fix_prompt(
+            original_content=full_content,
+            errors=validation_result["errors"],
+            data_store_context=data_store_context,
+        )
+
+        # Request fix from Claude
+        fixed_content = ""
+        for chunk in self.stream_llm_response(
+            system_prompt="You are a code generation assistant. Fix the code based on validation errors.",
+            user_prompt=fix_prompt,
+            model=model,
+            temperature=0.3,
+        ):
+            fixed_content += chunk
+
+        # Re-parse fixed content
+        files = self.parse_code_blocks(fixed_content)
+
+        # Check if Claude created new tables in the fix response
+        fix_tables = self._parse_table_definitions(fixed_content)
+        if fix_tables:
+            logger.info(f"🔧 [FIX TABLES] Found {len(fix_tables)} table definitions in fix response")
+            for event in self._apply_table_definitions(fix_tables, app, version):
+                yield event
+
+        # Re-validate
+        revalidation = self._validate_datastore_field_names(files, app)
+        if revalidation["passed"]:
+            yield self.emit_thinking("✅ Field validation passed after fix", "observation")
+        else:
+            logger.error(f"❌ [FIELD VALIDATION] Still has errors after fix: {revalidation['errors']}")
+            yield self.emit_thinking(
+                f"⚠️ Field validation still has {len(revalidation['errors'])} error(s) after fix attempt",
+                "reflection",
+            )
+
+        return files
+
     def _execute_step(
         self,
         step: PlanStep,
@@ -339,69 +475,55 @@ class GenerateHandler(BaseHandler):
     ) -> Generator[AgentEvent, None, None]:
         """Execute a single plan step and yield progress events."""
         from vector_app.prompts.agentic import build_step_prompt, build_codegen_system_prompt
-        
+
         has_data_store = context.get('has_data_store', False)
-        
-        # Build prompt for this step
+
+        # Build prompts
         prompt = build_step_prompt(
             step, step_index, user_message, context,
             existing_files, registry_surface, data_store_context,
             connectors_context=mcp_tools_context,
         )
-        
         system_prompt = build_codegen_system_prompt(registry_surface, has_data_store)
-        
+
         try:
+            # Stream LLM response with validation
+            generator = self._stream_llm_with_validation(
+                system_prompt, prompt, model, step_index
+            )
             full_content = ""
-            chunk_count = 0
-            
-            # Create streaming validator for real-time checks
-            validator = self.create_streaming_validator()
-            
-            for chunk in self.stream_llm_response(
-                system_prompt=system_prompt,
-                user_prompt=prompt,
-                model=model,
-                temperature=0.3,
-            ):
-                full_content += chunk
-                chunk_count += 1
-                
-                # Real-time validation during streaming
-                streaming_warnings = validator.check_chunk(chunk, full_content)
-                for warning in streaming_warnings:
-                    yield self.emit_streaming_warning(warning)
-                
-                # Emit progress periodically
-                if chunk_count % 20 == 0:
-                    yield self.emit_step_progress(
-                        step_index,
-                        min(90, chunk_count),
-                        "Generating code...",
-                    )
-            
-            # Final validation check
-            final_warnings = validator.final_check(full_content)
-            for warning in final_warnings:
-                yield self.emit_streaming_warning(warning)
-            
-            # Parse and emit table definitions if app and version provided
-            if app and version:
-                table_defs = self._parse_table_definitions(full_content)
-                if table_defs:
-                    yield self.emit_thinking(
-                        f"Creating {len(table_defs)} data table(s)...",
-                        "decision",
-                    )
-                    for event in self._apply_table_definitions(table_defs, app, version):
-                        yield event
-            
-            # Parse generated files
+            try:
+                while True:
+                    warnings, content = next(generator)
+                    full_content = content
+                    for warning in warnings:
+                        yield self.emit_streaming_warning(warning)
+                    if not warnings:  # Progress signal
+                        yield self.emit_step_progress(step_index, min(90, len(full_content) // 50), "Generating code...")
+            except StopIteration as e:
+                # Capture the return value from the generator
+                full_content = e.value if e.value is not None else full_content
+
+            # Handle table creation (with early return if tables created)
+            for event in self._handle_table_creation(full_content, app, version):
+                if event is True:  # Tables were created
+                    return  # Early exit
+                yield event
+
+            # Parse files
             files = self.parse_code_blocks(full_content)
-            
+
+            # Validate and fix field names
+            for event in self._validate_and_fix_fields(files, full_content, app, version, model):
+                if isinstance(event, list):  # Final files returned
+                    files = event
+                    break
+                yield event
+
+            # Emit all files
             for file in files:
                 yield self.emit_file_generated(file)
-                
+
         except Exception as e:
             logger.error(f"Step execution error: {e}")
             yield self.emit_thinking(f"Error during step: {str(e)}", "reflection")
@@ -427,16 +549,18 @@ class GenerateHandler(BaseHandler):
     
     def _parse_single_table(self, slug: str, content: str) -> Optional[Dict[str, Any]]:
         """Parse a single table definition."""
+        RESERVED_FIELDS = {'id', 'created_at', 'updated_at'}
+
         lines = content.strip().split('\n')
-        
+
         name = slug.replace('-', ' ').title()
         description = ''
         columns = []
         in_columns = False
-        
+
         for line in lines:
             line = line.strip()
-            
+
             if line.startswith('name:'):
                 name = line[5:].strip()
             elif line.startswith('description:'):
@@ -446,11 +570,18 @@ class GenerateHandler(BaseHandler):
             elif in_columns and line.startswith('- '):
                 col = self._parse_column(line[2:].strip())
                 if col:
-                    columns.append(col)
-        
+                    # Filter out reserved fields - they're auto-generated
+                    col_name = col.get('name', '').lower()
+                    if col_name not in RESERVED_FIELDS:
+                        columns.append(col)
+                    else:
+                        logger.info(f"Filtered out reserved field '{col_name}' from table '{slug}'")
+
+        # Reject tables that only have reserved fields (no user-defined columns)
         if not columns:
+            logger.warning(f"Table '{slug}' has no user-defined columns after filtering reserved fields")
             return None
-        
+
         return {
             'slug': slug,
             'name': name,
@@ -520,9 +651,46 @@ class GenerateHandler(BaseHandler):
             if existing:
                 logger.info(f"Table {slug} already exists, skipping")
                 continue
-            
-            schema = {'columns': table_def['columns']}
-            
+
+            # 🚨 CRITICAL: Auto-generate system columns (id, created_at, updated_at)
+            # These should be filtered out by _parse_single_table, but be defensive
+            columns = table_def['columns'].copy()
+
+            # Check if 'id' column already exists (shouldn't, but be defensive)
+            has_id = any(col.get('name', '').lower() == 'id' for col in columns)
+
+            if not has_id:
+                # Prepend the auto-generated id column
+                columns.insert(0, {
+                    'name': 'id',
+                    'type': 'uuid',
+                    'primary_key': True,
+                    'auto_generate': True,
+                    'nullable': False,
+                })
+
+            # Check for created_at
+            has_created_at = any(col.get('name', '').lower() == 'created_at' for col in columns)
+            if not has_created_at:
+                columns.append({
+                    'name': 'created_at',
+                    'type': 'datetime',
+                    'auto_now_add': True,
+                    'nullable': False,
+                })
+
+            # Check for updated_at
+            has_updated_at = any(col.get('name', '').lower() == 'updated_at' for col in columns)
+            if not has_updated_at:
+                columns.append({
+                    'name': 'updated_at',
+                    'type': 'datetime',
+                    'auto_now': True,
+                    'nullable': False,
+                })
+
+            schema = {'columns': columns}
+
             table, errors = AppDataService.create_table_versioned(
                 app=app,
                 version=version,
