@@ -23,7 +23,7 @@ from vector_app.prompts.error_fix import (
     build_error_fix_prompt,
     build_bundler_error_fix_prompt,
 )
-from vector_app.services.agentic_service import (
+from vector_app.services.types import (
     AgentEvent,
     FileChange,
     CompilationError,
