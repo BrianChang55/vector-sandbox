@@ -343,7 +343,8 @@ interface Note {{
 }}
 const [notes, setNotes] = useState<Note[]>([]);
 const result = await dataStore.query('notes', {{}});
-setNotes(result.rows.map(row => ({{ id: row.id, ...row.data }})));
+// CORRECT: spread data first, then id
+setNotes(result.rows.map(row => ({{ ...row.data, id: row.id }})));
 // Or if your Note type matches row.data:
 setNotes(result.rows.map(row => ({{ id: row.id, title: row.data.title, content: row.data.content }})));
 ```
@@ -1089,10 +1090,50 @@ await dataStore.bulkDelete('customers', ['row-uuid-1', 'row-uuid-2']);
 
 **Filter Operators:** `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `not_in`, `contains`, `icontains`, `is_null`
 
-**CRITICAL: Row Data Structure**
-- Use `row.id` for the row UUID (for update/delete operations)
-- Use `row.data.fieldName` to access your data fields (e.g., `row.data.title`, `row.data.email`)
-- The `data` object contains all your table columns
+🚨 **CRITICAL: Understanding Row Structure and ID Handling** 🚨
+
+Every row returned by dataStore has this structure:
+```typescript
+{{
+  id: "uuid-string",           // ← Use THIS for update/delete
+  data: {{                      // ← Your actual field data
+    title: "Task 1",
+    status: "active",
+    // ... all your table fields
+  }},
+  row_index: 0,
+  created_at: "2024-01-01T00:00:00Z"
+}}
+```
+
+**🚨 COMMON MISTAKES THAT CAUSE "Row not found" ERRORS:**
+
+**Mistake #1: ID Overwrite Pattern**
+```typescript
+// ❌ WRONG - data.id will overwrite row.id!
+const task = {{ id: row.id, ...row.data }}
+// If row.data has an 'id' field, it overwrites the real row.id
+
+// ✅ CORRECT - row.id overwrites any data.id
+const task = {{ ...row.data, id: row.id }}
+```
+
+**Mistake #2: Using row.data.id for Operations**
+```typescript
+// ❌ WRONG - row.data.id is your data, not the row ID
+await dataStore.update('tasks', row.data.id, {{ status: 'done' }})
+await dataStore.delete('tasks', row.data.id)
+
+// ✅ CORRECT - use row.id for operations
+await dataStore.update('tasks', row.id, {{ status: 'done' }})
+await dataStore.delete('tasks', row.id)
+```
+
+**Summary:**
+- `row.id` = UUID for the row (use for update/delete/identifying the row)
+- `row.data.fieldName` = Access your actual data fields
+- NEVER use `row.data.id` for operations
+- When spreading, put `...row.data` FIRST, then `id: row.id`
 
 IMPORTANT: When creating apps that need persistent data:
 1. First define the table(s) using TABLE_DEFINITION blocks
