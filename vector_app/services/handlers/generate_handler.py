@@ -16,7 +16,8 @@ from .base_handler import BaseHandler, AgentEvent, FileChange, PlanStep
 from .parallel_executor import create_parallel_executor, ParallelStepExecutor
 
 if TYPE_CHECKING:
-    from vector_app.models import InternalApp, AppVersion
+    from vector_app.models import InternalApp, AppVersion, AppDataTable
+    from vector_app.services.app_data_service import AppDataService
     from vector_app.services.intent_classifier import IntentResult
     from vector_app.services.context_analyzer import AppContext
 
@@ -384,6 +385,11 @@ class GenerateHandler(BaseHandler):
         for event in self._apply_table_definitions(table_defs, app, version):
             yield event
 
+        # Generate TypeScript types file for new app
+        types_file = self._generate_types_file(app)
+        if types_file:
+            yield self.emit_file_generated(types_file)
+
         # Early return after table creation (table/code separation)
         logger.info(f"🚫 [TABLE/CODE SEPARATION] Tables created - returning early")
         yield self.emit_thinking(
@@ -636,9 +642,7 @@ class GenerateHandler(BaseHandler):
         version: 'AppVersion',
     ) -> Generator[AgentEvent, None, None]:
         """Apply table definitions to the app's data store."""
-        from vector_app.models import AppDataTable
-        from vector_app.services.app_data_service import AppDataService
-        
+
         for table_def in table_defs:
             slug = table_def['slug']
             
@@ -707,6 +711,33 @@ class GenerateHandler(BaseHandler):
                 )
             else:
                 logger.warning(f"Failed to create table {slug}: {errors}")
+    
+    def _generate_types_file(
+        self,
+        app: 'InternalApp',
+    ) -> Optional[FileChange]:
+        """Generate TypeScript types file for all app tables."""
+        tables = AppDataTable.objects.filter(internal_app=app)
+        if not tables.exists():
+            return None
+        
+        types_content = []
+        for table in tables:
+            type_def = AppDataService.typescript_generator(table)
+            if type_def:
+                types_content.append(type_def)
+        
+        if not types_content:
+            return None
+        
+        combined = "\n\n".join(types_content)
+        logger.debug(f"Generated types file content: {combined}")
+        return FileChange(
+            path="src/lib/types.ts",
+            action="create",
+            language="ts",
+            content=combined,
+        )
     
     def _validate_and_fix(
         self,

@@ -143,7 +143,22 @@ class AppDataService:
             table: The table to delete
         """
         table.delete()
-    
+
+    @staticmethod
+    def typescript_generator(table: AppDataTable) -> str:
+        """
+        Generate TypeScript types from a table schema.
+        
+        Args:
+            table: The AppDataTable to generate types for
+            
+        Returns:
+            TypeScript type definitions as a string
+        """
+        # TODO: Implement actual type generation
+        return ""
+
+
     @staticmethod
     def get_table(app: InternalApp, slug: str) -> Optional[AppDataTable]:
         """
