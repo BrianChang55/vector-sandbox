@@ -413,6 +413,15 @@ export function useDataQuery<T = any>(tableSlug: string, options: QueryOptions =
 }`,
 }
 
+// Escape a string for safe embedding in JavaScript string literals (single-quoted)
+function escapeForJS(str: string): string {
+  return str
+    .replace(/\\/g, '\\\\')  // Escape backslashes first
+    .replace(/'/g, "\\'")     // Escape single quotes
+    .replace(/\n/g, '\\n')    // Escape newlines
+    .replace(/\r/g, '\\r')    // Escape carriage returns
+}
+
 // Convert FileChange array to Sandpack files format
 function convertToSandpackFiles(
   files: FileChange[],
@@ -421,6 +430,9 @@ function convertToSandpackFiles(
   appName: string
 ): Record<string, string> {
   const sandpackFiles: Record<string, string> = { ...DEFAULT_FILES, ...TEMPLATE_UI_COMPONENTS }
+  
+  // Escape appName for safe embedding in JS strings
+  const safeAppName = escapeForJS(appName)
 
   // CRITICAL: Use postMessage bridge to bypass CORS/Private Network Access issues
   // The Sandpack iframe cannot directly call localhost due to Chrome's PNA restrictions
@@ -434,7 +446,7 @@ const CONFIG = {
   appId: '${appId}',
   versionId: '${versionId}',
   apiBaseUrl: '${RUNTIME_API_BASE_URL}',
-  appName: '${appName}',
+  appName: '${safeAppName}',
 };
 
 console.log('[dataStore] Initialized with postMessage bridge, appId:', CONFIG.appId);
@@ -607,7 +619,7 @@ const CONFIG = {
   appId: '${appId}',
   versionId: '${versionId}',
   apiBaseUrl: '${RUNTIME_API_BASE_URL}',
-  appName: '${appName}',
+  appName: '${safeAppName}',
 };
 
 console.log('[mcpTools] Initialized with postMessage bridge, appId:', CONFIG.appId);
@@ -722,7 +734,7 @@ const CONFIG = {
   appId: '${appId}',
   versionId: '${versionId}',
   apiBaseUrl: '${RUNTIME_API_BASE_URL}',
-  appName: '${appName}',
+  appName: '${safeAppName}',
 };
 
 export interface QuerySpec {
@@ -806,14 +818,14 @@ export function useQuery<T = any>(resourceId: string, querySpec?: QuerySpec, dep
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${appName} - Preview</title>
+  <title>${safeAppName} - Preview</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     window.__VECTOR_CONFIG__ = {
       appId: '${appId}',
       versionId: '${versionId}',
       apiBaseUrl: '${RUNTIME_API_BASE_URL}',
-      appName: '${appName}'
+      appName: '${safeAppName}'
     };
   </script>
 </head>
