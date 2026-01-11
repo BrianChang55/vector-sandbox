@@ -1934,7 +1934,8 @@ export function SandpackPreview({
                 {[
                   { key: 'preview' as ViewMode, icon: Eye, label: 'Preview' },
                   { key: 'code' as ViewMode, icon: Code2, label: 'Code' },
-                  { key: 'split' as ViewMode, icon: Monitor, label: 'Split' },
+                  // Split view hidden but code kept for future use
+                  // { key: 'split' as ViewMode, icon: Monitor, label: 'Split' },
                 ].map(({ key, icon: Icon, label }) => (
                   <button
                     key={key}
