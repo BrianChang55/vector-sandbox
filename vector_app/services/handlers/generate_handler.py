@@ -14,6 +14,7 @@ from typing import Any, Dict, Generator, List, Optional, Union, TYPE_CHECKING
 
 from .base_handler import BaseHandler, AgentEvent, FileChange, PlanStep
 from .parallel_executor import create_parallel_executor, ParallelStepExecutor
+from ..datastore import TableDefinitionParser, get_system_columns
 
 if TYPE_CHECKING:
     from vector_app.models import InternalApp, AppVersion
@@ -531,103 +532,7 @@ class GenerateHandler(BaseHandler):
     
     def _parse_table_definitions(self, content: str) -> List[Dict[str, Any]]:
         """Parse TABLE_DEFINITION blocks from agent output."""
-        import re
-        
-        tables = []
-        pattern = r'```table:([a-z0-9-]+)\n(.*?)```'
-        matches = re.findall(pattern, content, re.DOTALL | re.IGNORECASE)
-        
-        for slug, table_content in matches:
-            try:
-                table_def = self._parse_single_table(slug.strip(), table_content.strip())
-                if table_def:
-                    tables.append(table_def)
-            except Exception as e:
-                logger.warning(f"Failed to parse table definition for {slug}: {e}")
-        
-        return tables
-    
-    def _parse_single_table(self, slug: str, content: str) -> Optional[Dict[str, Any]]:
-        """Parse a single table definition."""
-        RESERVED_FIELDS = {'id', 'created_at', 'updated_at'}
-
-        lines = content.strip().split('\n')
-
-        name = slug.replace('-', ' ').title()
-        description = ''
-        columns = []
-        in_columns = False
-
-        for line in lines:
-            line = line.strip()
-
-            if line.startswith('name:'):
-                name = line[5:].strip()
-            elif line.startswith('description:'):
-                description = line[12:].strip()
-            elif line.startswith('columns:'):
-                in_columns = True
-            elif in_columns and line.startswith('- '):
-                col = self._parse_column(line[2:].strip())
-                if col:
-                    # Filter out reserved fields - they're auto-generated
-                    col_name = col.get('name', '').lower()
-                    if col_name not in RESERVED_FIELDS:
-                        columns.append(col)
-                    else:
-                        logger.info(f"Filtered out reserved field '{col_name}' from table '{slug}'")
-
-        # Reject tables that only have reserved fields (no user-defined columns)
-        if not columns:
-            logger.warning(f"Table '{slug}' has no user-defined columns after filtering reserved fields")
-            return None
-
-        return {
-            'slug': slug,
-            'name': name,
-            'description': description,
-            'columns': columns,
-        }
-    
-    def _parse_column(self, line: str) -> Optional[Dict[str, Any]]:
-        """Parse a column definition line."""
-        import re
-        
-        col = {}
-        
-        # Extract list values first
-        list_pattern = r'(\w+):\s*\[([^\]]+)\]'
-        list_matches = re.findall(list_pattern, line)
-        for key, value_str in list_matches:
-            values = [v.strip().strip('"').strip("'") for v in value_str.split(',')]
-            col[key] = values
-            line = re.sub(rf'{key}:\s*\[[^\]]+\]', '', line)
-        
-        # Parse remaining key-value pairs
-        parts = [p.strip() for p in line.split(',') if p.strip()]
-        
-        for part in parts:
-            if ':' in part:
-                key, value = part.split(':', 1)
-                key = key.strip()
-                value = value.strip()
-                
-                if key in col:
-                    continue
-                
-                if value.lower() == 'true':
-                    value = True
-                elif value.lower() == 'false':
-                    value = False
-                elif value.isdigit():
-                    value = int(value)
-                
-                col[key] = value
-        
-        if 'name' not in col or 'type' not in col:
-            return None
-        
-        return col
+        return TableDefinitionParser.parse_table_definitions(content)
     
     def _apply_table_definitions(
         self,
