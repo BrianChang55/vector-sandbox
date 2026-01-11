@@ -385,10 +385,33 @@ class GenerateHandler(BaseHandler):
         for event in self._apply_table_definitions(table_defs, app, version):
             yield event
 
+        # Generate TypeScript types file after tables are created
+        if app:
+            from vector_app.models import AppDataTable
+            from vector_app.services import generate_typescript_types
+            from vector_app.services.types import FileChange
+
+            tables = AppDataTable.objects.filter(internal_app=app).order_by('name')
+            if tables.exists():
+                logger.info(f"📝 [TYPESCRIPT] Generating types file for {tables.count()} table(s)")
+
+                ts_types_content = generate_typescript_types(list(tables))
+
+                types_file = FileChange(
+                    path='src/types/database.ts',
+                    action='create',
+                    language='typescript',
+                    content=ts_types_content,
+                    lines_added=ts_types_content.count('\n') + 1,
+                )
+
+                yield self.emit_file_generated(types_file)
+                logger.info(f"✅ [TYPESCRIPT] Generated src/types/database.ts ({len(ts_types_content)} chars)")
+
         # Early return after table creation (table/code separation)
         logger.info(f"🚫 [TABLE/CODE SEPARATION] Tables created - returning early")
         yield self.emit_thinking(
-            "Data tables created successfully. Code generation will happen in next step with complete schema.",
+            "Data tables created successfully. TypeScript types generated. Code generation will happen in next step with complete schema.",
             "observation"
         )
         # Yield True as signal to exit early
