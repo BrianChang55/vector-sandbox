@@ -1,11 +1,15 @@
+from vector_app.services.handlers.diff_utils import format_with_line_numbers
+
 """
 Error Fix Prompts
 
 Carefully crafted prompts that constrain the agent to ONLY fix compilation errors.
 The agent must NOT change core functionality, refactor code, or add features.
+
+Uses unified diff format for minimal, surgical fixes.
 """
 
-ERROR_FIX_SYSTEM_PROMPT = """You are a code repair specialist. Your ONLY job is to fix TypeScript compilation errors.
+ERROR_FIX_SYSTEM_PROMPT = """You are a code repair specialist. Your ONLY job is to fix TypeScript compilation errors using minimal, surgical changes.
 
 CRITICAL RULES - YOU MUST FOLLOW THESE EXACTLY:
 1. DO NOT change any working functionality
@@ -25,14 +29,120 @@ COMMON FIX PATTERNS:
 - Missing property: Add optional chaining (?.) or default value
 - Wrong argument count: Fix the function call to match the signature
 
-OUTPUT FORMAT:
-For each file you fix, output the complete fixed file in this format:
+OUTPUT FORMAT: Unified Diff
 
-```filepath:path/to/file.tsx
-// complete file content here
+For each file you fix, output a unified diff inside a ```diff code block.
+Only output diffs for files that need changes. Do not output unchanged files.
+
+Example:
+```diff
+--- src/App.tsx
++++ src/App.tsx
+@@ -1,5 +1,6 @@
+ import React from "react";
++import { useState } from "react";
+ 
+ function App() {
+   return (
+```"""
+
+
+# Shared diff format instructions used by both prompt builders
+DIFF_FORMAT_INSTRUCTIONS = """
+## Output Format: Unified Diff
+
+For each file you fix, output a unified diff inside a ```diff code block:
+
+```diff
+--- src/path/to/file.tsx
++++ src/path/to/file.tsx
+@@ -LINE,COUNT +LINE,COUNT @@
+ context line (unchanged, starts with space)
+ context line (unchanged, starts with space)
+ context line (unchanged, starts with space)
+-line to remove (starts with minus)
++line to add (starts with plus)
+ context line (unchanged, starts with space)
+ context line (unchanged, starts with space)
+ context line (unchanged, starts with space)
 ```
 
-Only output files that need changes. Do not output unchanged files."""
+### Diff Rules
+- Start with `--- path` and `+++ path` header lines
+- Each hunk starts with `@@ -old_start,old_count +new_start,new_count @@`
+- Include exactly 3 lines of unchanged context before and after changes
+- Lines starting with ` ` (space) are unchanged context - these MUST be copied EXACTLY from the source file
+- Lines starting with `-` are removed
+- Lines starting with `+` are added
+- For multiple non-adjacent changes in the same file, use multiple hunks
+
+### Hunk Structure Rule (CRITICAL)
+
+Within each hunk, lines MUST appear in this exact order:
+1. Context lines (space prefix) - unchanged lines before the change
+2. ALL removed lines (minus prefix) - grouped together consecutively
+3. ALL added lines (plus prefix) - grouped together consecutively
+4. Context lines (space prefix) - unchanged lines after the change
+
+**NEVER interleave removals and additions.** Each contiguous change region gets its own hunk.
+
+BAD (interleaved - will break):
+```
+@@ -1,10 +1,10 @@
+ import React from 'react';
+-old line
++new line
+-another old line        <- WRONG: more removals after additions
++another new line
+```
+
+GOOD (separate hunks):
+```
+@@ -1,4 +1,4 @@
+ import React from 'react';
+-old line
++new line
+
+@@ -8,3 +8,3 @@
+ // context line
+-another old line
++another new line
+```
+
+### Example: Adding a missing import
+
+```diff
+--- src/App.tsx
++++ src/App.tsx
+@@ -1,4 +1,5 @@
+ import React from "react";
++import { useState } from "react";
+ 
+ function App() {
+   const [count, setCount] = useState(0);
+```
+
+### Example: Fixing a type error
+
+```diff
+--- src/utils.ts
++++ src/utils.ts
+@@ -5,7 +5,7 @@
+ }
+ 
+ function processData(data: unknown) {
+-  return data.value;
++  return (data as Record<string, unknown>).value;
+ }
+```
+
+### CRITICAL - CONTEXT LINES MUST BE EXACT
+
+The patch system can tolerate slight line number errors, but context lines MUST match the source file CHARACTER-FOR-CHARACTER.
+- Copy context lines exactly as shown (same whitespace, same quotes, same everything)
+- If the source has `  return <div className="p-4">` your context must be identical
+- Mismatched context lines will cause the patch to fail
+"""
 
 
 def build_error_fix_prompt(
@@ -42,7 +152,7 @@ def build_error_fix_prompt(
     max_attempts: int = 2,
 ) -> str:
     """
-    Build a focused prompt for fixing compilation errors.
+    Build a focused prompt for fixing compilation errors using unified diffs.
     
     Args:
         files: List of FileChange objects with current code
@@ -50,6 +160,7 @@ def build_error_fix_prompt(
         attempt: Current fix attempt number
         max_attempts: Maximum number of fix attempts
     """
+
     # Group errors by file
     errors_by_file = {}
     for error in errors:
@@ -78,7 +189,7 @@ def build_error_fix_prompt(
     
     errors_section = '\n'.join(error_lines)
     
-    # Build files section - only include files with errors
+    # Build files section with line numbers for accurate diff generation
     files_section_parts = []
     for file in files:
         file_path = file.path if hasattr(file, 'path') else file.get('path', '')
@@ -86,10 +197,8 @@ def build_error_fix_prompt(
         
         # Include file if it has errors or if it might be referenced
         if file_path in errors_by_file or file_path.endswith('.tsx') or file_path.endswith('.ts'):
-            # Add line numbers for easier error location
-            lines = content.split('\n')
-            numbered_lines = [f"{i+1:4d} | {line}" for i, line in enumerate(lines)]
-            numbered_content = '\n'.join(numbered_lines)
+            # Use format_with_line_numbers for consistent formatting
+            numbered_content = format_with_line_numbers(content)
             
             files_section_parts.append(f"""
 ### {file_path}
@@ -109,12 +218,17 @@ def build_error_fix_prompt(
 ## CURRENT FILES (with line numbers):
 {files_section}
 
+**LINE NUMBERS**: The file contents above include line numbers in the format "   42| code here".
+Use these line numbers for your @@ hunk headers. The patch system has fuzz matching (±3 lines tolerance), but accurate numbers improve reliability.
+Do NOT include the line number prefix (e.g., "   42| ") in your diff output.
+
 ## INSTRUCTIONS:
-1. Analyze each error carefully
+1. Analyze each error carefully - look at the line number and error message
 2. Make the MINIMUM change needed to fix each error
 3. DO NOT change any working code
-4. Output only the files that need changes
-5. Use the format: ```filepath:path/to/file.tsx followed by the complete fixed file content
+4. Output only unified diffs for files that need changes
+5. Context lines must match the source file EXACTLY (character-for-character)
+{DIFF_FORMAT_INSTRUCTIONS}
 
 Remember: Your ONLY goal is to fix compilation errors. Do not refactor, improve, or change any functionality."""
 
@@ -128,7 +242,7 @@ def build_bundler_error_fix_prompt(
     max_attempts: int = 2,
 ) -> str:
     """
-    Build a prompt for fixing Sandpack bundler errors.
+    Build a prompt for fixing Sandpack bundler errors using unified diffs.
     
     These are runtime/bundler errors that TypeScript didn't catch.
     """
@@ -150,16 +264,15 @@ def build_bundler_error_fix_prompt(
     
     errors_section = '\n'.join(error_lines)
     
-    # Build files section
+    # Build files section with line numbers
     files_section_parts = []
     for file in files:
         file_path = file.path if hasattr(file, 'path') else file.get('path', '')
         content = file.content if hasattr(file, 'content') else file.get('content', '')
         
         if file_path.endswith('.tsx') or file_path.endswith('.ts'):
-            lines = content.split('\n')
-            numbered_lines = [f"{i+1:4d} | {line}" for i, line in enumerate(lines)]
-            numbered_content = '\n'.join(numbered_lines)
+            # Use format_with_line_numbers for consistent formatting
+            numbered_content = format_with_line_numbers(content)
             
             files_section_parts.append(f"""
 ### {file_path}
@@ -175,17 +288,22 @@ def build_bundler_error_fix_prompt(
 ## BUNDLER ERRORS:
 {errors_section}
 
-## CURRENT FILES:
+## CURRENT FILES (with line numbers):
 {files_section}
+
+**LINE NUMBERS**: The file contents above include line numbers in the format "   42| code here".
+Use these line numbers for your @@ hunk headers. The patch system has fuzz matching (±3 lines tolerance), but accurate numbers improve reliability.
+Do NOT include the line number prefix (e.g., "   42| ") in your diff output.
 
 ## INSTRUCTIONS:
 1. These errors were caught by the bundler, not TypeScript
 2. Common causes: circular imports, missing exports, runtime errors
 3. Fix ONLY the specific errors listed
 4. DO NOT change working functionality
-5. Output fixed files using: ```filepath:path/to/file.tsx
+5. Output unified diffs for files that need changes
+6. Context lines must match the source file EXACTLY (character-for-character)
+{DIFF_FORMAT_INSTRUCTIONS}
 
 Make minimal changes to fix the errors."""
 
     return prompt
-
