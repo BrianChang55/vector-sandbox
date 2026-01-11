@@ -961,6 +961,36 @@ useEffect(() => {{
 }}, []);
 ```
 
+### TypeScript Types (ALWAYS Use Predefined Types)
+
+🚨 **CRITICAL: DO NOT define your own types for data tables!**
+
+The file `src/lib/types.ts` is AUTOMATICALLY generated with TypeScript types for all your data tables.
+You MUST import and use these predefined types instead of creating your own.
+
+```typescript
+import {{ CustomerData, OrderData }} from './lib/types';  // For App.tsx
+import {{ CustomerData, OrderData }} from '../lib/types'; // For components
+
+// Use the predefined types with dataStore
+const result = await dataStore.query<CustomerData>('customers', {{}});
+```
+
+❌ FORBIDDEN - DO NOT CREATE YOUR OWN TYPES:
+```typescript
+// WRONG! Don't define these yourself:
+interface Customer {{
+  name: string;
+  email: string;
+}}
+type CustomerType = {{ ... }}
+```
+
+✅ CORRECT - Import from ./lib/types:
+```typescript
+import {{ CustomerData }} from './lib/types';
+```
+
 ## OUTPUT FORMAT
 
 You MUST format each file exactly like this:
@@ -1010,6 +1040,7 @@ CRITICAL REQUIREMENTS:
 7. Use Tailwind CSS for all styling
 8. Handle loading and error states
 9. Make it interactive (search, filters, etc. as appropriate)
+10. Use predefined types from './lib/types' - DO NOT define your own types for data tables
 
 OUTPUT FORMAT - Generate ONLY the App.tsx file:
 ```src/App.tsx
@@ -1269,11 +1300,26 @@ Guidelines:
 1. Generate complete, runnable code
 2. Handle loading and error states elegantly
 3. Use professional, modern UI patterns
-4. Include proper TypeScript types
+4. Use predefined TypeScript types from `./lib/types.ts` - DO NOT define your own types for data tables
 5. Make responsive designs
 6. Use semantic HTML
 7. Add helpful comments
 8. Use dataStore API for all data operations - no mock data for main functionality
+
+### TypeScript Types (CRITICAL)
+TypeScript types for all data tables are pre-generated in `src/lib/types.ts`.
+You MUST import and use these types instead of defining your own:
+
+```typescript
+import {{ CustomerData, OrderData }} from './lib/types';  // From App.tsx
+import {{ CustomerData, OrderData }} from '../lib/types'; // From components/
+
+// Use with dataStore
+const result = await dataStore.query<CustomerData>('customers', {{}});
+```
+
+❌ DO NOT define your own types for data tables
+✅ Always import from './lib/types'
 
 Base design/style requirements (always follow):
 {design_style}
