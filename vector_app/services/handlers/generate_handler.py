@@ -386,17 +386,29 @@ class GenerateHandler(BaseHandler):
                 yield self.emit_streaming_warning(warning)
             
             # Parse and emit table definitions if app and version provided
+            tables_created = False
             if app and version:
                 table_defs = self._parse_table_definitions(full_content)
                 if table_defs:
+                    tables_created = True
                     yield self.emit_thinking(
                         f"Creating {len(table_defs)} data table(s)...",
                         "decision",
                     )
                     for event in self._apply_table_definitions(table_defs, app, version):
                         yield event
-            
-            # Parse generated files
+
+                    # 🚨 CRITICAL: Early return after table creation
+                    # This prevents Claude from generating code that uses tables in the same step
+                    # The next step will have the refreshed schema context
+                    logger.info(f"🚫 [TABLE/CODE SEPARATION] Tables created - returning early to prevent code generation in same step")
+                    yield self.emit_thinking(
+                        "Data tables created successfully. Code generation will happen in next step with complete schema.",
+                        "observation"
+                    )
+                    return  # EXIT EARLY - don't parse code when tables were created
+
+            # Parse generated files (only if no tables were created)
             files = self.parse_code_blocks(full_content)
 
             # Validate dataStore field names against schema
