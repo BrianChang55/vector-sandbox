@@ -667,6 +667,7 @@ class SchemaHandler(BaseHandler):
                             action='create',
                             language=vf.path.split('.')[-1] if '.' in vf.path else 'tsx',
                             content=vf.content or '',
+                            previous_content=vf.content or '',
                         ))
             except Exception as e:
                 logger.warning(f"Error merging existing files: {e}")

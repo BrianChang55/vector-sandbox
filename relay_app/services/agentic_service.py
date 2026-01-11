@@ -111,6 +111,7 @@ class FileChange:
     action: str  # create, modify, delete
     language: str
     content: str
+    previous_content: str = ""
     lines_added: int = 0
     lines_removed: int = 0
 
@@ -505,6 +506,7 @@ class AgenticService:
                                 action=file_data.get("action", "modify"),
                                 language=file_data.get("language", "tsx"),
                                 content=file_data.get("content", ""),
+                                previous_content=file_data.get("previous_content", ""),
                                 lines_added=file_data.get("lines_added", 0),
                                 lines_removed=file_data.get("lines_removed", 0),
                             )
@@ -1037,16 +1039,16 @@ class AgenticService:
                     
                     # Determine file based on content and step type
                     if 'export default' in largest_block or 'function App' in largest_block:
-                        files.append(FileChange("src/App.tsx", "create", "tsx", largest_block, lines_added=block_lines, lines_removed=0))
+                        files.append(FileChange("src/App.tsx", "create", "tsx", largest_block, previous_content="", lines_added=block_lines, lines_removed=0))
                     elif step.type == "styling":
-                        files.append(FileChange("src/styles/main.css", "create", "css", largest_block, lines_added=block_lines, lines_removed=0))
+                        files.append(FileChange("src/styles/main.css", "create", "css", largest_block, previous_content="", lines_added=block_lines, lines_removed=0))
                     elif step.type == "component":
                         # Try to extract component name
                         name_match = re.search(r'(?:function|const)\s+(\w+)', largest_block)
                         comp_name = name_match.group(1) if name_match else "Component"
-                        files.append(FileChange(f"src/components/{comp_name}.tsx", "create", "tsx", largest_block, lines_added=block_lines, lines_removed=0))
+                        files.append(FileChange(f"src/components/{comp_name}.tsx", "create", "tsx", largest_block, previous_content="", lines_added=block_lines, lines_removed=0))
                     else:
-                        files.append(FileChange("src/App.tsx", "create", "tsx", largest_block, lines_added=block_lines, lines_removed=0))
+                        files.append(FileChange("src/App.tsx", "create", "tsx", largest_block, previous_content="", lines_added=block_lines, lines_removed=0))
         
         logger.info(f"Parsed {len(files)} files from AI response")
         return files

@@ -2,14 +2,43 @@
 Diff Utilities for Surgical Edits
 
 Provides utilities to parse unified diffs from LLM output and apply them to files.
+Uses subprocess patch command as primary (with fuzz matching), whatthepatch as fallback.
 """
 
 import logging
+import os
 import re
+import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
+import whatthepatch
+
 logger = logging.getLogger(__name__)
+
+
+def format_with_line_numbers(content: str) -> str:
+    """
+    Format file content with line numbers for LLM context.
+    
+    This helps the LLM generate accurate line numbers in diff hunk headers
+    by showing exactly which line number each piece of code is on.
+    
+    Args:
+        content: The file content to format
+        
+    Returns:
+        Content with line numbers prefixed (e.g., "  42| const x = 1;")
+    """
+    if not content:
+        return content
+    
+    lines = content.split('\n')
+    # Calculate width needed for line numbers (minimum 4 for alignment)
+    width = max(4, len(str(len(lines))))
+    numbered_lines = [f"{i+1:>{width}}| {line}" for i, line in enumerate(lines)]
+    return '\n'.join(numbered_lines)
 
 
 @dataclass
@@ -99,10 +128,20 @@ def _parse_diff_block(block: str) -> List[FileDiff]:
             current_hunk_lines = []
             in_hunk = False
             
-            # Skip the +++ line if present
+            # Parse the +++ line to get the destination path
+            # Always prefer the destination path for:
+            # - New files: --- /dev/null, +++ src/new.tsx
+            # - Renamed files: --- a/old.tsx, +++ b/new.tsx
+            # - Modified files: paths are the same, so either works
             if i + 1 < len(lines) and lines[i + 1].startswith('+++ '):
                 i += 1
-        
+                dest_path = lines[i][4:].strip()
+                if dest_path.startswith('b/'):
+                    dest_path = dest_path[2:]
+                # Use destination path if it's a real file (not /dev/null for deletions)
+                if dest_path and dest_path != '/dev/null':
+                    current_path = dest_path
+
         # Check for hunk header (@@ ... @@)
         elif line.startswith('@@'):
             # Save previous hunk if exists
@@ -135,9 +174,54 @@ def _parse_diff_block(block: str) -> List[FileDiff]:
     return diffs
 
 
+def _apply_with_subprocess_patch(original_content: str, diff_text: str) -> str:
+    """
+    Apply patch using subprocess, with proper error handling.
+    
+    This is our own implementation because whatthepatch's use_patch=True has a bug
+    where it tries to read the output file before checking if patch succeeded.
+    
+    Args:
+        original_content: The original file content
+        diff_text: The unified diff text to apply
+        
+    Returns:
+        The patched content
+        
+    Raises:
+        Exception: If the patch command fails
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        orig_file = os.path.join(tmpdir, "original")
+        patch_file = os.path.join(tmpdir, "diff.patch")
+        out_file = os.path.join(tmpdir, "output")
+        
+        with open(orig_file, 'w') as f:
+            f.write(original_content)
+        with open(patch_file, 'w') as f:
+            f.write(diff_text)
+        
+        result = subprocess.run(
+            ['patch', '--fuzz=3', '-o', out_file, orig_file, '-i', patch_file],
+            capture_output=True,
+            text=True
+        )
+        
+        # Check return code BEFORE reading output (fixes whatthepatch bug)
+        if result.returncode != 0:
+            raise Exception(f"patch failed (code {result.returncode}): {result.stderr}")
+        
+        with open(out_file) as f:
+            return f.read()
+
+
 def apply_diff(original_content: str, diff: FileDiff) -> str:
     """
     Apply a unified diff to original file content.
+    
+    Uses subprocess patch command as primary (has fuzz matching and handles
+    multi-hunk offsets automatically). Falls back to whatthepatch for systems
+    without the patch command.
     
     Args:
         original_content: The original file content
@@ -149,183 +233,138 @@ def apply_diff(original_content: str, diff: FileDiff) -> str:
     if not diff.hunks:
         return original_content
     
-    lines = original_content.split('\n')
+    # Reconstruct full diff with all hunks - patch handles offsets internally
+    diff_text = _reconstruct_diff(diff)
     
-    # Apply hunks in reverse order to preserve line numbers
-    # Parse all hunks first
-    parsed_hunks = []
-    for hunk in diff.hunks:
-        parsed = _parse_hunk(hunk)
-        if parsed:
-            parsed_hunks.append(parsed)
+    try:
+        # Use our own subprocess patch implementation (with proper error handling)
+        # patch command has fuzz matching and handles multi-hunk offsets automatically
+        result = _apply_with_subprocess_patch(original_content, diff_text)
+        return result
+    except Exception as e:
+        logger.warning(f"Subprocess patch failed for {diff.path}: {e}, falling back to whatthepatch")
     
-    # Sort by start line descending so we apply from bottom to top
-    parsed_hunks.sort(key=lambda h: h[0], reverse=True)
-    
-    for start_line, lines_to_remove, new_lines, context_before in parsed_hunks:
-        lines = _apply_hunk(lines, start_line, lines_to_remove, new_lines, context_before)
-    
-    return '\n'.join(lines)
+    # Fallback to whatthepatch for systems without patch command
+    try:
+        parsed_diffs = list(whatthepatch.parse_patch(diff_text))
+        if not parsed_diffs:
+            logger.warning(f"[DIFF] whatthepatch could not parse diff for {diff.path}")
+            return original_content
+        
+        parsed_diff = parsed_diffs[0]
+        current_lines = original_content.split('\n')
+        result = whatthepatch.apply_diff(parsed_diff, current_lines)
+        new_lines = list(result)
+        
+        if new_lines is None:
+            logger.warning(f"[DIFF] whatthepatch returned None for {diff.path}")
+            return original_content
+        
+        return '\n'.join(new_lines)
+    except Exception as e2:
+        logger.error(f"[DIFF] Both patch methods failed for {diff.path}: {e2}")
+        return original_content
 
 
-def _parse_hunk(hunk: str) -> Optional[Tuple[int, int, List[str], List[str]]]:
+def _fix_hunk_header(hunk: str) -> str:
     """
-    Parse a single hunk into its components.
+    Fix the line counts in a hunk header based on actual content.
     
+    LLMs often generate incorrect line counts in @@ headers. This function
+    recalculates them based on the actual lines in the hunk.
+    
+    Args:
+        hunk: A single hunk string starting with @@ header
+        
     Returns:
-        Tuple of (start_line, lines_to_remove, new_lines, context_before)
-        where lines_to_remove is the actual count of '-' lines (not old_count from header)
-        or None if parsing fails
+        The hunk with corrected @@ header line counts
     """
     lines = hunk.split('\n')
-    if not lines:
-        return None
+    if not lines or not lines[0].startswith('@@'):
+        return hunk
     
-    # Parse hunk header: @@ -start,count +start,count @@ optional context
-    header_match = re.match(r'@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@', lines[0])
-    if not header_match:
-        return None
+    header = lines[0]
+    content_lines = lines[1:]
     
-    old_start = int(header_match.group(1))
+    # Parse the original header to get starting line numbers
+    # Format: @@ -start,count +start,count @@ optional context
+    match = re.match(r'@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)?(?: @@(.*))?', header)
+    if not match:
+        return hunk
     
-    # Parse hunk content
-    context_before: List[str] = []
-    new_lines: List[str] = []
-    in_change = False
-    lines_to_remove = 0
+    old_start = match.group(1)
+    new_start = match.group(2)
+    context_text = match.group(3) or ''
     
-    for line in lines[1:]:
-        if line.startswith(' '):
-            # Context line
-            if not in_change:
-                # Context BEFORE changes - used for matching location
-                context_before.append(line[1:])
-            # else: Context AFTER changes - ignore, these already exist in source file
-        elif line.startswith('-'):
-            # Removal
-            in_change = True
-            lines_to_remove += 1
+    # Count actual lines
+    old_count = 0  # Lines in original (context + removed)
+    new_count = 0  # Lines in new (context + added)
+    
+    for line in content_lines:
+        if line.startswith('-'):
+            old_count += 1
         elif line.startswith('+'):
-            # Addition - these are the actual new lines to insert
-            in_change = True
-            new_lines.append(line[1:])
-        elif line == '':
-            # Empty line without prefix - could be context or end of hunk
-            # Only add to context_before if we haven't started changes yet
-            if not in_change:
-                context_before.append('')
-            # After changes, bare empty lines are context-after - ignore them
+            new_count += 1
+        elif line.startswith(' ') or line == '':
+            # Context line (or empty line treated as context)
+            old_count += 1
+            new_count += 1
     
-    # DEBUG: Log parsed hunk details
-    logger.debug(f"[DIFF] Parsed hunk: start={old_start}, lines_to_remove={lines_to_remove}, "
-                 f"new_lines_count={len(new_lines)}, context_before_count={len(context_before)}")
+    # Reconstruct header with correct counts
+    new_header = f'@@ -{old_start},{old_count} +{new_start},{new_count} @@{context_text}'
     
-    # Return actual lines_to_remove count (not old_count from header)
-    # This fixes the bug where pure additions incorrectly removed context-after lines
-    return (old_start, lines_to_remove, new_lines, context_before)
+    return new_header + '\n' + '\n'.join(content_lines)
 
 
-def _apply_hunk(
-    lines: List[str],
-    start_line: int,
-    lines_to_remove: int,
-    new_lines: List[str],
-    context_before: List[str],
-) -> List[str]:
+def _get_hunk_start_line(hunk: str) -> int:
     """
-    Apply a single parsed hunk to the file lines.
-    
-    Uses context matching to find the correct location if line numbers
-    don't match exactly (handles file drift).
+    Extract the starting line number from a hunk header.
     
     Args:
-        lines: Original file lines
-        start_line: 1-indexed start line from hunk header
-        lines_to_remove: Actual count of '-' lines in the hunk
-        new_lines: Lines to insert ('+' lines and context-after)
-        context_before: Context lines before the change for matching
-    """
-    # Convert to 0-indexed
-    start_idx = start_line - 1
-    
-    # Try exact position first
-    if _context_matches(lines, start_idx, context_before):
-        return _splice_lines(lines, start_idx, lines_to_remove, new_lines, len(context_before))
-    
-    # Search nearby for matching context (handle drift)
-    search_range = 50  # Search up to 50 lines in either direction
-    for offset in range(1, search_range + 1):
-        # Try above
-        if start_idx - offset >= 0:
-            if _context_matches(lines, start_idx - offset, context_before):
-                return _splice_lines(lines, start_idx - offset, lines_to_remove, new_lines, len(context_before))
+        hunk: A hunk string starting with @@ header
         
-        # Try below
-        if start_idx + offset < len(lines):
-            if _context_matches(lines, start_idx + offset, context_before):
-                return _splice_lines(lines, start_idx + offset, lines_to_remove, new_lines, len(context_before))
-    
-    # Fallback: apply at original position even if context doesn't match
-    return _splice_lines(lines, start_idx, lines_to_remove, new_lines, len(context_before))
-
-
-def _context_matches(lines: List[str], start_idx: int, context: List[str]) -> bool:
-    """Check if context lines match at the given position."""
-    if not context:
-        return True
-    
-    if start_idx < 0 or start_idx + len(context) > len(lines):
-        return False
-    
-    for i, ctx_line in enumerate(context):
-        if start_idx + i >= len(lines):
-            return False
-        # Fuzzy match: strip whitespace for comparison
-        if lines[start_idx + i].strip() != ctx_line.strip():
-            return False
-    
-    return True
-
-
-def _splice_lines(
-    lines: List[str],
-    start_idx: int,
-    lines_to_remove: int,
-    new_lines: List[str],
-    context_len: int,
-) -> List[str]:
+    Returns:
+        The starting line number in the original file, or 0 if parsing fails
     """
-    Replace lines from start_idx, removing lines_to_remove and inserting new_lines.
+    if not hunk.startswith('@@'):
+        return 0
+    
+    match = re.match(r'@@ -(\d+)', hunk)
+    return int(match.group(1)) if match else 0
+
+
+def _reconstruct_diff(diff: FileDiff) -> str:
+    """
+    Reconstruct a proper unified diff string from FileDiff for whatthepatch.
+    
+    Fixes hunk headers with incorrect line counts (common LLM error).
+    Sorts hunks by starting line number to ensure correct order.
     
     Args:
-        lines: Original file lines
-        start_idx: 0-indexed start position
-        lines_to_remove: Actual count of lines to remove (from '-' lines in diff)
-        new_lines: Lines to insert
-        context_len: Number of context-before lines (to skip past)
+        diff: FileDiff object with path and hunks
+        
+    Returns:
+        A unified diff string that whatthepatch can parse
     """
-    # The actual change starts after the context lines
-    change_start = start_idx + context_len
+    lines = []
     
-    # Handle edge cases
-    if change_start < 0:
-        change_start = 0
-    if change_start > len(lines):
-        change_start = len(lines)
+    # Add file headers
+    # Use /dev/null for new files
+    if diff.path == '/dev/null':
+        lines.append('--- /dev/null')
+    else:
+        lines.append(f'--- {diff.path}')
+    lines.append(f'+++ {diff.path}')
     
-    # Ensure we don't remove more lines than exist
-    if lines_to_remove < 0:
-        lines_to_remove = 0
-    end_idx = min(change_start + lines_to_remove, len(lines))
+    # Sort hunks by starting line number (LLMs sometimes generate out of order)
+    sorted_hunks = sorted(diff.hunks, key=_get_hunk_start_line)
     
-    # DEBUG: Log splice operation
-    logger.debug(f"[DIFF] Splice: change_start={change_start}, lines_to_remove={lines_to_remove}, "
-                 f"new_lines_count={len(new_lines)}, end_idx={end_idx}")
-    
-    # Splice: keep before, add new, keep after
-    result = lines[:change_start] + new_lines + lines[end_idx:]
-    
-    return result
+    # Add all hunks with fixed headers
+    for hunk in sorted_hunks:
+        fixed_hunk = _fix_hunk_header(hunk)
+        lines.append(fixed_hunk)
+
+    return '\n'.join(lines)
 
 
 def _count_lines_from_hunks(hunks: List[str]) -> Tuple[int, int]:

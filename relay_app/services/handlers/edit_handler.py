@@ -9,7 +9,7 @@ import time
 from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
 from .base_handler import BaseHandler, AgentEvent, FileChange, PlanStep
-from .diff_utils import parse_diffs, apply_diff
+from .diff_utils import parse_diffs, apply_diff, format_with_line_numbers
 
 if TYPE_CHECKING:
     from relay_app.models import InternalApp, AppVersion
@@ -63,8 +63,18 @@ EDIT_PROMPT_TEMPLATE = """Make the following TARGETED change to the existing cod
 ## User Request
 {user_message}
 
-## Current File Contents
+## Current File Contents (with line numbers)
 {files_context}
+
+**LINE NUMBERS**: The file contents above include line numbers in the format "  42| code here".
+Use these line numbers for your @@ hunk headers. The patch system has fuzz matching (±3 lines tolerance), but accurate numbers improve reliability.
+Do NOT include the line number prefix (e.g., "  42| ") in your diff output.
+
+**CRITICAL - CONTEXT LINES MUST BE EXACT**:
+The patch system can tolerate slight line number errors, but context lines MUST match the source file CHARACTER-FOR-CHARACTER.
+- Copy context lines exactly as shown (same whitespace, same quotes, same everything)
+- If the source has `  return <div className="p-4">` your context must be identical
+- Mismatched context lines will cause the patch to fail
 
 ## Surgical Edit Instructions
 
@@ -92,7 +102,7 @@ For each file you modify, output a unified diff inside a ```diff code block:
 ```diff
 --- src/path/to/file.tsx
 +++ src/path/to/file.tsx
-@@ -LINE,COUNT +LINE,COUNT @@ optional function/class context
+@@ -LINE,COUNT +LINE,COUNT @@
  context line (unchanged, starts with space)
  context line (unchanged, starts with space)
  context line (unchanged, starts with space)
@@ -146,14 +156,14 @@ GOOD (separate hunks):
 +new export
 ```
 
-### Example
+### Example: Modifying an existing file
 
 If changing a button's text from "Submit" to "Save":
 
 ```diff
 --- src/components/Form.tsx
 +++ src/components/Form.tsx
-@@ -15,7 +15,7 @@ function Form() {{
+@@ -15,7 +15,7 @@
    return (
      <form onSubmit={{handleSubmit}}>
        <input value={{value}} onChange={{handleChange}} />
@@ -162,6 +172,28 @@ If changing a button's text from "Submit" to "Save":
      </form>
    );
  }}
+```
+
+### Example: Creating a NEW file
+
+For new files that don't exist yet, use `--- /dev/null` and start line numbers at 1.
+The `+1,N` in the hunk header means "starting at line 1, adding N lines":
+
+```diff
+--- /dev/null
++++ src/components/NewComponent.tsx
+@@ -0,0 +1,12 @@
++import React from "react";
++
++interface NewComponentProps {{
++  title: string;
++}}
++
++export function NewComponent({{ title }}: NewComponentProps) {{
++  return (
++    <div className="p-4">{{title}}</div>
++  );
++}}
 ```
 
 ### Example with longer removals
@@ -190,7 +222,7 @@ When removing multi-line blocks (functions, JSX elements, conditionals), you MUS
    }}
 
    return (
-@@ -20,9 +12,6 @@ function Form() {{
+@@ -20,9 +12,6 @@
      <form>
        <input value={{value}} onChange={{handleChange}} />
 -      {{hasError && (
@@ -473,11 +505,12 @@ class EditHandler(BaseHandler):
         """Generate edited versions of files."""
         files = []
         
-        # Build context of files to edit
+        # Build context of files to edit with line numbers for accurate diff generation
         files_context = ""
         for path, content in file_contents.items():
-            files_context += f"\n### {path}\n```\n{content}\n```\n"
-        
+            numbered_content = format_with_line_numbers(content)
+            files_context += f"\n### {path}\n```\n{numbered_content}\n```\n"
+
         if not files_context:
             files_context = "No existing files to modify."
         
@@ -540,6 +573,9 @@ class EditHandler(BaseHandler):
             # DEBUG: Log parsed diffs
             logger.debug(f"[EDIT] Parsed {len(diffs)} diff(s) from LLM response")
             for diff in diffs:
+                original = file_contents.get(diff.path, "")
+                numbered = format_with_line_numbers(original)
+                logger.debug(f"[EDIT] Original file {diff.path} ({len(original)} chars):\n{numbered[:8000]}")
                 logger.debug(f"[EDIT] Diff for {diff.path}: {len(diff.hunks)} hunk(s)")
                 for i, hunk in enumerate(diff.hunks):
                     logger.debug(f"[EDIT]   Hunk {i+1}:\n{hunk[:10000]}")
@@ -559,6 +595,7 @@ class EditHandler(BaseHandler):
                         action='modify',
                         language=self.get_language(diff.path),
                         content=new_content,
+                        previous_content=original,
                         lines_added=diff.lines_added,
                         lines_removed=diff.lines_removed,
                     )
@@ -602,6 +639,7 @@ class EditHandler(BaseHandler):
                         action='create',
                         language=vf.path.split('.')[-1] if '.' in vf.path else 'tsx',
                         content=vf.content or '',
+                        previous_content=vf.content or '',
                     ))
             except Exception as e:
                 logger.warning(f"Error getting existing files: {e}")

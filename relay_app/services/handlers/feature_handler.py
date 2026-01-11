@@ -9,7 +9,7 @@ import time
 from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
 from .base_handler import BaseHandler, AgentEvent, FileChange, PlanStep
-from .diff_utils import parse_diffs, apply_diff
+from .diff_utils import parse_diffs, apply_diff, format_with_line_numbers
 
 if TYPE_CHECKING:
     from relay_app.models import InternalApp, AppVersion
@@ -89,8 +89,18 @@ FEATURE_GENERATION_PROMPT = """Add the following feature to the existing applica
 {feature_analysis}
 {reusable_components}
 {codebase_style}
-## Existing Code
+## Existing Code (with line numbers)
 {existing_code}
+
+**LINE NUMBERS**: The file contents above include line numbers in the format "  42| code here".
+Use these line numbers for your @@ hunk headers. The patch system has fuzz matching (±3 lines tolerance), but accurate numbers improve reliability.
+Do NOT include the line number prefix (e.g., "  42| ") in your diff output.
+
+**CRITICAL - CONTEXT LINES MUST BE EXACT**:
+The patch system can tolerate slight line number errors, but context lines MUST match the source file CHARACTER-FOR-CHARACTER.
+- Copy context lines exactly as shown (same whitespace, same quotes, same everything)
+- If the source has `  return <div className="p-4">` your context must be identical
+- Mismatched context lines will cause the patch to fail
 
 ## Instructions
 1. **Check for reusable components first** - extend existing components when possible
@@ -106,7 +116,7 @@ For ALL files (new and modified), output unified diffs inside ```diff code block
 ```diff
 --- src/path/to/file.tsx
 +++ src/path/to/file.tsx
-@@ -LINE,COUNT +LINE,COUNT @@ optional function/class context
+@@ -LINE,COUNT +LINE,COUNT @@
  context line (unchanged, starts with space)
  context line (unchanged, starts with space)
  context line (unchanged, starts with space)
@@ -185,7 +195,7 @@ Include context lines from the existing code:
  
  function App() {{
    return (
-@@ -10,6 +11,7 @@ function App() {{
+@@ -10,6 +11,7 @@
      <div>
        <Header />
        <Main />
@@ -221,7 +231,7 @@ When removing multi-line blocks (functions, JSX elements, conditionals), you MUS
    }}
 
    return (
-@@ -20,9 +12,6 @@ function Form() {{
+@@ -20,9 +12,6 @@
      <form>
        <input value={{value}} onChange={{handleChange}} />
 -      {{hasError && (
@@ -575,14 +585,13 @@ class FeatureHandler(BaseHandler):
         """Generate the new feature code."""
         files = []
         
-        # Build existing code context
+        # Build existing code context with line numbers for accurate diff generation
         code_context = ""
         for path, content in existing_code.items():
-            # Truncate large files
-            truncated = content[:3000]
-            if len(content) > 3000:
-                truncated += "\n// ... (truncated)"
-            code_context += f"\n### {path}\n```\n{truncated}\n```\n"
+            # Add line numbers first so LLM can reference them in diffs
+            numbered_content = format_with_line_numbers(content)
+            # Truncate large files (line numbers are preserved for visible lines)
+            code_context += f"\n### {path}\n```\n{numbered_content}\n```\n"
         
         import json
         feature_analysis_str = json.dumps(feature_analysis, indent=2)
@@ -659,6 +668,9 @@ class FeatureHandler(BaseHandler):
             # DEBUG: Log parsed diffs
             logger.debug(f"[FEATURE] Parsed {len(diffs)} diff(s) from LLM response")
             for diff in diffs:
+                original = existing_code.get(diff.path, "")
+                numbered = format_with_line_numbers(original)
+                logger.debug(f"[FEATURE] Original file {diff.path} ({len(original)} chars):\n{numbered}")
                 logger.debug(f"[FEATURE] Diff for {diff.path}: {len(diff.hunks)} hunk(s)")
                 for i, hunk in enumerate(diff.hunks):
                     logger.debug(f"[FEATURE]   Hunk {i+1}:\n{hunk[:10000]}")
@@ -678,6 +690,7 @@ class FeatureHandler(BaseHandler):
                         action=action,
                         language=self.get_language(diff.path),
                         content=new_content,
+                        previous_content=original,
                         lines_added=diff.lines_added,
                         lines_removed=diff.lines_removed,
                     )
@@ -723,6 +736,7 @@ class FeatureHandler(BaseHandler):
                             action='create',
                             language=vf.path.split('.')[-1] if '.' in vf.path else 'tsx',
                             content=vf.content or '',
+                            previous_content=vf.content or '',
                         ))
             except Exception:
                 pass

@@ -376,6 +376,7 @@ class ErrorFixService:
                     action='modify',
                     language=lang_map.get(ext, 'tsx'),
                     content=code,
+                    previous_content=original_content,
                     lines_added=lines_added,
                     lines_removed=lines_removed,
                 ))

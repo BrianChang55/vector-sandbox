@@ -584,6 +584,7 @@ class GenerateHandler(BaseHandler):
                     action=f.action,
                     language=f.language,
                     content=f.content,
+                    previous_content=f.previous_content,
                     lines_added=f.lines_added,
                     lines_removed=f.lines_removed,
                 )
@@ -626,6 +627,7 @@ class GenerateHandler(BaseHandler):
                                 action=file_data.get("action", "modify"),
                                 language=file_data.get("language", "tsx"),
                                 content=file_data.get("content", ""),
+                                previous_content=file_data.get("previous_content", ""),
                                 lines_added=file_data.get("lines_added", 0),
                                 lines_removed=file_data.get("lines_removed", 0),
                             )
