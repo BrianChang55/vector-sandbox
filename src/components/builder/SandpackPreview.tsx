@@ -1210,9 +1210,18 @@ function SandpackErrorHandler({
         
         setHasInitialized(true)
       }
-      
-      // Clear errors on successful compilation
-      if (msg.type === 'done' || (msg as { type: string }).type === 'success') {
+
+      // Handle compilation errors from 'done' message
+      // Note: Sandpack has a typo - it's "compilatonError" not "compilationError"
+      const hasCompilationError = (msg as any).compilatonError === true
+      if (msg.type === 'done' && hasCompilationError) {
+        console.log('[SandpackErrorHandler] Compilation error detected in done message')
+        // The actual error should be in sandpack.error - mark as initialized so we capture it
+        setHasInitialized(true)
+      }
+
+      // Clear errors on successful compilation (but NOT if there's a compilation error)
+      if ((msg.type === 'done' && !hasCompilationError) || (msg as { type: string }).type === 'success') {
         setErrors([])
         lastReportedSignatureRef.current = ''
         bundlerFailureCountRef.current = 0  // Reset failure count on success
@@ -1239,6 +1248,7 @@ function SandpackErrorHandler({
   useEffect(() => {
     const sandpackError = sandpack.error
     if (sandpackError) {
+      console.error('[SandpackErrorHandler] Error in sandbox:', sandpackError)
       // Safely extract error message - SyntaxError objects have read-only message properties
       // that can throw TypeError when accessed in certain contexts
       let msg = ''
@@ -1302,6 +1312,9 @@ function SandpackErrorHandler({
       
       // Mark as initialized when we detect an error from sandpack.error
       setHasInitialized(true)
+    } else {
+      // sandpack.error is null - compilation succeeded, clear errors
+      setErrors([])
     }
   }, [sandpack.error])
   
