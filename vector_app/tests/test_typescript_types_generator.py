@@ -378,6 +378,8 @@ class TestTypeScriptCompilation(TestCase):
                 {'name': 'id', 'type': 'uuid', 'primary_key': True, 'auto_generate': True, 'nullable': False},
                 {'name': 'email', 'type': 'string', 'nullable': False},
                 {'name': 'name', 'type': 'string', 'nullable': True},
+                {'name': 'created_at', 'type': 'datetime', 'auto_now_add': True, 'nullable': False},
+                {'name': 'updated_at', 'type': 'datetime', 'auto_now': True, 'nullable': False},
             ]
         }
 
