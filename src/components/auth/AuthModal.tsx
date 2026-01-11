@@ -305,7 +305,8 @@ export function AuthModal({
             setShowAccountNotFound(false)
             setNameError('')
           }}
-          className={`flex-1 rounded-md py-2 text-sm font-medium transition-colors ${
+          disabled={isSendingMagicLink || isGoogleLoading}
+          className={`flex-1 rounded-md py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
             mode === 'signin'
               ? 'bg-gray-100 text-gray-900'
               : 'text-gray-500 hover:text-gray-700'
@@ -319,7 +320,8 @@ export function AuthModal({
             setMode('signup')
             setShowAccountNotFound(false)
           }}
-          className={`flex-1 rounded-md py-2 text-sm font-medium transition-colors ${
+          disabled={isSendingMagicLink || isGoogleLoading}
+          className={`flex-1 rounded-md py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
             mode === 'signup'
               ? 'bg-gray-100 text-gray-900'
               : 'text-gray-500 hover:text-gray-700'
@@ -366,6 +368,7 @@ export function AuthModal({
                     if (nameError) setNameError('')
                   }}
                   autoComplete="given-name"
+                  disabled={isSendingMagicLink || isGoogleLoading}
                   className={nameError && !firstName.trim() ? 'border-red-300 focus-visible:ring-red-500' : ''}
                 />
               </div>
@@ -383,6 +386,7 @@ export function AuthModal({
                     if (nameError) setNameError('')
                   }}
                   autoComplete="family-name"
+                  disabled={isSendingMagicLink || isGoogleLoading}
                   className={nameError && !lastName.trim() ? 'border-red-300 focus-visible:ring-red-500' : ''}
                 />
               </div>
@@ -409,6 +413,7 @@ export function AuthModal({
             }}
             required
             autoComplete="email"
+            disabled={isSendingMagicLink || isGoogleLoading}
             className={emailError ? 'border-red-300 focus-visible:ring-red-500' : ''}
           />
           {emailError && (
