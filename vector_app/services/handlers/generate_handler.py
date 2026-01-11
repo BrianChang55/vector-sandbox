@@ -37,14 +37,14 @@ class GenerateHandler(BaseHandler):
     
     def __init__(self):
         super().__init__()
-        # Create parallel executor for step execution (max 3 concurrent steps)
+        # Create parallel executor for step execution (max 5 concurrent steps)
         self._parallel_executor: Optional[ParallelStepExecutor] = None
     
     @property
     def parallel_executor(self) -> ParallelStepExecutor:
         """Lazy-load the parallel executor."""
         if self._parallel_executor is None:
-            self._parallel_executor = create_parallel_executor(max_workers=3)
+            self._parallel_executor = create_parallel_executor(max_workers=5)
         return self._parallel_executor
     
     def execute(
