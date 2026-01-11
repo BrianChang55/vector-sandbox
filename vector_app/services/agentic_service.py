@@ -16,13 +16,10 @@ import logging
 import json
 import os
 import re
-import shutil
-import subprocess
-import tempfile
 import time
 import uuid
 from typing import Dict, Any, List, Optional, Generator, Tuple, TYPE_CHECKING
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, asdict
 from enum import Enum
 
 from django.conf import settings
@@ -54,6 +51,15 @@ from vector_app.services.intent_classifier import (
 )
 from vector_app.services.context_analyzer import get_context_analyzer
 from vector_app.services.intent_router import get_intent_router
+
+# Import shared types from types.py and re-export for backwards compatibility
+from vector_app.services.types import (
+    FileChange,
+    CompilationError,
+    ValidationResult,
+    AgentEvent,
+)
+from vector_app.services.validation_service import get_validation_service
 
 if TYPE_CHECKING:
     from vector_app.models import InternalApp, AppVersion
@@ -105,69 +111,12 @@ class AgentPlan:
 
 
 @dataclass
-class FileChange:
-    """A file change during execution."""
-    path: str
-    action: str  # create, modify, delete
-    language: str
-    content: str
-    previous_content: str = ""
-    lines_added: int = 0
-    lines_removed: int = 0
-
-
-@dataclass
-class AgentEvent:
-    """An event emitted during agent execution."""
-    type: str
-    data: Dict[str, Any]
-
-    def to_sse(self) -> str:
-        """Format as Server-Sent Event."""
-        return f"event: {self.type}\ndata: {json.dumps(self.data)}\n\n"
-
-
-@dataclass
 class TableDefinition:
     """A table definition parsed from agent output."""
     slug: str
     name: str
     description: str
     columns: List[Dict[str, Any]]
-
-
-@dataclass
-class CompilationError:
-    """A compilation error from TypeScript validation."""
-    file: str
-    line: int
-    column: int
-    message: str
-    code: Optional[str] = None  # TypeScript error code like TS2304
-    
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "file": self.file,
-            "line": self.line,
-            "column": self.column,
-            "message": self.message,
-            "code": self.code,
-        }
-
-
-@dataclass
-class ValidationResult:
-    """Result of TypeScript validation."""
-    passed: bool
-    errors: List[CompilationError] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
-    
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "passed": self.passed,
-            "errors": [e.to_dict() for e in self.errors],
-            "warnings": self.warnings,
-        }
 
 
 class AgenticService:
@@ -454,9 +403,11 @@ class AgenticService:
         validation_passed = False
         fix_attempts = 0
         
+        validation_service = get_validation_service()
+        
         for attempt in range(1, self.MAX_FIX_ATTEMPTS + 1):
             # Run TypeScript validation
-            ts_validation = self._validate_typescript(generated_files)
+            ts_validation = validation_service.validate_typescript(generated_files)
             
             if ts_validation.passed:
                 validation_passed = True
@@ -525,7 +476,7 @@ class AgenticService:
         
         # If still not passing after all attempts, emit final validation result
         if not validation_passed:
-            final_validation = self._validate_typescript(generated_files)
+            final_validation = validation_service.validate_typescript(generated_files)
             
             if final_validation.passed:
                 validation_passed = True
@@ -1360,190 +1311,6 @@ class AgenticService:
             "errors": errors,
             "warnings": warnings,
         }
-    
-    def _validate_typescript(self, files: List[FileChange]) -> ValidationResult:
-        """
-        Validate generated TypeScript/TSX files using the TypeScript compiler.
-        
-        Writes files to a temp directory, runs tsc --noEmit, and parses errors.
-        Returns structured ValidationResult with file, line, and message info.
-        """
-        # Filter to only TypeScript/TSX files
-        ts_files = [f for f in files if f.language in ('tsx', 'ts')]
-        
-        if not ts_files:
-            return ValidationResult(passed=True)
-        
-        # Check if tsc is available
-        tsc_path = shutil.which('tsc')
-        if not tsc_path:
-            # Try npx tsc as fallback
-            npx_path = shutil.which('npx')
-            if not npx_path:
-                logger.warning("TypeScript compiler not found, skipping validation")
-                return ValidationResult(passed=True, warnings=["TypeScript compiler not available"])
-            tsc_cmd = ['npx', 'tsc']
-        else:
-            tsc_cmd = [tsc_path]
-        
-        temp_dir = None
-        try:
-            # Create temp directory for validation
-            temp_dir = tempfile.mkdtemp(prefix='vector_tsc_')
-            
-            # Write files to temp directory
-            for file in ts_files:
-                # Normalize path - remove src/ prefix for temp dir
-                file_path = file.path
-                if file_path.startswith('src/'):
-                    file_path = file_path[4:]
-                
-                full_path = os.path.join(temp_dir, file_path)
-                os.makedirs(os.path.dirname(full_path), exist_ok=True)
-                
-                with open(full_path, 'w', encoding='utf-8') as f:
-                    f.write(file.content)
-            
-            # Create a minimal tsconfig.json for validation
-            tsconfig = {
-                "compilerOptions": {
-                    "target": "ES2020",
-                    "lib": ["ES2020", "DOM", "DOM.Iterable"],
-                    "module": "ESNext",
-                    "moduleResolution": "bundler",
-                    "jsx": "react-jsx",
-                    "strict": False,  # Lenient for generated code
-                    "noEmit": True,
-                    "skipLibCheck": True,
-                    "esModuleInterop": True,
-                    "allowSyntheticDefaultImports": True,
-                    "resolveJsonModule": True,
-                    "isolatedModules": True,
-                    "noImplicitAny": False,
-                    "strictNullChecks": False,
-                },
-                "include": ["**/*.ts", "**/*.tsx"],
-            }
-            
-            tsconfig_path = os.path.join(temp_dir, 'tsconfig.json')
-            with open(tsconfig_path, 'w', encoding='utf-8') as f:
-                json.dump(tsconfig, f, indent=2)
-            
-            # Create stub declarations for common dependencies
-            stubs_dir = os.path.join(temp_dir, 'node_modules', '@types')
-            os.makedirs(stubs_dir, exist_ok=True)
-            
-            # React stub
-            react_types_dir = os.path.join(stubs_dir, 'react')
-            os.makedirs(react_types_dir, exist_ok=True)
-            with open(os.path.join(react_types_dir, 'index.d.ts'), 'w') as f:
-                f.write('''
-declare module 'react' {
-    export function useState<T>(initial: T): [T, (v: T | ((prev: T) => T)) => void];
-    export function useEffect(effect: () => void | (() => void), deps?: any[]): void;
-    export function useCallback<T extends (...args: any[]) => any>(callback: T, deps: any[]): T;
-    export function useMemo<T>(factory: () => T, deps: any[]): T;
-    export function useRef<T>(initial: T): { current: T };
-    export function useContext<T>(context: any): T;
-    export function createContext<T>(defaultValue: T): any;
-    export function memo<T>(component: T): T;
-    export function forwardRef<T, P>(render: (props: P, ref: any) => any): any;
-    export type ReactNode = any;
-    export type FC<P = {}> = (props: P) => any;
-    export type ComponentProps<T> = any;
-    export default React;
-    const React: any;
-}
-declare module 'react-dom/client' {
-    export function createRoot(container: any): { render(element: any): void };
-}
-''')
-            
-            # Lucide-react stub
-            lucide_dir = os.path.join(temp_dir, 'node_modules', 'lucide-react')
-            os.makedirs(lucide_dir, exist_ok=True)
-            with open(os.path.join(lucide_dir, 'index.d.ts'), 'w') as f:
-                f.write('declare module "lucide-react" { const icons: any; export = icons; }')
-            with open(os.path.join(lucide_dir, 'package.json'), 'w') as f:
-                f.write('{"name": "lucide-react", "types": "index.d.ts"}')
-            
-            # Framer-motion stub
-            framer_dir = os.path.join(temp_dir, 'node_modules', 'framer-motion')
-            os.makedirs(framer_dir, exist_ok=True)
-            with open(os.path.join(framer_dir, 'index.d.ts'), 'w') as f:
-                f.write('declare module "framer-motion" { export const motion: any; export const AnimatePresence: any; }')
-            with open(os.path.join(framer_dir, 'package.json'), 'w') as f:
-                f.write('{"name": "framer-motion", "types": "index.d.ts"}')
-            
-            # Run tsc
-            result = subprocess.run(
-                tsc_cmd + ['--noEmit', '--pretty', 'false'],
-                cwd=temp_dir,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            
-            if result.returncode == 0:
-                return ValidationResult(passed=True)
-            
-            # Parse errors from stderr/stdout
-            errors = self._parse_tsc_errors(result.stdout + result.stderr, temp_dir)
-            
-            return ValidationResult(
-                passed=len(errors) == 0,
-                errors=errors,
-            )
-            
-        except subprocess.TimeoutExpired:
-            logger.warning("TypeScript validation timed out")
-            return ValidationResult(passed=True, warnings=["Validation timed out"])
-        except Exception as e:
-            logger.error(f"TypeScript validation error: {e}")
-            return ValidationResult(passed=True, warnings=[f"Validation error: {str(e)}"])
-        finally:
-            # Clean up temp directory
-            if temp_dir and os.path.exists(temp_dir):
-                try:
-                    shutil.rmtree(temp_dir)
-                except Exception as e:
-                    logger.warning(f"Failed to clean up temp dir: {e}")
-    
-    def _parse_tsc_errors(self, output: str, temp_dir: str) -> List[CompilationError]:
-        """Parse TypeScript compiler output into structured errors."""
-        errors = []
-        
-        # TypeScript error format: file(line,col): error TSxxxx: message
-        pattern = r'([^(]+)\((\d+),(\d+)\):\s*(error|warning)\s+(TS\d+):\s*(.+)'
-        
-        for line in output.strip().split('\n'):
-            line = line.strip()
-            if not line:
-                continue
-            
-            match = re.match(pattern, line)
-            if match:
-                file_path, line_num, col, severity, code, message = match.groups()
-                
-                # Convert temp path back to original path
-                file_path = file_path.strip()
-                if temp_dir in file_path:
-                    file_path = file_path.replace(temp_dir + os.sep, '')
-                
-                # Add back src/ prefix if not present
-                if not file_path.startswith('src/'):
-                    file_path = f'src/{file_path}'
-                
-                if severity == 'error':
-                    errors.append(CompilationError(
-                        file=file_path,
-                        line=int(line_num),
-                        column=int(col),
-                        message=message.strip(),
-                        code=code,
-                    ))
-        
-        return errors
 
 
 # Singleton
