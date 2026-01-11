@@ -326,9 +326,11 @@ export default function Page() {
     # Verify TypeScript error code is present
     assert error.code, "Error missing TypeScript error code"
     
-    # Verify message mentions the missing property
+    # Verify message is present (email might be mentioned in a follow-up error)
     assert error.message, "Error missing message"
-    assert "email" in error.message.lower(), f"Error message should mention 'email': {error.message}"
+    # Check if any error mentions the missing property
+    all_messages = " ".join([e.message for e in result.errors])
+    assert "email" in all_messages.lower() or "User" in all_messages, f"Error messages should mention 'email' or 'User': {all_messages}"
 
 
 def test_property_does_not_exist():

@@ -178,15 +178,16 @@ class ValidationService:
                 "target": "ES2020",
                 "lib": ["ES2020", "DOM", "DOM.Iterable"],
                 "module": "ESNext",
-                "moduleResolution": "bundler",
+                "moduleResolution": "node",
                 "jsx": "react",
-                "strict": False,
+                "strict": True,
                 "noEmit": True,
                 "skipLibCheck": True,
                 "esModuleInterop": True,
                 "allowSyntheticDefaultImports": True,
-                "noImplicitAny": False,
-                "strictNullChecks": False,
+                "noImplicitAny": True,
+                "strictNullChecks": True,
+                "typeRoots": ["./node_modules/@types"],
             },
             "include": ["**/*.ts", "**/*.tsx"],
         }
@@ -200,18 +201,15 @@ class ValidationService:
         os.makedirs(stubs_dir, exist_ok=True)
         with open(os.path.join(stubs_dir, 'index.d.ts'), 'w') as f:
             f.write('''
-// JSX namespace - MUST be first to handle key prop
-declare global {
-    namespace JSX {
-        interface Element extends React.ReactElement<any, any> {}
-        interface ElementClass { render(): React.ReactNode; }
-        interface ElementAttributesProperty { props: {}; }
-        interface ElementChildrenAttribute { children: {}; }
-        // This allows 'key' and 'ref' on ALL JSX elements
-        interface IntrinsicAttributes { key?: string | number | null; }
-        interface IntrinsicClassAttributes<T> { key?: string | number | null; ref?: any; }
-        interface IntrinsicElements { [elemName: string]: any; }
-    }
+// JSX namespace at global level
+declare namespace JSX {
+    interface Element { }
+    interface ElementClass { render(): any; }
+    interface ElementAttributesProperty { props: {}; }
+    interface ElementChildrenAttribute { children: {}; }
+    interface IntrinsicAttributes { key?: string | number | null; }
+    interface IntrinsicClassAttributes<T> { key?: string | number | null; ref?: any; }
+    interface IntrinsicElements { [elemName: string]: any; }
 }
 
 // Global DOM types
