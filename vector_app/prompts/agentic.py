@@ -349,6 +349,33 @@ setNotes(result.rows.map(row => ({{ ...row.data, id: row.id }})));
 setNotes(result.rows.map(row => ({{ id: row.id, title: row.data.title, content: row.data.content }})));
 ```
 
+### 16b. DataStore Update/Delete - Use row.id NOT row.data.id (CRITICAL!)
+When updating or deleting rows, you MUST use `row.id` (the system row UUID), NOT `row.data.id`:
+
+```typescript
+// ❌ WRONG - Using row.data.id causes "Row not found" error!
+await dataStore.update('notes', row.data.id, {{ title: 'Updated' }});  // FAILS!
+await dataStore.delete('notes', row.data.id);  // FAILS!
+
+// ✅ CORRECT - Use row.id (the system-generated row UUID)
+await dataStore.update('notes', row.id, {{ title: 'Updated' }});  // WORKS!
+await dataStore.delete('notes', row.id);  // WORKS!
+
+// When transforming rows for state, preserve row.id for later CRUD:
+interface NoteWithId {{
+  _rowId: string;  // Store row.id here for update/delete
+  id: string;      // This is row.data.id (your schema's id)
+  title: string;
+}}
+setNotes(result.rows.map(row => ({{
+  _rowId: row.id,  // SAVE THIS for update/delete operations!
+  ...row.data
+}})));
+
+// Later, when updating:
+await dataStore.update('notes', note._rowId, {{ title: 'New Title' }});
+```
+
 ### 17. Toast Component Pattern - Use Consistent Interface
 When creating Toast components, use this exact pattern to avoid props mismatches:
 
@@ -878,24 +905,46 @@ import {{ dataStore }} from '../lib/dataStore';  // For components in src/compon
 import {{ dataStore }} from './lib/dataStore';   // For App.tsx in src/
 ```
 
-### NEVER Create Custom Store Files
-❌ WRONG: `import {{ habitStore }} from './habitStore'`
-❌ WRONG: `import {{ taskStore }} from '../stores/taskStore'`
-❌ WRONG: `import {{ noteStore }} from './lib/noteStore'`
+### NEVER Create Custom Store Files (CRITICAL!)
+The `dataStore` is the ONLY data API. NEVER create entity-specific stores:
 
-✅ CORRECT: All data goes through `dataStore.query('table-slug')`, `dataStore.insert('table-slug', data)`, etc.
+❌ FORBIDDEN - DO NOT CREATE THESE FILES:
+- `import {{ habitStore }} from './habitStore'` - WRONG!
+- `import {{ taskStore }} from '../stores/taskStore'` - WRONG!
+- `import {{ noteStore }} from './lib/noteStore'` - WRONG!
+- `import {{ expenseStore }} from './expenseStore'` - WRONG!
+
+✅ CORRECT - Use the SINGLE dataStore for ALL data:
+```typescript
+import {{ dataStore }} from '../lib/dataStore';
+
+// For habits: use the TABLE SLUG, not a custom store
+await dataStore.query('habits', {{}});
+await dataStore.insert('habits', {{ name: 'Exercise' }});
+await dataStore.update('habits', rowId, {{ completed: true }});
+await dataStore.delete('habits', rowId);
+```
 
 ### Creating Data Tables
 If your app needs to store data, define table schemas using this EXACT format:
+
+🚨 **CRITICAL: DO NOT define 'id', 'created_at', or 'updated_at' columns!**
+These are AUTOMATICALLY added by the system to every table:
+- `id` (uuid, primary key, auto-generated)
+- `created_at` (datetime, auto-set on create)
+- `updated_at` (datetime, auto-set on update)
+
+If you need a custom identifier (like project code, ticket number, etc.), use a DIFFERENT name:
+- ✅ `project_code`, `ticket_number`, `sku`, `product_id`, etc.
+- ❌ NOT `id` (reserved by system)
 
 ```table:your-table-slug
 name: Your Table Name
 description: What this table stores
 columns:
-  - name: id, type: uuid, primary_key: true, auto_generate: true
   - name: title, type: string, nullable: false
   - name: status, type: string, default: active
-  - name: created_at, type: datetime, auto_now_add: true
+  - name: priority, type: integer, default: 0
 ```
 
 Then use the table slug in dataStore calls: `dataStore.query('your-table-slug')`
@@ -1072,13 +1121,25 @@ const newCustomer = await dataStore.insert('customers', {{
 }});
 // Returns: {{ id: 'row-uuid', data: {{name: '...', email: '...'}}, row_index: 1, created_at: '...' }}
 
-// Update an existing row (use row.id, not row.data.id)
+// ⚠️ CRITICAL: For update/delete, use row.id (NOT row.data.id!)
+// row.id = system UUID for CRUD operations
+// row.data.id = your schema's id field (if any) - DO NOT use this for update/delete!
+
+// Update an existing row - MUST use row.id
 await dataStore.update('customers', row.id, {{
   status: 'inactive'
 }});
 
-// Delete a row (use row.id)
+// Delete a row - MUST use row.id
 await dataStore.delete('customers', row.id);
+
+// ❌ WRONG - This will cause "Row not found" error:
+// await dataStore.update('customers', row.data.id, {{ ... }});  // WRONG!
+// await dataStore.delete('customers', row.data.id);  // WRONG!
+
+// ✅ CORRECT - Always use row.id for update/delete:
+// await dataStore.update('customers', row.id, {{ ... }});  // CORRECT!
+// await dataStore.delete('customers', row.id);  // CORRECT!
 
 // Bulk operations
 await dataStore.bulkInsert('customers', [
@@ -1088,7 +1149,16 @@ await dataStore.bulkInsert('customers', [
 await dataStore.bulkDelete('customers', ['row-uuid-1', 'row-uuid-2']);
 ```
 
+**⚠️ CRITICAL: Row ID for Update/Delete**
+- `row.id` = The system-generated UUID that identifies the row. USE THIS for update/delete operations.
+- `row.data.id` = Your schema's `id` field (if you defined one). DO NOT use this for update/delete - it will cause "Row not found" errors!
+
 **Filter Operators:** `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `not_in`, `contains`, `icontains`, `is_null`
+
+**CRITICAL: Row Data Structure**
+- Use `row.id` for the row UUID (for update/delete operations)
+- Use `row.data.fieldName` to access your data fields (e.g., `row.data.title`, `row.data.email`)
+- The `data` object contains all your table columns
 
 🚨 **CRITICAL: Understanding Row Structure and ID Handling** 🚨
 
@@ -1134,6 +1204,21 @@ await dataStore.delete('tasks', row.id)
 - `row.data.fieldName` = Access your actual data fields
 - NEVER use `row.data.id` for operations
 - When spreading, put `...row.data` FIRST, then `id: row.id`
+
+🚨 **CRITICAL RULES - MUST FOLLOW:**
+
+1. **ONLY USE TABLES THAT EXIST OR YOU CREATE** - You MUST NOT reference tables in your code that don't exist
+   - If current schema shows: projects, tasks
+   - You can ONLY use: 'projects', 'tasks'
+   - ❌ WRONG: dataStore.query('burndown_snapshots', ...) // This table doesn't exist!
+   - ✅ CORRECT: First create the table with TABLE_DEFINITION, THEN use it in code
+
+2. **CREATE BEFORE USE** - If you need a new table, you MUST:
+   - Step 1: Define it with ```table:slug``` block
+   - Step 2: Then use it in your code
+   - Never reference a table that hasn't been defined yet
+
+3. **CHECK THE CURRENT SCHEMA** - Look at the "Available Tables" section above
 
 IMPORTANT: When creating apps that need persistent data:
 1. First define the table(s) using TABLE_DEFINITION blocks

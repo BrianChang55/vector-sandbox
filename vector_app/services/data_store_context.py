@@ -319,21 +319,23 @@ def _build_table_creation_section() -> str:
 
 To create a new data table, include a TABLE_DEFINITION block in your response:
 
+🚨 **DO NOT define 'id', 'created_at', 'updated_at' - these are auto-generated!**
+
 ```table:table-slug
 name: Display Name
 description: Optional description of the table
 columns:
-  - name: id, type: uuid, primary_key: true, auto_generate: true
   - name: title, type: string, nullable: false
   - name: description, type: text
   - name: status, type: enum, enum_values: [draft, active, archived]
   - name: count, type: integer, default: 0
+  - name: reference_code, type: string  # If you need a custom identifier, use a different name!
   - name: price, type: float
   - name: is_featured, type: boolean, default: false
   - name: metadata, type: json
-  - name: created_at, type: datetime, auto_now_add: true
-  - name: updated_at, type: datetime, auto_now: true
 ```
+
+**System auto-adds:** `id` (UUID), `created_at`, `updated_at` to every table.
 
 **Supported Column Types:**
 - `uuid` - UUID identifier (use for primary keys)
