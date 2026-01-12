@@ -31,6 +31,7 @@ from vector_app.action_classification.types import (
     SEND_KEYWORDS,
 )
 from vector_app.action_classification.prompts import build_action_classification_prompts
+from vector_app.services.context_analyzer import AppContext
 from vector_app.services.intent_classifier import IntentResult
 from vector_app.services.openrouter_service import get_openrouter_service
 
@@ -39,8 +40,8 @@ logger = logging.getLogger(__name__)
 
 def _log_classification_input(
     user_message: str,
-    context: Optional["AppContext"],
-    intent: Optional["IntentResult"],
+    context: Optional[AppContext],
+    intent: Optional[IntentResult],
     available_connectors: Optional[List[str]],
 ) -> None:
     """Log classification input details at debug level."""
@@ -49,6 +50,22 @@ def _log_classification_input(
     logger.debug("=" * 60)
     logger.debug("Input message: %s%s", user_message[:200], "..." if len(user_message) > 200 else "")
     logger.debug("Has context: %s", context is not None)
+    if context:
+        logger.debug("  App context - Has existing app: %s", context.has_existing_app)
+        logger.debug("  App context - File count: %d", context.file_count)
+        logger.debug("  App context - Existing files: %d", len(context.existing_files))
+        logger.debug("  App context - Existing tables: %d", len(context.existing_tables))
+        logger.debug("  App context - Components: %d", len(context.component_names))
+        logger.debug("  App context - Entry points: %s", context.entry_points if context.entry_points else "None")
+        if context.codebase_style:
+            logger.debug("  App context - Codebase style: %s", context.codebase_style)
+        if context.used_connectors:
+            logger.debug("  App context - Used connectors: %s", ", ".join(context.used_connectors))
+        if context.message_history:
+            logger.debug("  App context - Message history: %d previous message(s)", len(context.message_history))
+            for i, msg in enumerate(context.message_history[-3:], 1):  # Show last 3 messages
+                preview = msg[:100] + "..." if len(msg) > 100 else msg
+                logger.debug("    %d. %s", len(context.message_history) - 3 + i if len(context.message_history) > 3 else i, preview)
     logger.debug("Has intent: %s", intent is not None)
     if intent:
         logger.debug("  Intent type: %s", intent.intent.value)
@@ -59,7 +76,7 @@ def _log_classification_input(
     logger.debug("LLM CLASSIFICATION:")
 
 
-def _log_classification_result(result: "ActionResult") -> None:
+def _log_classification_result(result: ActionResult) -> None:
     """Log classification result details at debug level."""
     logger.debug("-" * 40)
     logger.debug("MCP OPERATIONS NEEDED:")
@@ -77,7 +94,7 @@ def _log_classification_result(result: "ActionResult") -> None:
 
 
 def _log_processed_actions(
-    action_items: List["ActionItem"],
+    action_items: List[ActionItem],
     reasoning: str,
 ) -> None:
     """Log processed action items at debug level."""
@@ -101,10 +118,10 @@ class ActionClassifier:
     def classify(
         self,
         user_message: str,
-        context: Optional["AppContext"] = None,
-        intent: Optional["IntentResult"] = None,
+        context: Optional[AppContext] = None,
+        intent: Optional[IntentResult] = None,
         available_connectors: Optional[List[str]] = None,
-    ) -> "ActionResult":
+    ) -> ActionResult:
         """
         Classify the user's action based on their message using LLM.
 
@@ -120,7 +137,10 @@ class ActionClassifier:
         _log_classification_input(user_message, context, intent, available_connectors)
 
         system_prompt, user_prompt = build_action_classification_prompts(
-            user_message, intent, available_connectors
+            user_message=user_message,
+            intent=intent,
+            available_connectors=available_connectors,
+            context=context,
         )
 
         try:
@@ -374,7 +394,7 @@ class ActionClassifier:
 
         return "external data"  # Default target
 
-    def _generate_description(self, action: "ActionType", target: str) -> str:
+    def _generate_description(self, action: ActionType, target: str) -> str:
         """Generate a human-readable description of what MCP operations the app needs."""
         descriptions = {
             ActionType.QUERY: "App will query/fetch data from %s" % target,

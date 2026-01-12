@@ -9,10 +9,15 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
 
-from vector_app.models import ConnectorExecutionLog
+from vector_app.models import (
+    ConnectorExecutionLog,
+    AppVersion,
+    ChatMessage,
+    AppDataTable,
+)
 
 if TYPE_CHECKING:
-    from vector_app.models import InternalApp, AppVersion, VersionFile, AppDataTable
+    from vector_app.models import InternalApp, VersionFile, ChatSession
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +100,9 @@ class AppContext:
     # Connectors already used in the app's code
     used_connectors: List[str] = field(default_factory=list)
     
+    # User's conversation history (past user messages in this session)
+    message_history: List[str] = field(default_factory=list)
+    
     def get_file(self, path: str) -> Optional[FileInfo]:
         """Get file info by path."""
         for f in self.existing_files:
@@ -124,6 +132,9 @@ class AppContext:
         else:
             parts.append("No existing app")
         
+        if self.message_history:
+            parts.append(f"Message history: {len(self.message_history)} previous request(s)")
+        
         return ". ".join(parts)
 
 
@@ -142,6 +153,7 @@ class ContextAnalyzer:
         self,
         app: Optional['InternalApp'],
         version: Optional['AppVersion'] = None,
+        session: Optional['ChatSession'] = None,
     ) -> AppContext:
         """
         Analyze the current state of an app.
@@ -149,14 +161,21 @@ class ContextAnalyzer:
         Args:
             app: The InternalApp to analyze
             version: Specific version to analyze (uses latest if None)
+            session: Optional chat session to get message history from
             
         Returns:
             AppContext with all analyzed information
         """
+        # Get message history from session if provided
+        message_history = []
+        if session:
+            message_history = self._get_user_message_history(session)
+        
         if not app:
             return AppContext(
                 has_existing_app=False,
                 file_count=0,
+                message_history=message_history,
             )
         
         # Get the version to analyze
@@ -167,6 +186,7 @@ class ContextAnalyzer:
             return AppContext(
                 has_existing_app=False,
                 file_count=0,
+                message_history=message_history,
             )
         
         # Analyze files
@@ -201,17 +221,42 @@ class ContextAnalyzer:
             component_names=set(f.exports[0] for f in files if f.exports and f.is_component),
             table_slugs=set(t.slug for t in tables),
             used_connectors=used_connectors,
+            message_history=message_history,
         )
     
     def _get_latest_version(self, app: 'InternalApp') -> Optional['AppVersion']:
         """Get the latest stable version of an app."""
-        from vector_app.models import AppVersion
-        
         return AppVersion.objects.filter(
             internal_app=app,
             is_active=True,
             generation_status=AppVersion.GEN_STATUS_COMPLETE,
         ).order_by('-version_number').first()
+    
+    def _get_user_message_history(self, session: 'ChatSession') -> List[str]:
+        """
+        Get the user's message history from a chat session.
+        
+        Returns list of past user messages in chronological order,
+        excluding the current/latest message.
+        """
+        try:
+            # Get all user messages from the session, ordered by creation time
+            user_messages = ChatMessage.objects.filter(
+                session=session,
+                role=ChatMessage.ROLE_USER,
+            ).order_by('created_at').values_list('content', flat=True)
+            
+            # Convert to list and exclude the last message (current request)
+            messages = list(user_messages)
+            if len(messages) > 1:
+                # Return all except the last (current) message
+                return messages[:-1]
+            
+            return []
+            
+        except Exception as e:
+            logger.warning("Error fetching message history: %s", e)
+            return []
     
     def _analyze_files(self, version: 'AppVersion') -> List[FileInfo]:
         """Analyze all files in a version."""
@@ -226,7 +271,7 @@ class ContextAnalyzer:
                     files.append(file_info)
                     
         except Exception as e:
-            logger.warning(f"Error analyzing files: {e}")
+            logger.warning("Error analyzing files: %s", e)
         
         return files
     
@@ -349,8 +394,6 @@ class ContextAnalyzer:
         tables = []
         
         try:
-            from vector_app.models import AppDataTable
-            
             app_tables = AppDataTable.objects.filter(
                 internal_app=app,
             )
@@ -369,7 +412,7 @@ class ContextAnalyzer:
                 ))
                 
         except Exception as e:
-            logger.warning(f"Error analyzing tables: {e}")
+            logger.warning("Error analyzing tables: %s", e)
         
         return tables
     
@@ -514,7 +557,7 @@ class ContextAnalyzer:
             for vf in version.files.filter(path__in=file_paths):
                 contents[vf.path] = vf.content or ""
         except Exception as e:
-            logger.warning(f"Error getting file contents: {e}")
+            logger.warning("Error getting file contents: %s", e)
         
         return contents
     
@@ -618,7 +661,7 @@ class ContextAnalyzer:
             )
             
         except Exception as e:
-            logger.warning(f"Error analyzing codebase style: {e}")
+            logger.warning("Error analyzing codebase style: %s", e)
             return None
     
     def find_cascade_affected_files(

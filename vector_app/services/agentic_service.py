@@ -73,7 +73,7 @@ from vector_app.services.planning_service import (
 )
 
 if TYPE_CHECKING:
-    from vector_app.models import InternalApp, AppVersion
+    from vector_app.models import InternalApp, AppVersion, ChatSession
 
 logger = logging.getLogger(__name__)
 
@@ -212,6 +212,7 @@ class AgenticService:
         app: Optional["InternalApp"] = None,
         version: Optional["AppVersion"] = None,
         use_intent_routing: bool = True,
+        session: Optional["ChatSession"] = None,
     ) -> Generator[AgentEvent, None, None]:
         """
         Generate an app with intelligent intent-aware routing.
@@ -230,6 +231,7 @@ class AgenticService:
             app: Optional InternalApp for data store operations
             version: Optional AppVersion for versioned table operations
             use_intent_routing: Whether to use intent-aware routing (default True)
+            session: Optional ChatSession to get message history from
         """
         session_id = str(uuid.uuid4())
         start_time = time.time()
@@ -261,6 +263,7 @@ class AgenticService:
                     start_time=start_time,
                     data_store_context=data_store_context,
                     mcp_tools_context=mcp_tools_context_str,
+                    session=session,
                 )
                 return  # Intent routing handled everything
             except Exception as e:
@@ -688,6 +691,7 @@ class AgenticService:
         start_time: float,
         data_store_context: Optional[str],
         mcp_tools_context: Optional[str],
+        session: Optional["ChatSession"] = None,
     ) -> Generator[AgentEvent, None, None]:
         """
         Generate app using intent-aware routing.
@@ -721,7 +725,11 @@ class AgenticService:
 
         # Analyze app context
         context_analyzer = get_context_analyzer()
-        app_context = context_analyzer.analyze(app, latest_version)
+        app_context = context_analyzer.analyze(
+            app=app,
+            version=latest_version,
+            session=session,
+        )
 
         yield AgentEvent(
             "thinking",
@@ -756,7 +764,10 @@ class AgenticService:
         
         matched_tools_context = None
         for item in filter_mcp_tools(
-            user_message, app_context, intent, app,
+            user_message=user_message,
+            app_context=app_context,
+            intent=intent,
+            app=app,
             include_used_connectors=include_used_connectors,
         ):
             if isinstance(item, FilterMCPToolsEvent):

@@ -120,6 +120,7 @@ class ToolMatcher:
         
         Queries ConnectorToolAction filtered by:
         - Action types from the classified actions
+        - Target connector for each action (must match a connected connector)
         - Connected connectors for this organization
 
         Args:
@@ -149,34 +150,57 @@ class ToolMatcher:
                 total_available_tools=0,
             )
 
-        # Build query filters
-        action_types = [action_item.action.value for action_item in action.actions]
-        tools_query = ConnectorToolAction.objects.filter(
-            connector_cache__provider=provider,
-            connector_cache__connector_id__in=connected_connector_ids,
-            action_type__in=action_types,
-        ).select_related("connector_cache")
-        
-        total_count = tools_query.count()
-        tools = tools_query[:limit * len(action_types)]
-        
-        # Build matched tools with relevance scoring
-        action_lookup = {action_item.action.value: action_item for action_item in action.actions}
+        # Match tools for each action, filtering by BOTH action type AND target connector
         matched_tools = []
+        seen_tool_keys = set()  # Track (tool_id, connector_id) to dedupe
+        total_count = 0
+        used_connectors = set()
         
-        for tool in tools:
-            action_item = action_lookup.get(tool.action_type)
-            if action_item:
-                matched_tools.append(MatchedTool(
-                    tool_id=tool.tool_id,
-                    tool_name=tool.tool_name,
-                    description=tool.description,
-                    action_type=tool.action_type,
-                    connector_id=tool.connector_cache.connector_id,
-                    connector_name=tool.connector_cache.connector_name,
-                    input_schema=tool.input_schema,
-                    relevance_score=self._calculate_relevance(tool, action_item),
-                ))
+        for action_item in action.actions:
+            # Find which connected connector(s) match this action's target
+            target_connectors = self._resolve_target_to_connectors(
+                action_item.target,
+                connected_connector_ids,
+            )
+            
+            if not target_connectors:
+                # Target is 'unknown' or doesn't match any connected connector
+                # Skip this action - it won't contribute tools
+                logger.debug(
+                    "Skipping action %s with target '%s' - no matching connected connector",
+                    action_item.action.value,
+                    action_item.target,
+                )
+                continue
+            
+            # Query tools for this specific action + target connector combination
+            tools_query = ConnectorToolAction.objects.filter(
+                connector_cache__provider=provider,
+                connector_cache__connector_id__in=target_connectors,
+                action_type=action_item.action.value,
+            ).select_related("connector_cache")
+            
+            action_tool_count = tools_query.count()
+            total_count += action_tool_count
+            tools = tools_query[:limit]
+            
+            logger.debug(
+                "Action %s on target '%s' matched %d tools from connector(s): %s",
+                action_item.action.value,
+                action_item.target,
+                action_tool_count,
+                ", ".join(target_connectors),
+            )
+            
+            for tool in tools:
+                matched_tool = self._create_matched_tool_if_unique(
+                    tool=tool,
+                    action_item=action_item,
+                    seen_tool_keys=seen_tool_keys,
+                )
+                if matched_tool:
+                    used_connectors.add(tool.connector_cache.connector_id)
+                    matched_tools.append(matched_tool)
         
         # Sort by relevance (highest first)
         matched_tools.sort(key=lambda t: t.relevance_score, reverse=True)
@@ -184,8 +208,81 @@ class ToolMatcher:
         return ToolMatchResult(
             action=action,
             matched_tools=matched_tools,
-            connected_connectors=connected_connector_ids,
+            connected_connectors=list(used_connectors),
             total_available_tools=total_count,
+        )
+    
+    def _resolve_target_to_connectors(
+        self,
+        target: str,
+        connected_connectors: List[str],
+    ) -> List[str]:
+        """
+        Resolve an action target to matching connected connector(s).
+        
+        Uses fuzzy matching to find connectors that match the target.
+        Returns empty list if target is 'unknown' or doesn't match any connector.
+        
+        Args:
+            target: The target from action classification (e.g., 'github', 'Slack', 'unknown')
+            connected_connectors: List of connected connector IDs
+            
+        Returns:
+            List of matching connector IDs (usually 1, but could be multiple for ambiguous targets)
+        """
+        if not target or target.lower() in ('unknown', 'external data', 'external api'): # TODO: handle the structured output so we can do ez validation
+            return []
+        
+        target_lower = target.lower()
+        matched = []
+        
+        for connector_id in connected_connectors:
+            connector_lower = connector_id.lower()
+            
+            # Exact match
+            if target_lower == connector_lower:
+                return [connector_id]  # Exact match, return immediately
+            
+            # Partial match (target is substring of connector or vice versa)
+            if target_lower in connector_lower or connector_lower in target_lower:
+                matched.append(connector_id)
+        
+        return matched
+
+    def _create_matched_tool_if_unique(
+        self,
+        tool: ConnectorToolAction,
+        action_item: ActionItem,
+        seen_tool_keys: set,
+    ) -> Optional[MatchedTool]:
+        """
+        Create a MatchedTool if it hasn't been seen before.
+        
+        Deduplicates by (tool_id, connector_id) to prevent the same tool
+        from the same connector being added multiple times.
+        
+        Args:
+            tool: The ConnectorToolAction from the database
+            action_item: The action item this tool matches
+            seen_tool_keys: Set of (tool_id, connector_id) tuples already seen
+            
+        Returns:
+            MatchedTool if unique, None if duplicate
+        """
+        tool_key = (tool.tool_id, tool.connector_cache.connector_id)
+        if tool_key in seen_tool_keys:
+            return None
+        seen_tool_keys.add(tool_key)
+        
+        return MatchedTool(
+            tool_id=tool.tool_id,
+            tool_name=tool.tool_name,
+            description=tool.description,
+            action_type=tool.action_type,
+            connector_id=tool.connector_cache.connector_id,
+            connector_name=tool.connector_cache.connector_name,
+            input_schema=tool.input_schema,
+            relevance_score=self._calculate_relevance(tool, action_item),
         )
 
     def _calculate_relevance(
