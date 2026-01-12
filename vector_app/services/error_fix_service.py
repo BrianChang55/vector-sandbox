@@ -99,6 +99,7 @@ class ErrorFixService:
             return files
         
         logger.info(f"Fixing {len(errors)} errors (attempt {attempt}/{self.MAX_ATTEMPTS})")
+        logger.debug(f"Errors: {errors}")
         
         # Yield start event
         yield AgentEvent("fix_started", {
