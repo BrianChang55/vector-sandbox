@@ -41,7 +41,6 @@ from vector_app.services.data_store_context import (
 )
 from vector_app.services.mcp_context import (
     build_mcp_tools_context,
-    build_context_from_matched_tools,
     MCPToolsContext,
 )
 from concurrent.futures import ThreadPoolExecutor, as_completed
