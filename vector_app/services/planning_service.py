@@ -10,6 +10,7 @@ import re
 import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
+from enum import StrEnum
 
 from django.conf import settings
 import httpx
@@ -19,6 +20,13 @@ from vector_app.prompts.agentic import build_plan_prompt
 logger = logging.getLogger(__name__)
 
 
+class PlanStepStatus(StrEnum):
+    """Status values for PlanStep execution."""
+    PENDING = "pending"
+    COMPLETE = "complete"
+    ERROR = "error"
+
+
 @dataclass
 class PlanStep:
     """A single step in the execution plan."""
@@ -26,7 +34,8 @@ class PlanStep:
     type: str
     title: str
     description: str
-    status: str = "pending"
+    step_order: int = 0  # Wave number for parallel execution (0 = first)
+    status: PlanStepStatus = PlanStepStatus.PENDING
     duration: Optional[int] = None
     output: Optional[str] = None
 
@@ -116,10 +125,14 @@ class PlanningService:
                         type=s.get("type", "code"),
                         title=s.get("title", "Generate Code"),
                         description=s.get("description", ""),
+                        step_order=s.get("step_order", 0),
+                        status=PlanStepStatus.PENDING,
+                        duration=s.get("duration", None),
+                        output=s.get("output", None),
                     )
                     for s in steps_data
                 ]
-                
+
                 plan = AgentPlan(
                     id=str(uuid.uuid4()),
                     goal=user_message,
@@ -136,7 +149,7 @@ class PlanningService:
                 logger.debug(f"Total Steps: {len(steps)}")
                 logger.debug("-" * 80)
                 for i, step in enumerate(steps, 1):
-                    logger.debug(f"Step {i}: [{step.type}] {step.title}")
+                    logger.debug(f"Step {i}: [{step.type}] {step.title} (Order: {step.step_order})")
                     logger.debug(f"  Description: {step.description}")
                 logger.debug("=" * 80)
                 

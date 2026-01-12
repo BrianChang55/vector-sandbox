@@ -14,8 +14,6 @@ ENHANCED: Intent-aware routing that intelligently decides between:
 """
 import logging
 import json
-import os
-import re
 import time
 import uuid
 from typing import Dict, Any, List, Optional, Generator, Tuple, TYPE_CHECKING
@@ -26,7 +24,6 @@ from django.conf import settings
 import httpx
 
 from vector_app.prompts.agentic import (
-    DESIGN_STYLE_PROMPT,
     FINAL_APP_SYSTEM_PROMPT,
     apply_design_style_prompt,
     build_step_prompt,
@@ -47,7 +44,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # Import intent-aware components
 from vector_app.services.intent_classifier import (
     get_intent_classifier,
-    UserIntent,
 )
 from vector_app.services.context_analyzer import get_context_analyzer
 from vector_app.services.intent_router import get_intent_router
@@ -55,15 +51,13 @@ from vector_app.services.intent_router import get_intent_router
 # Import shared types from types.py and re-export for backwards compatibility
 from vector_app.services.types import (
     FileChange,
-    CompilationError,
-    ValidationResult,
     AgentEvent,
 )
 from vector_app.services.validation_service import get_validation_service
 from vector_app.services.planning_service import (
     get_planning_service,
     PlanStep,
-    AgentPlan,
+    PlanStepStatus,
 )
 
 if TYPE_CHECKING:
@@ -352,7 +346,7 @@ class AgenticService:
                     if event.type == "file_generated":
                         generated_files.append(FileChange(**event.data["file"]))
                 
-                step.status = "complete"
+                step.status = PlanStepStatus.COMPLETE
                 step.duration = int((time.time() - step_start) * 1000)
                 
                 # Emit step_completed event (new format)
@@ -370,7 +364,7 @@ class AgenticService:
                 
             except Exception as e:
                 logger.error(f"Step execution error: {e}")
-                step.status = "error"
+                step.status = PlanStepStatus.ERROR
                 yield AgentEvent("step_complete", {
                     "step_index": i,
                     "status": "error",

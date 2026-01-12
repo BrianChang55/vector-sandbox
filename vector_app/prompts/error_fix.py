@@ -1,4 +1,4 @@
-from vector_app.services.handlers.diff_utils import format_with_line_numbers
+from vector_app.services.diff import format_with_line_numbers
 
 """
 Error Fix Prompts
@@ -33,6 +33,7 @@ OUTPUT FORMAT: Unified Diff
 
 For each file you fix, output a unified diff inside a ```diff code block.
 Only output diffs for files that need changes. Do not output unchanged files.
+NEVER output duplicate hunks - each line range in a file must appear exactly ONCE.
 
 Example:
 ```diff
@@ -142,6 +143,40 @@ The patch system can tolerate slight line number errors, but context lines MUST 
 - Copy context lines exactly as shown (same whitespace, same quotes, same everything)
 - If the source has `  return <div className="p-4">` your context must be identical
 - Mismatched context lines will cause the patch to fail
+
+### CRITICAL - NO DUPLICATE HUNKS
+
+Each location in a file must have exactly ONE hunk. Never repeat or duplicate hunks.
+
+**RULES:**
+1. Each line range can only appear ONCE in your output
+2. If you need multiple changes at the same location, combine them into ONE hunk
+3. NEVER output the same hunk multiple times - this breaks the patch
+4. Before outputting, mentally verify you haven't already written a hunk for that location
+5. If you catch yourself repeating, STOP and consolidate
+
+**BAD (duplicate hunks - will fail with "misordered hunks" error):**
+```
+@@ -54,7 +54,7 @@
+-    return this.props.children;
++    return this.props.children;
+   }
+
+@@ -54,7 +54,7 @@      <- WRONG: same location again!
+-    return this.props.children;
++    return this.props.children;
+   }
+```
+
+**GOOD (single hunk per location):**
+```
+@@ -54,7 +54,7 @@
+-    return this.props.children;
++    return (this.props as Props).children;
+   }
+```
+
+Output each change ONCE, then move on. Do not loop or repeat.
 """
 
 
