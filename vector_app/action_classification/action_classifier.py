@@ -23,6 +23,7 @@ import httpx
 from vector_app.action_classification.types import (
     ActionType,
     ActionResult,
+    ActionItem,
     QUERY_KEYWORDS,
     CREATE_KEYWORDS,
     UPDATE_KEYWORDS,
@@ -31,6 +32,7 @@ from vector_app.action_classification.types import (
 )
 from vector_app.action_classification.prompts import build_action_classification_prompts
 from vector_app.services.intent_classifier import IntentResult
+from vector_app.services.openrouter_service import get_openrouter_service
 
 logger = logging.getLogger(__name__)
 
@@ -60,9 +62,6 @@ class ActionClassifier:
         Returns:
             ActionResult with classified action and metadata
         """
-        # Import at runtime to avoid circular imports
-        from vector_app.action_classification.types import ActionType, ActionResult, ActionItem
-
         logger.info("=" * 60)
         logger.info("ACTION CLASSIFICATION - Determining MCP tool operations needed")
         logger.info("=" * 60)
@@ -129,8 +128,6 @@ class ActionClassifier:
         Returns:
             Tuple of (action_items, description, reasoning)
         """
-        from vector_app.services.openrouter_service import get_openrouter_service
-
         # Use OpenRouter service for classification
         openrouter = get_openrouter_service()
         
@@ -338,9 +335,6 @@ class ActionClassifier:
 
     def _generate_description(self, action: "ActionType", target: str) -> str:
         """Generate a human-readable description of what MCP operations the app needs."""
-        # Import at runtime to avoid circular imports
-        from vector_app.action_classification.types import ActionType
-
         descriptions = {
             ActionType.QUERY: "App will query/fetch data from %s" % target,
             ActionType.CREATE: "App will create records in %s" % target,
