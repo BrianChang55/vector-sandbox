@@ -200,7 +200,7 @@ class TestFullTypeGeneration(TestCase):
         """Test generation with no tables."""
         result = generate_typescript_types([])
         self.assertIn('export type Database = Record<string, never>', result)
-        self.assertIn('export type TableSlug = never', result)
+        self.assertIn('export const enum TableSlug {}', result)
 
     def test_single_table(self):
         """Test generation with single table."""
@@ -238,13 +238,14 @@ class TestFullTypeGeneration(TestCase):
 
         # Verify Database type
         self.assertIn('export interface Database', result)
-        self.assertIn("'users':", result)
+        self.assertIn('[TableSlug.Users]:', result)
         self.assertIn('row: Users;', result)
         self.assertIn('insert: UsersInsert;', result)
         self.assertIn('update: UsersUpdate;', result)
 
-        # Verify TableSlug type
-        self.assertIn("export type TableSlug = 'users';", result)
+        # Verify TableSlug enum
+        self.assertIn("export const enum TableSlug {", result)
+        self.assertIn("Users = 'users',", result)
 
     def test_multiple_tables(self):
         """Test generation with multiple tables."""
@@ -279,11 +280,13 @@ class TestFullTypeGeneration(TestCase):
         self.assertIn('export interface Tasks', result)
 
         # Verify Database includes both
-        self.assertIn("'users':", result)
-        self.assertIn("'tasks':", result)
+        self.assertIn('[TableSlug.Users]:', result)
+        self.assertIn('[TableSlug.Tasks]:', result)
 
-        # Verify TableSlug union
-        self.assertIn("export type TableSlug = 'users' | 'tasks';", result)
+        # Verify TableSlug enum with both values
+        self.assertIn("export const enum TableSlug {", result)
+        self.assertIn("Users = 'users',", result)
+        self.assertIn("Tasks = 'tasks',", result)
 
 
 @skipIf(not has_typescript_compiler(), "TypeScript compiler not available")
@@ -392,7 +395,8 @@ class TestTypeScriptCompilation(TestCase):
 
         # Create a consumer file that imports the types
         consumer_content = """
-import type { Users, UsersInsert, UsersUpdate, Database, TableSlug } from './database';
+import type { Users, UsersInsert, UsersUpdate, Database } from './database';
+import { TableSlug } from './database';
 // Test using the row type
 const user: Users = {
   id: '123e4567-e89b-12d3-a456-426614174000',
@@ -410,13 +414,13 @@ const newUser: UsersInsert = {
 const updates: UsersUpdate = {
   name: 'Updated Name'
 };
-// Test using Database type
-type UserRow = Database['users']['row'];
-type UserInsert = Database['users']['insert'];
-// Test using TableSlug
-const tableName: TableSlug = 'users';
+// Test using Database type with enum key
+type UserRow = Database[TableSlug.Users]['row'];
+type UserInsert = Database[TableSlug.Users]['insert'];
+// Test using TableSlug enum
+const tableName: TableSlug = TableSlug.Users;
 // This should cause a type error if uncommented:
-// const invalidTable: TableSlug = 'invalid';
+// const invalidTable: TableSlug = TableSlug.Invalid;
 """
 
         consumer_file = Path(self.temp_dir) / 'consumer.ts'
@@ -475,7 +479,9 @@ const newTask: TasksInsert = {
 
         # Assert compilation fails with type error
         self.assertNotEqual(result.returncode, 0, "Expected compilation to fail due to type error")
-        self.assertIn('text', result.stderr, "Expected error about 'text' field")
+        # tsc may output errors to stdout or stderr depending on version
+        output = result.stderr + result.stdout
+        self.assertIn('text', output, "Expected error about 'text' field")
 
     def test_enum_type_safety(self):
         """Test that enum types are properly enforced."""

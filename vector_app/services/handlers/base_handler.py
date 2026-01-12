@@ -550,6 +550,29 @@ class BaseHandler(ABC):
         ext = path.split('.')[-1] if '.' in path else 'tsx'
         return lang_map.get(ext, 'tsx')
 
+    def log_llm_context(
+        self,
+        intent_name: str,
+        handler_name: str,
+        data_store_context: Optional[str] = None,
+        mcp_tools_context: Optional[str] = None,
+    ) -> None:
+        """
+        Debug log the context being passed to the LLM for each intent.
+        
+        Logs TypeScript types if present, otherwise logs all file context.
+        """
+        if not DEBUG_LOG_LLM_CONTEXT:
+            return
+
+        logger.debug(
+            f"{'='*60}\n"
+            f"[LLM CONTEXT DEBUG] Intent: {intent_name} | Handler: {handler_name}\n"
+            f"[LLM CONTEXT DEBUG] Data Store Context: {data_store_context}\n"
+            f"[LLM CONTEXT DEBUG] MCP Tools Context: {mcp_tools_context}\n"
+            f"{'='*60}"
+        )
+
     # ===== Validation Utilities =====
     
     def validate_and_fix(

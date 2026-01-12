@@ -294,6 +294,14 @@ class EditHandler(BaseHandler):
         data_store_context = kwargs.get('data_store_context')
         mcp_tools_context = kwargs.get('mcp_tools_context')
         
+        # Debug log the context being passed to LLM
+        self.log_llm_context(
+            intent_name=intent.intent.value if intent else "EDIT_CODE",
+            handler_name="EditHandler",
+            data_store_context=data_store_context,
+            mcp_tools_context=mcp_tools_context,
+        )
+        
         # ===== PHASE 1: ANALYZE =====
         yield self.emit_phase_change("researching", "Analyzing what needs to change...")
         

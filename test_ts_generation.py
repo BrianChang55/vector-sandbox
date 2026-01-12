@@ -80,7 +80,7 @@ checks = [
     ('✓' if 'export interface TasksInsert' in result else '✗', 'TasksInsert interface exported'),
     ('✓' if 'export interface TasksUpdate' in result else '✗', 'TasksUpdate interface exported'),
     ('✓' if 'export interface Database' in result else '✗', 'Database interface exported'),
-    ('✓' if "export type TableSlug = 'tasks';" in result else '✗', 'TableSlug type exported'),
+    ('✓' if "export const enum TableSlug {" in result and "Tasks = 'tasks'," in result else '✗', 'TableSlug enum exported'),
     ('✓' if 'title: string;' in result else '✗', 'Required field (title) is non-optional'),
     ('✓' if 'id?: string;' in result else '✗', 'Auto-generated field (id) is optional in main type'),
     ('✓' if "'pending' | 'in_progress' | 'done' | 'blocked'" in result else '✗', 'Enum union type generated'),
