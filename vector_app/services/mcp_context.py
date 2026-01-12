@@ -10,13 +10,13 @@ Key differences from connectors_context.py:
 - Generates TypeScript type definitions for tool parameters
 - Creates ready-to-use code snippets
 """
-import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, List
 
-if TYPE_CHECKING:
-    from ..models import InternalApp, MergeIntegrationProvider
+from vector_app.models import MergeIntegrationProvider, InternalApp
+from vector_app.services.merge_service import merge_service, MergeAPIError, is_merge_configured, get_connected_connectors
+
 
 logger = logging.getLogger(__name__)
 
@@ -63,9 +63,6 @@ def build_mcp_tools_context(app: 'InternalApp') -> MCPToolsContext:
     Returns:
         MCPToolsContext with tools, summaries, and TypeScript definitions
     """
-    from ..models import MergeIntegrationProvider, OrganizationConnectorLink
-    from ..services.merge_service import merge_service, MergeAPIError, is_merge_configured
-    
     # Check if Merge is configured
     if not is_merge_configured():
         return _build_no_merge_context()
@@ -93,10 +90,10 @@ def build_mcp_tools_context(app: 'InternalApp') -> MCPToolsContext:
     try:
         all_connectors = merge_service.list_connectors()
     except MergeAPIError as e:
-        logger.warning(f"Failed to fetch connectors: {e}")
+        logger.warning("Failed to fetch connectors: %s", e)
         return _build_error_context(str(e))
     except Exception as e:
-        logger.exception(f"Unexpected error fetching connectors: {e}")
+        logger.exception("Unexpected error fetching connectors: %s", e)
         return _build_error_context("Failed to fetch available connectors")
     
     if not all_connectors:
@@ -173,25 +170,17 @@ def _build_tools_from_connectors(
     return tools
 
 
-def _get_authenticated_connectors(provider: 'MergeIntegrationProvider') -> List[str]:
+def _get_authenticated_connectors(provider: MergeIntegrationProvider) -> List[str]:
     """
-    Get list of already authenticated connector IDs from database.
+    Get list of already authenticated connector IDs.
+    
+    This now uses the shared helper which tries Merge API first (source of truth),
+    then falls back to local database.
     
     Returns:
         List of connector IDs that are already authenticated (e.g., ['stripe', 'hubspot'])
     """
-    from ..models import OrganizationConnectorLink
-    
-    authenticated_links = OrganizationConnectorLink.objects.filter(
-        provider=provider,
-        is_connected=True,
-    ).select_related('connector')
-    
-    return [
-        link.connector.connector_id 
-        for link in authenticated_links 
-        if link.connector and link.connector.connector_id
-    ]
+    return get_connected_connectors(provider)
 
 
 def _parse_mcp_tools(raw_tools: List[Dict[str, Any]]) -> List[MCPToolDefinition]:
@@ -403,7 +392,6 @@ def _build_full_context(
     
     for connector_id, connector_tools in sorted(by_connector.items()):
         connector_name = connector_id.replace('_', ' ').title()
-        is_authenticated = connector_id in authenticated_connectors
         auth_tool = f"authenticate_{connector_id}"
         lines.append(f"**{connector_name}** ({len(connector_tools)} tools)")
         lines.append(f"  *Auth tool: `{auth_tool}`*")
