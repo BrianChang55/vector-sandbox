@@ -13,7 +13,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from vector_app.action_classification.types import ActionResult, ActionItem, MatchedTool, ActionType
+from vector_app.action_classification.types import ActionResult, MatchedTool, ActionType
 from vector_app.models import (
     ConnectorToolAction,
     MergeIntegrationProvider,
@@ -195,15 +195,11 @@ class ToolMatcher:
             for tool in tools:
                 matched_tool = self._create_matched_tool_if_unique(
                     tool=tool,
-                    action_item=action_item,
                     seen_tool_keys=seen_tool_keys,
                 )
                 if matched_tool:
                     used_connectors.add(tool.connector_cache.connector_id)
                     matched_tools.append(matched_tool)
-        
-        # Sort by relevance (highest first)
-        matched_tools.sort(key=lambda t: t.relevance_score, reverse=True)
 
         return ToolMatchResult(
             action=action,
@@ -252,7 +248,6 @@ class ToolMatcher:
     def _create_matched_tool_if_unique(
         self,
         tool: ConnectorToolAction,
-        action_item: ActionItem,
         seen_tool_keys: set,
     ) -> Optional[MatchedTool]:
         """
@@ -263,7 +258,6 @@ class ToolMatcher:
         
         Args:
             tool: The ConnectorToolAction from the database
-            action_item: The action item this tool matches
             seen_tool_keys: Set of (tool_id, connector_id) tuples already seen
             
         Returns:
@@ -282,39 +276,7 @@ class ToolMatcher:
             connector_id=tool.connector_cache.connector_id,
             connector_name=tool.connector_cache.connector_name,
             input_schema=tool.input_schema,
-            relevance_score=self._calculate_relevance(tool, action_item),
         )
-
-    def _calculate_relevance(
-        self,
-        tool: ConnectorToolAction,
-        action_item: ActionItem,
-    ) -> float:
-        """
-        Calculate relevance score for a tool based on the action item.
-
-        Higher score = more relevant.
-        """
-        score = 1.0
-
-        # Boost based on action confidence
-        score += action_item.confidence * 0.5
-
-        # Boost if tool name contains relevant keywords from target
-        target_lower = action_item.target.lower()
-        tool_id_lower = tool.tool_id.lower()
-        tool_desc_lower = tool.description.lower()
-
-        # Check for target keywords in tool
-        target_words = target_lower.split()
-        for word in target_words:
-            if len(word) > 3:  # Skip short words
-                if word in tool_id_lower:
-                    score += 0.3
-                if word in tool_desc_lower:
-                    score += 0.1
-
-        return min(score, 2.0)  # Cap at 2.0
 
 
 # Singleton instance

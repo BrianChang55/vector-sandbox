@@ -45,6 +45,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # Import intent-aware components
 from vector_app.services.intent_classifier import (
     get_intent_classifier,
+    UserIntent,
 )
 from vector_app.services.context_analyzer import get_context_analyzer
 from vector_app.services.intent_router import get_intent_router

@@ -104,7 +104,6 @@ def get_tools_for_connectors(
             connector_id=tool.connector_cache.connector_id,
             connector_name=tool.connector_cache.connector_name,
             input_schema=tool.input_schema,
-            relevance_score=0.5,  # Lower score than action-matched tools
         ))
     
     return matched_tools
