@@ -13,7 +13,7 @@ from django.core.exceptions import ValidationError
 from vector_app.action_classification.types import ActionType
 from internal_apps.utils.base_model import BaseModel
 from .utils.encryption import encrypt_json, decrypt_json, encrypt_string, decrypt_string
-from vector_app.shared import choices
+from internal_apps.utils.enum import choices
 
 # ============================================================================
 # Base User and Organization Models

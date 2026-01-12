@@ -14,18 +14,15 @@ API Documentation: https://docs.ah.merge.dev/api-reference/overview
 
 import logging
 import time
-import uuid
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
+from vector_app.models import (
+    MergeIntegrationProvider,
+    OrganizationConnectorLink,
+)
 
 import httpx
 from django.conf import settings
-
-if TYPE_CHECKING:
-    from vector_app.models import (
-        MergeIntegrationProvider,
-        ConnectorCache,
-    )
 
 logger = logging.getLogger(__name__)
 
@@ -118,66 +115,6 @@ class MCPToolResult:
     error_message: Optional[str] = None
 
 
-def categorize_tool_action(tool_id: str, description: str = "") -> str:
-    """
-    Determine action type from tool ID and description.
-
-    Uses prefix-based matching on tool_id first, then falls back to
-    description analysis.
-
-    Args:
-        tool_id: The tool identifier (e.g., "create_issue", "list_users")
-        description: Optional description text to analyze as fallback
-
-    Returns:
-        Action type string: 'query', 'create', 'update', 'delete', 'send', or 'other'
-    """
-    from vector_app.action_classification.types import ActionType
-
-    tool_lower = tool_id.lower()
-
-    # Query actions (read operations)
-    if any(
-        tool_lower.startswith(p)
-        for p in ["get_", "list_", "search_", "fetch_", "find_", "retrieve_", "query_"]
-    ):
-        return ActionType.QUERY
-
-    # Create actions
-    if any(tool_lower.startswith(p) for p in ["create_", "add_", "insert_", "post_", "new_"]):
-        return ActionType.CREATE
-
-    # Update actions
-    if any(tool_lower.startswith(p) for p in ["update_", "edit_", "modify_", "patch_", "set_"]):
-        return ActionType.UPDATE
-
-    # Delete actions
-    if any(tool_lower.startswith(p) for p in ["delete_", "remove_", "archive_", "trash_"]):
-        return ActionType.DELETE
-
-    # Send/notification actions
-    if any(tool_lower.startswith(p) for p in ["send_", "notify_", "message_", "post_message"]):
-        return ActionType.SEND
-
-    # Fallback: check description for hints
-    if description:
-        desc_lower = description.lower()
-        if any(
-            word in desc_lower for word in ["retrieve", "get", "list", "fetch", "search", "find", "query"]
-        ):
-            return ActionType.QUERY
-        if any(word in desc_lower for word in ["create", "add", "new", "insert"]):
-            return ActionType.CREATE
-        if any(word in desc_lower for word in ["update", "edit", "modify", "change"]):
-            return ActionType.UPDATE
-        if any(word in desc_lower for word in ["delete", "remove", "archive", "trash"]):
-            return ActionType.DELETE
-        if any(word in desc_lower for word in ["send", "notify", "message", "email", "post message"]):
-            return ActionType.SEND
-
-    return ActionType.OTHER
-
-
 class MergeAgentHandlerService:
     """
     Internal client for Merge Agent Handler API.
@@ -254,9 +191,9 @@ class MergeAgentHandlerService:
         url = f"{self.BASE_URL}{endpoint}"
         headers = self._get_headers()
 
-        logger.debug(f"Merge API request: {method} {url}")
+        logger.debug("Merge API request: %s %s", method, url)
         if data:
-            logger.debug(f"Request body: {data}")
+            logger.debug("Request body: %s", data)
 
         try:
             with httpx.Client(timeout=self.timeout, follow_redirects=True) as client:
@@ -274,8 +211,9 @@ class MergeAgentHandlerService:
                 except Exception:
                     # Response is not JSON - could be HTML error page or empty
                     logger.error(
-                        f"Merge API returned non-JSON response: {response.status_code} - "
-                        f"{response.text[:200] if response.text else 'empty'}"
+                        "Merge API returned non-JSON response: %s - %s",
+                        response.status_code,
+                        response.text[:200] if response.text else "empty",
                     )
                     raise MergeAPIError(
                         status_code=response.status_code,
@@ -293,7 +231,7 @@ class MergeAgentHandlerService:
                 return response_data
 
         except httpx.RequestError as e:
-            logger.error(f"Merge API request failed: {e}")
+            logger.error("Merge API request failed: %s", e)
             raise MergeAPIError(
                 status_code=0,
                 message=f"Network error: {str(e)}",
@@ -355,7 +293,7 @@ class MergeAgentHandlerService:
         provider.merge_registered_user_id = registered_user_id
         provider.save(update_fields=["merge_registered_user_id", "updated_at"])
 
-        logger.info(f"Registered organization '{org.name}' with Merge. User ID: {registered_user_id}")
+        logger.info("Registered organization '%s' with Merge. User ID: %s", org.name, registered_user_id)
 
         return registered_user_id
 
@@ -453,7 +391,7 @@ class MergeAgentHandlerService:
             )
 
         logger.info(
-            f"Generated link token for connector '{connector_id}' (org: {provider.organization.name})"
+            "Generated link token for connector '%s' (org: %s)", connector_id, provider.organization.name
         )
 
         return link_token
@@ -480,7 +418,7 @@ class MergeAgentHandlerService:
             user_data = self.get_registered_user(provider.merge_registered_user_id)
             return user_data.get("authenticated_connectors", [])
         except MergeAPIError as e:
-            logger.warning(f"Failed to get organization connections: {e}")
+            logger.warning("Failed to get organization connections: %s", e)
             return []
 
     # =========================================================================
@@ -603,8 +541,8 @@ class MergeAgentHandlerService:
 
             duration_ms = int((time.time() - start_time) * 1000)
             logger.info(
-                f"MCP tool executed: {tool_name} "
-                f"(org: {provider.organization.name}, duration: {duration_ms}ms)"
+                "MCP tool executed: %s (org: %s, duration: %dms)",
+                tool_name, provider.organization.name, duration_ms,
             )
 
             # MCP tools/call returns {content: [...], isError: bool}
@@ -620,8 +558,8 @@ class MergeAgentHandlerService:
         except MergeAPIError as e:
             duration_ms = int((time.time() - start_time) * 1000)
             logger.error(
-                f"MCP tool execution failed: {tool_name} "
-                f"(org: {provider.organization.name}, error: {e.message}, duration: {duration_ms}ms)"
+                "MCP tool execution failed: %s (org: %s, error: %s, duration: %dms)",
+                tool_name, provider.organization.name, e.message, duration_ms,
             )
 
             return MCPToolResult(
@@ -735,7 +673,7 @@ class MergeAgentHandlerService:
                     )
                 )
 
-        logger.info(f"Fetched {len(connectors)} connectors from tool pack {tool_pack_id}")
+        logger.info("Fetched %d connectors from tool pack %s", len(connectors), tool_pack_id)
         return connectors
 
     def get_connector_tools(
@@ -798,7 +736,7 @@ class MergeAgentHandlerService:
                 }
             )
 
-        logger.info(f"Synced {len(result)} connectors from tool pack")
+        logger.info("Synced %d connectors from tool pack", len(result))
         return result
 
     def sync_connectors_from_mcp(
@@ -927,7 +865,7 @@ class MergeAgentHandlerService:
                 "tool_count": len(tools),
             }
         except MergeAPIError as e:
-            logger.warning(f"Failed to get MCP config: {e}")
+            logger.warning("Failed to get MCP config: %s", e)
             return {
                 "enabled": False,
                 "error": str(e),
@@ -936,3 +874,39 @@ class MergeAgentHandlerService:
 
 # Singleton instance for convenience
 merge_service = MergeAgentHandlerService()
+
+
+def get_connected_connectors(provider: MergeIntegrationProvider) -> List[str]:
+    """
+    Get list of connected connector IDs for the organization.
+    
+    This is the canonical function for retrieving connected connectors.
+    It tries the Merge API first (source of truth), then falls back to local database.
+    
+    Args:
+        provider: The MergeIntegrationProvider instance
+        
+    Returns:
+        List of connector IDs (e.g., ['github', 'linear', 'slack'])
+    """
+    # First try to get from Merge API (source of truth)
+    if provider.merge_registered_user_id and is_merge_configured():
+        try:
+            connectors = list(merge_service.get_organization_connections(provider))
+            if connectors:
+                logger.debug("Retrieved %d connectors from Merge API", len(connectors))
+                return connectors
+        except MergeAPIError as e:
+            logger.warning("Failed to get connections from Merge API: %s", e)
+    
+    # Fallback to local database
+    links = OrganizationConnectorLink.objects.filter(
+        provider=provider,
+        is_connected=True,
+    ).select_related("connector")
+    
+    connector_ids = [link.connector.connector_id for link in links]
+    if connector_ids:
+        logger.debug("Retrieved %d connectors from local database", len(connector_ids))
+    
+    return connector_ids

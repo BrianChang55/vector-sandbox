@@ -13,15 +13,71 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from vector_app.action_classification.types import ActionResult, ActionItem, MatchedTool
+from vector_app.action_classification.types import ActionResult, ActionItem, MatchedTool, ActionType
 from vector_app.models import (
     ConnectorToolAction,
-    OrganizationConnectorLink,
     MergeIntegrationProvider,
 )
-from vector_app.services.merge_service import merge_service, is_merge_configured, MergeAPIError
 
 logger = logging.getLogger(__name__)
+
+
+def categorize_tool_action(tool_id: str, description: str = "") -> str:
+    """
+    Determine action type from tool ID and description.
+
+    Uses prefix-based matching on tool_id first, then falls back to
+    description analysis.
+
+    Args:
+        tool_id: The tool identifier (e.g., "create_issue", "list_users")
+        description: Optional description text to analyze as fallback
+
+    Returns:
+        Action type string: 'query', 'create', 'update', 'delete', 'send', or 'other'
+    """
+    tool_lower = tool_id.lower()
+
+    # Query actions (read operations)
+    if any(
+        tool_lower.startswith(p)
+        for p in ["get_", "list_", "search_", "fetch_", "find_", "retrieve_", "query_"]
+    ):
+        return ActionType.QUERY
+
+    # Create actions
+    if any(tool_lower.startswith(p) for p in ["create_", "add_", "insert_", "post_", "new_"]):
+        return ActionType.CREATE
+
+    # Update actions
+    if any(tool_lower.startswith(p) for p in ["update_", "edit_", "modify_", "patch_", "set_"]):
+        return ActionType.UPDATE
+
+    # Delete actions
+    if any(tool_lower.startswith(p) for p in ["delete_", "remove_", "archive_", "trash_"]):
+        return ActionType.DELETE
+
+    # Send/notification actions
+    if any(tool_lower.startswith(p) for p in ["send_", "notify_", "message_", "post_message"]):
+        return ActionType.SEND
+
+    # Fallback: check description for hints
+    if description:
+        desc_lower = description.lower()
+        if any(
+            word in desc_lower for word in ["retrieve", "get", "list", "fetch", "search", "find", "query"]
+        ):
+            return ActionType.QUERY
+        if any(word in desc_lower for word in ["create", "add", "new", "insert"]):
+            return ActionType.CREATE
+        if any(word in desc_lower for word in ["update", "edit", "modify", "change"]):
+            return ActionType.UPDATE
+        if any(word in desc_lower for word in ["delete", "remove", "archive", "trash"]):
+            return ActionType.DELETE
+        if any(word in desc_lower for word in ["send", "notify", "message", "email", "post message"]):
+            return ActionType.SEND
+
+    return ActionType.OTHER
 
 
 @dataclass
@@ -56,6 +112,7 @@ class ToolMatcher:
         self,
         action: ActionResult,
         provider: MergeIntegrationProvider,
+        connected_connectors: List[str],
         limit: int = 20,
     ) -> ToolMatchResult:
         """
@@ -68,6 +125,7 @@ class ToolMatcher:
         Args:
             action: The classified action result with multiple actions
             provider: The integration provider for the organization
+            connected_connectors: List of connected connector IDs for the organization
             limit: Maximum number of tools to return per action type
 
         Returns:
@@ -82,8 +140,7 @@ class ToolMatcher:
                 total_available_tools=0,
             )
 
-        # Get connected connectors for this organization
-        connected_connector_ids = self._get_connected_connectors(provider)
+        connected_connector_ids = connected_connectors
         if not connected_connector_ids:
             return ToolMatchResult(
                 action=action,
@@ -130,26 +187,6 @@ class ToolMatcher:
             connected_connectors=connected_connector_ids,
             total_available_tools=total_count,
         )
-
-    def _get_connected_connectors(
-        self,
-        provider: MergeIntegrationProvider,
-    ) -> List[str]:
-        """Get list of connected connector IDs for the organization."""
-        # First try to get from Merge API (source of truth)
-        if provider.merge_registered_user_id and is_merge_configured():
-            try:
-                return list(merge_service.get_organization_connections(provider))
-            except MergeAPIError as e:
-                logger.warning("Failed to get connections from Merge API: %s", e)
-
-        # Fallback to local database
-        links = OrganizationConnectorLink.objects.filter(
-            provider=provider,
-            is_connected=True,
-        ).select_related("connector")
-
-        return [link.connector.connector_id for link in links]
 
     def _calculate_relevance(
         self,

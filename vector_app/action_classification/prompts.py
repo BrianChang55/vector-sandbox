@@ -2,13 +2,14 @@
 Prompts for action classification using LLM.
 """
 
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 from vector_app.services.intent_classifier import IntentResult
 
 
 def build_action_classification_prompts(
     user_message: str,
     intent: Optional[IntentResult] = None,
+    available_connectors: Optional[List[str]] = None,
 ) -> Tuple[str, str]:
     """
     Build system and user prompts for action classification.
@@ -16,6 +17,7 @@ def build_action_classification_prompts(
     Args:
         user_message: The user's request
         intent: Optional intent result for additional context
+        available_connectors: Optional list of available service/connector names
 
     Returns:
         Tuple of (system_prompt, user_prompt)
@@ -24,10 +26,14 @@ def build_action_classification_prompts(
 
 Your task is to determine what type of MCP (Model Context Protocol) tool operations the user's app will need to perform on external systems.
 
-IMPORTANT: A single request can require MULTIPLE action types. For example:
-- "Fetch GitHub issues and send Slack notifications" = [QUERY, SEND]
-- "Create a Jira ticket and update the status" = [CREATE, UPDATE]
-- "Show all users" = [QUERY]
+IMPORTANT: 
+1. A single request can require MULTIPLE action types. For example:
+   - "Fetch GitHub issues and send Slack notifications" = [QUERY on github, SEND on slack]
+   - "Create a Jira ticket and update the status" = [CREATE on jira, UPDATE on jira]
+
+2. The SAME action type can apply to MULTIPLE services. For example:
+   - "Show my GitHub PRs and Linear tickets" = [QUERY on github, QUERY on linear]
+   - "Create a Jira issue and a Slack channel" = [CREATE on jira, CREATE on slack]
 
 Action Types:
 - QUERY: The app needs to READ/FETCH data (e.g., "show GitHub PRs", "display Jira issues", "list users")
@@ -37,7 +43,12 @@ Action Types:
 - SEND: The app needs to SEND messages/notifications (e.g., "send Slack messages", "email notifications", "SMS alerts")
 - OTHER: Fallback for operations that don't fit the above categories
 
-Also identify the target service/system for each action (e.g., "github", "jira", "slack", "database", "api", "email").
+Target Services:
+- CAREFULLY identify ALL services/systems mentioned in the request
+- If the same action applies to multiple services, create a SEPARATE action object for each service
+- ONLY use service names from the provided list of available connectors
+- Match service names as closely as possible to the available connectors (case-insensitive matching is fine)
+- If a mentioned service is not in the available list, use the closest match or "unknown"
 
 Return a JSON object with:
 {
@@ -45,17 +56,23 @@ Return a JSON object with:
     {
       "action": "QUERY|CREATE|UPDATE|DELETE|SEND|OTHER",
       "confidence": 0.0-1.0,
-      "target": "service name or 'unknown'",
-      "description": "brief description of this specific operation"
+      "target": "specific service name or 'unknown'",
+      "description": "brief description of this specific operation on this service"
     }
-    // ... more actions if the request requires multiple operations
+    // Create separate action objects for:
+    // - Different action types (QUERY vs CREATE)
+    // - Same action type on different services (QUERY on github, QUERY on linear)
   ],
-  "reasoning": "why you chose these classifications"
+  "reasoning": "why you chose these classifications and which services were identified"
 }
 
-Always return at least 1 action. Return multiple actions only when the request clearly requires different operation types."""
+Always return at least 1 action. Return multiple actions when the request requires different operation types OR the same operation on multiple services."""
 
     user_prompt = f"""User's request: {user_message}"""
+    
+    if available_connectors:
+        connectors_list = ", ".join(available_connectors)
+        user_prompt += f"\n\nAvailable connectors/services: {connectors_list}"
     
     if intent:
         user_prompt += f"\n\nIntent context: The user wants to {intent.intent.value} the app (confidence: {intent.confidence:.0%})"

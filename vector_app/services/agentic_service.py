@@ -751,8 +751,14 @@ class AgenticService:
         )
 
         # ===== ACTION CLASSIFICATION & TOOL MATCHING =====
+        # For non-generate intents, include tools from connectors already used in the app
+        include_used_connectors = intent.intent != UserIntent.GENERATE_NEW
+        
         matched_tools_context = None
-        for item in filter_mcp_tools(user_message, app_context, intent, app):
+        for item in filter_mcp_tools(
+            user_message, app_context, intent, app,
+            include_used_connectors=include_used_connectors,
+        ):
             if isinstance(item, FilterMCPToolsEvent):
                 yield AgentEvent(item.event_type, item.data)
             elif isinstance(item, FilterMCPToolsResult):

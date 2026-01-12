@@ -19,6 +19,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.core.cache import cache
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 
 from ..models import (
@@ -33,8 +34,8 @@ from ..services.merge_service import (
     merge_service,
     MergeAPIError,
     is_merge_configured,
-    categorize_tool_action,
 )
+from ..action_classification.tool_matcher import categorize_tool_action
 from ..serializers.connector_serializers import (
     IntegrationProviderSerializer,
     IntegrationProviderCreateSerializer,
@@ -117,11 +118,11 @@ def public_integrations_list(request):
         # Cache the response
         cache.set(PUBLIC_INTEGRATIONS_CACHE_KEY, response_data, PUBLIC_INTEGRATIONS_CACHE_TTL)
 
-        logger.info(f"Fetched {len(integrations)} integrations for public landing page")
+        logger.info("Fetched %d integrations for public landing page", len(integrations))
         return Response(response_data)
 
     except MergeAPIError as e:
-        logger.warning(f"Failed to fetch public integrations: {e}")
+        logger.warning("Failed to fetch public integrations: %s", e)
         return Response(
             {
                 "integrations": [],
@@ -131,7 +132,7 @@ def public_integrations_list(request):
             }
         )
     except Exception as e:
-        logger.error(f"Unexpected error fetching public integrations: {e}")
+        logger.error("Unexpected error fetching public integrations: %s", e)
         return Response(
             {
                 "integrations": [],
@@ -167,7 +168,7 @@ def get_or_create_provider(organization: Organization) -> MergeIntegrationProvid
         organization=organization, defaults={"display_name": "Integrations"}
     )
     if created:
-        logger.info(f"Auto-created integration provider for org: {organization.name}")
+        logger.info("Auto-created integration provider for org: %s", organization.name)
     return provider
 
 
@@ -325,99 +326,100 @@ def sync_connectors(request, pk):
         logger.info("=" * 70)
         logger.info("CONNECTOR SYNC - START")
         logger.info("=" * 70)
-        logger.info(f"Provider: {provider.id} (org: {provider.organization.name})")
+        logger.info("Provider: %s (org: %s)", provider.id, provider.organization.name)
 
         # Fetch connectors from Merge (credentials from settings)
         connectors_data = merge_service.sync_all_connectors()
 
-        logger.info(f"Fetched {len(connectors_data)} connectors from Merge API")
+        logger.info("Fetched %d connectors from Merge API", len(connectors_data))
         logger.info("-" * 50)
 
-        # Update cache
+        # Update cache - wrap in transaction to avoid SQLite locking issues
         synced_count = 0
         total_tools = 0
         tools_by_action = {}  # Track tools grouped by action type
 
-        for connector_data in connectors_data:
-            connector_id = connector_data["connector_id"]
-            connector_name = connector_data["connector_name"]
-            tools = connector_data.get("tools", [])
+        with transaction.atomic():
+            for connector_data in connectors_data:
+                connector_id = connector_data["connector_id"]
+                connector_name = connector_data["connector_name"]
+                tools = connector_data.get("tools", [])
 
-            logger.info(f"CONNECTOR: {connector_name} ({connector_id})")
-            logger.info(f"  Category: {connector_data['category']}")
-            logger.info(f"  Tools count: {len(tools)}")
+                logger.info("CONNECTOR: %s (%s)", connector_name, connector_id)
+                logger.info("  Category: %s", connector_data['category'])
+                logger.info("  Tools count: %d", len(tools))
 
-            connector, created = ConnectorCache.objects.update_or_create(
-                provider=provider,
-                connector_id=connector_id,
-                defaults={
-                    "connector_name": connector_name,
-                    "category": connector_data["category"],
-                    "categories_json": connector_data.get("categories", [connector_data["category"]]),
-                    "logo_url": connector_data.get("logo_url"),
-                    "source_url": connector_data.get("source_url"),
-                    "icon_url": connector_data.get("logo_url"),  # Legacy fallback
-                    "description": connector_data.get("description", ""),
-                    "tools_json": tools,
-                    "is_enabled": True,
-                },
-            )
-            logger.info(f"  DB: {'Created' if created else 'Updated'} ConnectorCache (id: {connector.id})")
-
-            # Create/update categorized tool actions
-            connector_tools_by_action = {}
-            for tool_data in tools:
-                tool_id = tool_data.get("id", "")
-                if not tool_id:
-                    continue
-
-                action_type = categorize_tool_action(tool_id, tool_data.get("description", ""))
-
-                # Track for logging
-                if action_type not in connector_tools_by_action:
-                    connector_tools_by_action[action_type] = []
-                connector_tools_by_action[action_type].append(tool_id)
-
-                if action_type not in tools_by_action:
-                    tools_by_action[action_type] = []
-                tools_by_action[action_type].append(f"{connector_id}:{tool_id}")
-
-                ConnectorToolAction.objects.update_or_create(
-                    connector_cache=connector,
-                    tool_id=tool_id,
+                connector, created = ConnectorCache.objects.update_or_create(
+                    provider=provider,
+                    connector_id=connector_id,
                     defaults={
-                        "tool_name": tool_data.get("name", tool_id),
-                        "description": tool_data.get("description", ""),
-                        "input_schema": tool_data.get("parameters", {}),
-                        "action_type": action_type,
+                        "connector_name": connector_name,
+                        "category": connector_data["category"],
+                        "categories_json": connector_data.get("categories", [connector_data["category"]]),
+                        "logo_url": connector_data.get("logo_url"),
+                        "source_url": connector_data.get("source_url"),
+                        "icon_url": connector_data.get("logo_url"),  # Legacy fallback
+                        "description": connector_data.get("description", ""),
+                        "tools_json": tools,
+                        "is_enabled": True,
                     },
                 )
-                total_tools += 1
+                logger.info("  DB: %s ConnectorCache (id: %s)", 'Created' if created else 'Updated', connector.id)
 
-            # Log tools grouped by action type for this connector
-            if connector_tools_by_action:
-                logger.info(f"  Tools by action type:")
-                for action_type, tool_ids in sorted(connector_tools_by_action.items()):
-                    logger.info(f"    {action_type}: {len(tool_ids)} tools")
-                    for tid in tool_ids[:5]:  # Show first 5
-                        logger.info(f"      - {tid}")
-                    if len(tool_ids) > 5:
-                        logger.info(f"      ... and {len(tool_ids) - 5} more")
+                # Create/update categorized tool actions
+                connector_tools_by_action = {}
+                for tool_data in tools:
+                    tool_id = tool_data.get("id", "")
+                    if not tool_id:
+                        continue
 
-            synced_count += 1
-            logger.info("")
+                    action_type = categorize_tool_action(tool_id, tool_data.get("description", ""))
+
+                    # Track for logging
+                    if action_type not in connector_tools_by_action:
+                        connector_tools_by_action[action_type] = []
+                    connector_tools_by_action[action_type].append(tool_id)
+
+                    if action_type not in tools_by_action:
+                        tools_by_action[action_type] = []
+                    tools_by_action[action_type].append(f"{connector_id}:{tool_id}")
+
+                    ConnectorToolAction.objects.update_or_create(
+                        connector_cache=connector,
+                        tool_id=tool_id,
+                        defaults={
+                            "tool_name": tool_data.get("name", tool_id),
+                            "description": tool_data.get("description", ""),
+                            "input_schema": tool_data.get("parameters", {}),
+                            "action_type": action_type,
+                        },
+                    )
+                    total_tools += 1
+
+                # Log tools grouped by action type for this connector
+                if connector_tools_by_action:
+                    logger.info("  Tools by action type:")
+                    for action_type, tool_ids in sorted(connector_tools_by_action.items()):
+                        logger.info("    %s: %d tools", action_type, len(tool_ids))
+                        for tid in tool_ids[:5]:  # Show first 5
+                            logger.info("      - %s", tid)
+                        if len(tool_ids) > 5:
+                            logger.info("      ... and %d more", len(tool_ids) - 5)
+
+                synced_count += 1
+                logger.info("")
 
         # Summary
         logger.info("=" * 70)
         logger.info("CONNECTOR SYNC - SUMMARY")
         logger.info("=" * 70)
-        logger.info(f"Total connectors synced: {synced_count}")
-        logger.info(f"Total tools saved: {total_tools}")
+        logger.info("Total connectors synced: %d", synced_count)
+        logger.info("Total tools saved: %d", total_tools)
         logger.info("")
         logger.info("TOOLS BY ACTION TYPE (all connectors):")
         for action_type in sorted(tools_by_action.keys()):
             count = len(tools_by_action[action_type])
-            logger.info(f"  {action_type}: {count} tools")
+            logger.info("  %s: %d tools", action_type, count)
         logger.info("=" * 70)
 
         return Response(
@@ -429,11 +431,11 @@ def sync_connectors(request, pk):
         )
 
     except MergeAPIError as e:
-        logger.error(f"Failed to sync connectors: {e}")
+        logger.error("Failed to sync connectors: %s", e)
         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
     except ValueError as e:
         # Credentials not configured
-        logger.error(f"Merge API not configured: {e}")
+        logger.error("Merge API not configured: %s", e)
         return Response({"error": str(e)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
 
@@ -466,11 +468,11 @@ def list_connectors(request, pk):
             logger.info("=" * 70)
             logger.info("CONNECTOR AUTO-SYNC - START (no cached connectors)")
             logger.info("=" * 70)
-            logger.info(f"Provider: {pk} (org: {provider.organization.name})")
+            logger.info("Provider: %s (org: %s)", pk, provider.organization.name)
 
             connectors_data = merge_service.sync_all_connectors()
 
-            logger.info(f"Fetched {len(connectors_data)} connectors from Merge API")
+            logger.info("Fetched %d connectors from Merge API", len(connectors_data))
 
             total_tools = 0
             tools_by_action = {}
@@ -480,7 +482,7 @@ def list_connectors(request, pk):
                 connector_name = connector_data["connector_name"]
                 tools = connector_data.get("tools", [])
 
-                logger.info(f"  CONNECTOR: {connector_name} - {len(tools)} tools")
+                logger.info("  CONNECTOR: %s - %d tools", connector_name, len(tools))
 
                 connector, created = ConnectorCache.objects.update_or_create(
                     provider=provider,
@@ -524,10 +526,10 @@ def list_connectors(request, pk):
 
             # Summary
             logger.info("-" * 50)
-            logger.info(f"AUTO-SYNC COMPLETE: {len(connectors_data)} connectors, {total_tools} tools")
+            logger.info("AUTO-SYNC COMPLETE: %d connectors, %d tools", len(connectors_data), total_tools)
             logger.info("Tools by action type:")
             for action_type in sorted(tools_by_action.keys()):
-                logger.info(f"  {action_type}: {len(tools_by_action[action_type])}")
+                logger.info("  %s: %d", action_type, len(tools_by_action[action_type]))
             logger.info("=" * 70)
 
             # Re-fetch connectors after sync
@@ -537,7 +539,7 @@ def list_connectors(request, pk):
             ).order_by("connector_name")
 
         except (MergeAPIError, ValueError) as e:
-            logger.warning(f"Failed to auto-sync connectors: {e}")
+            logger.warning("Failed to auto-sync connectors: %s", e)
 
     # Get authenticated connectors from Merge API (source of truth)
     # Only connectors in this list are truly connected
@@ -545,9 +547,9 @@ def list_connectors(request, pk):
     if provider.merge_registered_user_id and is_merge_configured():
         try:
             authenticated_connector_ids = set(merge_service.get_organization_connections(provider))
-            logger.debug(f"Authenticated connectors from Merge: {authenticated_connector_ids}")
+            logger.debug("Authenticated connectors from Merge: %s", authenticated_connector_ids)
         except MergeAPIError as e:
-            logger.warning(f"Failed to fetch authenticated connectors from Merge: {e}")
+            logger.warning("Failed to fetch authenticated connectors from Merge: %s", e)
 
     # Get local metadata (connected_by, connected_at) for display
     org_connections = {}
@@ -647,7 +649,7 @@ def generate_link_token(request, pk):
     except ValueError as e:
         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
     except MergeAPIError as e:
-        logger.error(f"Failed to generate link token: {e}")
+        logger.error("Failed to generate link token: %s", e)
         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -687,7 +689,7 @@ def org_connector_status(request, pk):
     if provider.merge_registered_user_id and is_merge_configured():
         try:
             authenticated_connector_ids = set(merge_service.get_organization_connections(provider))
-            logger.debug(f"Authenticated connectors from Merge: {authenticated_connector_ids}")
+            logger.debug("Authenticated connectors from Merge: %s", authenticated_connector_ids)
 
             # Sync local records with Merge state
             for connector_id in authenticated_connector_ids:
@@ -714,7 +716,7 @@ def org_connector_status(request, pk):
             ).update(is_connected=False, connected_at=None, connected_by=None)
 
         except MergeAPIError as e:
-            logger.warning(f"Failed to fetch connections from Merge: {e}")
+            logger.warning("Failed to fetch connections from Merge: %s", e)
 
     # Get local metadata for display
     org_connections = {}
@@ -791,11 +793,11 @@ def handle_link_callback(request, pk):
             authenticated_connectors = merge_service.get_organization_connections(provider)
             is_authenticated = connector_id in authenticated_connectors
             logger.info(
-                f"Link callback for {connector_id}: authenticated={is_authenticated}, "
-                f"authenticated_connectors={authenticated_connectors}"
+                "Link callback for %s: authenticated=%s, authenticated_connectors=%s",
+                connector_id, is_authenticated, authenticated_connectors
             )
         except MergeAPIError as e:
-            logger.warning(f"Failed to verify connection with Merge: {e}")
+            logger.warning("Failed to verify connection with Merge: %s", e)
             # If we can't verify, don't mark as connected
             return Response(
                 {
@@ -929,7 +931,7 @@ def list_mcp_tools(request, pk):
             }
         )
     except MergeAPIError as e:
-        logger.error(f"Failed to list MCP tools: {e}")
+        logger.error("Failed to list MCP tools: %s", e)
         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -995,5 +997,5 @@ def call_mcp_tool(request, pk):
             )
 
     except MergeAPIError as e:
-        logger.error(f"Failed to call MCP tool: {e}")
+        logger.error("Failed to call MCP tool: %s", e)
         return Response({"success": False, "error": str(e)}, status=status.HTTP_400_BAD_REQUEST)

@@ -9,6 +9,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
 
+from vector_app.models import ConnectorExecutionLog
+
 if TYPE_CHECKING:
     from vector_app.models import InternalApp, AppVersion, VersionFile, AppDataTable
 
@@ -90,6 +92,9 @@ class AppContext:
     component_names: Set[str] = field(default_factory=set)
     table_slugs: Set[str] = field(default_factory=set)
     
+    # Connectors already used in the app's code
+    used_connectors: List[str] = field(default_factory=list)
+    
     def get_file(self, path: str) -> Optional[FileInfo]:
         """Get file info by path."""
         for f in self.existing_files:
@@ -114,6 +119,8 @@ class AppContext:
                 parts.append(f"Entry points: {', '.join(self.entry_points[:3])}")
             if self.existing_tables:
                 parts.append(f"Tables: {', '.join([t.name for t in self.existing_tables[:3]])}")
+            if self.used_connectors:
+                parts.append(f"Uses connectors: {', '.join(self.used_connectors[:5])}")
         else:
             parts.append("No existing app")
         
@@ -178,6 +185,9 @@ class ContextAnalyzer:
         # Analyze codebase style
         codebase_style = self._analyze_codebase_style(version, files)
         
+        # Detect connectors used by this app (from execution logs)
+        used_connectors = self._detect_used_connectors(app)
+        
         return AppContext(
             has_existing_app=len(files) > 0,
             file_count=len(files),
@@ -190,6 +200,7 @@ class ContextAnalyzer:
             file_paths=set(f.path for f in files),
             component_names=set(f.exports[0] for f in files if f.exports and f.is_component),
             table_slugs=set(t.slug for t in tables),
+            used_connectors=used_connectors,
         )
     
     def _get_latest_version(self, app: 'InternalApp') -> Optional['AppVersion']:
@@ -361,6 +372,43 @@ class ContextAnalyzer:
             logger.warning(f"Error analyzing tables: {e}")
         
         return tables
+    
+    def _detect_used_connectors(self, app: 'InternalApp') -> List[str]:
+        """
+        Detect which connectors have been used by this InternalApp.
+        
+        Queries the ConnectorExecutionLog to find distinct connector_slug values
+        that have been executed for this app.
+        
+        Args:
+            app: The InternalApp to check for used connectors
+            
+        Returns:
+            List of connector IDs that have been used by the app
+        """
+        if not app:
+            return []
+        
+        try:
+            # Get distinct connector slugs from execution logs for this app
+            used_connectors = list(
+                ConnectorExecutionLog.objects.filter(
+                    internal_app=app
+                ).values_list('connector_slug', flat=True).distinct()
+            )
+            
+            if used_connectors:
+                logger.info(
+                    "[Context Analyzer] Found %d connector(s) used by app: %s",
+                    len(used_connectors),
+                    ", ".join(sorted(used_connectors))
+                )
+            
+            return sorted(used_connectors)
+                
+        except Exception as e:
+            logger.warning("[Context Analyzer] Error detecting used connectors: %s", e)
+            return []
     
     def _build_component_graph(self, files: List[FileInfo]) -> Dict[str, List[str]]:
         """

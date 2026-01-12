@@ -16,7 +16,7 @@ For example:
 
 import logging
 import json
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import httpx
 
@@ -37,6 +37,59 @@ from vector_app.services.openrouter_service import get_openrouter_service
 logger = logging.getLogger(__name__)
 
 
+def _log_classification_input(
+    user_message: str,
+    context: Optional["AppContext"],
+    intent: Optional["IntentResult"],
+    available_connectors: Optional[List[str]],
+) -> None:
+    """Log classification input details at debug level."""
+    logger.debug("=" * 60)
+    logger.debug("ACTION CLASSIFICATION - Determining MCP tool operations needed")
+    logger.debug("=" * 60)
+    logger.debug("Input message: %s%s", user_message[:200], "..." if len(user_message) > 200 else "")
+    logger.debug("Has context: %s", context is not None)
+    logger.debug("Has intent: %s", intent is not None)
+    if intent:
+        logger.debug("  Intent type: %s", intent.intent.value)
+        logger.debug("  Intent confidence: %.0f%%", intent.confidence * 100)
+    if available_connectors:
+        logger.debug("Available connectors: %s", ", ".join(available_connectors))
+    logger.debug("-" * 40)
+    logger.debug("LLM CLASSIFICATION:")
+
+
+def _log_classification_result(result: "ActionResult") -> None:
+    """Log classification result details at debug level."""
+    logger.debug("-" * 40)
+    logger.debug("MCP OPERATIONS NEEDED:")
+    logger.debug("  Total Actions: %d (filtered, confidence >= 0.4)", len(result.actions))
+    logger.debug("  Description: %s", result.description)
+    if result.actions:
+        logger.debug("  All Actions (ranked by confidence):")
+        for i, action in enumerate(result.actions, 1):
+            logger.debug("    %d. %s (%.0f%%, target: %s) - %s", 
+                        i, action.action.value, action.confidence * 100, 
+                        action.target, action.description)
+    else:
+        logger.warning("  No actions classified!")
+    logger.debug("=" * 60)
+
+
+def _log_processed_actions(
+    action_items: List["ActionItem"],
+    reasoning: str,
+) -> None:
+    """Log processed action items at debug level."""
+    logger.debug("-" * 40)
+    logger.debug("Classification result:")
+    logger.debug("  Number of actions (after filtering <0.4): %d", len(action_items))
+    for i, item in enumerate(action_items, 1):
+        logger.debug("  Action %d: %s (%.0f%%, target: %s) - %s", 
+                    i, item.action.value, item.confidence * 100, item.target, item.description)
+    logger.debug("  Reasoning: %s", reasoning)
+
+
 class ActionClassifier:
     """
     Classifies user messages to determine what MCP tool operations
@@ -50,6 +103,7 @@ class ActionClassifier:
         user_message: str,
         context: Optional["AppContext"] = None,
         intent: Optional["IntentResult"] = None,
+        available_connectors: Optional[List[str]] = None,
     ) -> "ActionResult":
         """
         Classify the user's action based on their message using LLM.
@@ -58,35 +112,25 @@ class ActionClassifier:
             user_message: The user's request
             context: Optional app context
             intent: Optional intent result for additional context
+            available_connectors: Optional list of available service/connector names
 
         Returns:
             ActionResult with classified action and metadata
         """
-        logger.info("=" * 60)
-        logger.info("ACTION CLASSIFICATION - Determining MCP tool operations needed")
-        logger.info("=" * 60)
-        logger.info("Input message: %s%s", user_message[:200], "..." if len(user_message) > 200 else "")
-        logger.info("Has context: %s", context is not None)
-        logger.info("Has intent: %s", intent is not None)
-        if intent:
-            logger.info("  Intent type: %s", intent.intent.value)
-            logger.info("  Intent confidence: %.0f%%", intent.confidence * 100)
+        _log_classification_input(user_message, context, intent, available_connectors)
 
-        # Build prompts for LLM classification
-        system_prompt, user_prompt = build_action_classification_prompts(user_message, intent)
+        system_prompt, user_prompt = build_action_classification_prompts(
+            user_message, intent, available_connectors
+        )
 
-        logger.info("-" * 40)
-        logger.info("LLM CLASSIFICATION:")
-        
         try:
             action_items, description, reasoning = self._classify_with_llm(
-                system_prompt, user_prompt, ActionType, ActionItem
+                system_prompt, user_prompt
             )
         except Exception as e:
-            logger.error("LLM classification failed: %s", e)
-            logger.info("Falling back to keyword-based classification")
+            logger.error("LLM classification failed, falling back to keyword-based classification: %s", e)
             action_items, description, reasoning = self._classify_with_keywords(
-                user_message, ActionType, ActionItem
+                user_message
             )
 
         result = ActionResult(
@@ -99,31 +143,61 @@ class ActionClassifier:
             },
         )
 
-        logger.info("-" * 40)
-        logger.info("MCP OPERATIONS NEEDED:")
-        logger.info("  Total Actions: %d (filtered, confidence >= 0.4)", len(result.actions))
-        logger.info("  Description: %s", result.description)
-        if result.actions:
-            logger.info("  All Actions (ranked by confidence):")
-            for i, action in enumerate(result.actions, 1):
-                logger.info("    %d. %s (%.0f%%, target: %s) - %s", 
-                           i, action.action.value, action.confidence * 100, 
-                           action.target, action.description)
-        else:
-            logger.warning("  No actions classified!")
-        logger.info("=" * 60)
+        _log_classification_result(result)
 
         return result
 
-    def _classify_with_llm(self, system_prompt: str, user_prompt: str, ActionType, ActionItem):
+    def _process_and_filter_actions(
+        self,
+        action_items: List[ActionItem],
+        reasoning: str,
+        default_target: str = "unknown",
+        default_description: str = "Read data"
+    ) -> Tuple[List[ActionItem], str]:
+        """
+        Process, filter, and log action items.
+
+        Args:
+            action_items: List of action items to process
+            reasoning: Classification reasoning for logging
+            default_target: Target for default action if all filtered out
+            default_description: Description for default action if all filtered out
+
+        Returns:
+            Tuple of (filtered_action_items, description)
+        """
+        action_items.sort(key=lambda x: x.confidence, reverse=True)
+        action_items = [item for item in action_items if item.confidence >= 0.4]
+
+        if not action_items:
+            logger.warning("All actions filtered out due to low confidence, using default QUERY")
+            action_items = [ActionItem(
+                action=ActionType.QUERY,
+                confidence=0.5,
+                target=default_target,
+                description=default_description
+            )]
+
+        if len(action_items) == 1:
+            description = action_items[0].description
+        else:
+            description = f"Multiple operations: {', '.join(item.action.value for item in action_items)}"
+
+        _log_processed_actions(action_items, reasoning)
+
+        return action_items, description
+
+    def _classify_with_llm(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+    ) -> Tuple[List[ActionItem], str, str]:
         """
         Classify actions using LLM.
 
         Args:
             system_prompt: System prompt for the LLM
             user_prompt: User prompt for the LLM
-            ActionType: ActionType enum class
-            ActionItem: ActionItem class
 
         Returns:
             Tuple of (action_items, description, reasoning)
@@ -151,7 +225,7 @@ class ActionClassifier:
         content = result_data["choices"][0]["message"]["content"]
         classification = json.loads(content)
         
-        logger.info("LLM Response: %s", json.dumps(classification, indent=2))
+        logger.debug("LLM Response: %s", json.dumps(classification, indent=2))
         
         # Parse LLM response - now supports multiple actions
         actions_data = classification.get("actions", [])
@@ -172,56 +246,34 @@ class ActionClassifier:
         for action_data in actions_data:
             action_str = action_data.get("action", "QUERY").upper()
             try:
-                action_type = ActionType[action_str]
+                parsed_action = ActionType[action_str]
             except KeyError:
                 logger.warning("Invalid action type from LLM: %s, defaulting to QUERY", action_str)
-                action_type = ActionType.QUERY
+                parsed_action = ActionType.QUERY
             
             action_items.append(ActionItem(
-                action=action_type,
+                action=parsed_action,
                 confidence=float(action_data.get("confidence", 0.7)),
                 target=action_data.get("target", "unknown"),
-                description=action_data.get("description", f"{action_type.value} operation")
+                description=action_data.get("description", f"{parsed_action.value} operation")
             ))
         
-        # Sort by confidence (highest first) and filter out low-confidence actions
-        action_items.sort(key=lambda x: x.confidence, reverse=True)
-        action_items = [item for item in action_items if item.confidence >= 0.4]
-        
-        # Ensure we have at least one action
-        if not action_items:
-            logger.warning("All actions filtered out due to low confidence, using default QUERY")
-            action_items = [ActionItem(
-                action=ActionType.QUERY,
-                confidence=0.5,
-                target="unknown",
-                description="Read data"
-            )]
-        
-        # Build overall description
-        if len(action_items) == 1:
-            description = action_items[0].description
-        else:
-            description = f"Multiple operations: {', '.join(item.action.value for item in action_items)}"
-        
-        logger.info("-" * 40)
-        logger.info("Classification result:")
-        logger.info("  Number of actions (after filtering <0.4): %d", len(action_items))
-        for i, item in enumerate(action_items, 1):
-            logger.info("  Action %d: %s (%.0f%%, target: %s) - %s", 
-                       i, item.action.value, item.confidence * 100, item.target, item.description)
-        logger.info("  Reasoning: %s", reasoning)
+        # Process and filter actions
+        action_items, description = self._process_and_filter_actions(
+            action_items, reasoning
+        )
 
         return action_items, description, reasoning
 
-    def _classify_with_keywords(self, user_message: str, ActionType, ActionItem):
+    def _classify_with_keywords(
+        self,
+        user_message: str,
+    ) -> Tuple[List[ActionItem], str, str]:
         """
         Classify actions using keyword matching (fallback method).
 
         Args:
             user_message: The user's message
-            ActionType: ActionType enum class
-            ActionItem: ActionItem class
 
         Returns:
             Tuple of (action_items, description, reasoning)
@@ -251,26 +303,15 @@ class ActionClassifier:
                     description=self._generate_description(action_type, target)
                 ))
         
-        # Sort by confidence and filter
-        action_items.sort(key=lambda x: x.confidence, reverse=True)
-        action_items = [item for item in action_items if item.confidence >= 0.4]
-        
-        # Fallback if no actions meet threshold
-        if not action_items:
-            action_items = [ActionItem(
-                action=ActionType.QUERY,
-                confidence=0.5,
-                target=target,
-                description=self._generate_description(ActionType.QUERY, target)
-            )]
-        
-        # Build overall description
-        if len(action_items) == 1:
-            description = action_items[0].description
-        else:
-            description = f"Multiple operations: {', '.join(item.action.value for item in action_items)}"
-        
         reasoning = "Fallback keyword matching"
+        
+        # Process and filter actions
+        action_items, description = self._process_and_filter_actions(
+            action_items,
+            reasoning,
+            default_target=target,
+            default_description=self._generate_description(ActionType.QUERY, target)
+        )
 
         return action_items, description, reasoning
 
