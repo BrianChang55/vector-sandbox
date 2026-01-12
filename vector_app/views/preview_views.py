@@ -7,6 +7,7 @@ Authorization:
 - All requests must be authenticated (session or JWT)
 - User must be a member of the app's organization
 """
+
 import logging
 import json
 from django.http import HttpResponse, HttpResponseForbidden, Http404
@@ -24,26 +25,26 @@ logger = logging.getLogger(__name__)
 class AppPreviewView(View):
     """
     Serves the app preview as an HTML page.
-    
+
     GET /preview/apps/:app_id?version=...
-    
+
     Authorization:
     - Must be authenticated (session or JWT)
     - Must be member of app's organization
     """
-    
+
     def _get_authenticated_user(self, request):
         """
         Get authenticated user from session or JWT token.
-        
+
         Returns (user, error_response) tuple.
         """
         # Try session auth first
         if request.user and request.user.is_authenticated:
             return request.user, None
-        
+
         # Try JWT from Authorization header
-        auth_header = request.META.get('HTTP_AUTHORIZATION', '')
+        auth_header = request.META.get("HTTP_AUTHORIZATION", "")
         if auth_header:
             try:
                 jwt_auth = JWTAuthentication()
@@ -54,50 +55,49 @@ class AppPreviewView(View):
                     return user, None
             except Exception as e:
                 logger.debug(f"JWT auth failed for preview: {e}")
-        
+
         # Check for token query parameter (for iframe embedding)
-        token = request.GET.get('token')
+        token = request.GET.get("token")
         if token:
             try:
                 from rest_framework_simplejwt.tokens import AccessToken
+
                 access_token = AccessToken(token)
                 from django.contrib.auth import get_user_model
+
                 User = get_user_model()
-                user = User.objects.get(id=access_token['user_id'])
+                user = User.objects.get(id=access_token["user_id"])
                 return user, None
             except Exception as e:
                 logger.debug(f"Token param auth failed: {e}")
-        
+
         return None, HttpResponseForbidden("Authentication required")
-    
+
     def get(self, request, app_id):
         """Render preview HTML for an app version."""
         # Authenticate user
         user, error = self._get_authenticated_user(request)
         if error:
             return self._allow_iframe(error)
-        
-        version_id = request.GET.get('version')
-        
+
+        version_id = request.GET.get("version")
+
         try:
-            app = InternalApp.objects.select_related('organization').get(pk=app_id)
-            
+            app = InternalApp.objects.select_related("organization").get(pk=app_id)
+
             # Verify user is member of app's organization
             if not UserOrganization.objects.filter(user=user, organization=app.organization).exists():
                 response = HttpResponseForbidden("You don't have access to this app")
                 return self._allow_iframe(response)
-            
+
             if version_id:
                 version = AppVersion.objects.get(pk=version_id, internal_app=app)
             else:
                 # Get latest STABLE version (complete generation) for preview
                 version = VersionService.get_latest_stable_version(app)
-                
+
                 if not version:
-                    response = HttpResponse(
-                        self._render_empty_preview(app),
-                        content_type='text/html'
-                    )
+                    response = HttpResponse(self._render_empty_preview(app), content_type="text/html")
                     return self._allow_iframe(response)
 
             # Fallback: if the selected version has no pages, use the latest stable version that does
@@ -105,9 +105,8 @@ class AppPreviewView(View):
                 fallback_version = None
                 # Only look at stable versions for fallback
                 for candidate in AppVersion.objects.filter(
-                    internal_app=app,
-                    generation_status=AppVersion.GEN_STATUS_COMPLETE
-                ).order_by('-version_number'):
+                    internal_app=app, generation_status=AppVersion.GEN_STATUS_COMPLETE
+                ).order_by("-version_number"):
                     if self._has_pages(candidate):
                         fallback_version = candidate
                         break
@@ -115,13 +114,10 @@ class AppPreviewView(View):
                     version = fallback_version
                 else:
                     return self._empty_response(app)
-            
-            response = HttpResponse(
-                self._render_preview(app, version),
-                content_type='text/html'
-            )
+
+            response = HttpResponse(self._render_preview(app, version), content_type="text/html")
             return self._allow_iframe(response)
-            
+
         except InternalApp.DoesNotExist:
             raise Http404("App not found")
         except AppVersion.DoesNotExist:
@@ -133,22 +129,19 @@ class AppPreviewView(View):
                 return self._empty_response(app)
             except InternalApp.DoesNotExist:
                 raise Http404("App not found")
-    
+
     def _allow_iframe(self, response: HttpResponse) -> HttpResponse:
         """
         Ensure the preview can be embedded in an iframe (used by the web app).
         XFrameOptionsMiddleware defaults to DENY, so override here.
         """
-        response['X-Frame-Options'] = 'ALLOWALL'
-        response['Content-Security-Policy'] = 'frame-ancestors *'
+        response["X-Frame-Options"] = "ALLOWALL"
+        response["Content-Security-Policy"] = "frame-ancestors *"
         return response
 
     def _empty_response(self, app: InternalApp) -> HttpResponse:
         """Return the empty preview HTML wrapped with iframe allowances."""
-        response = HttpResponse(
-            self._render_empty_preview(app),
-            content_type='text/html'
-        )
+        response = HttpResponse(self._render_empty_preview(app), content_type="text/html")
         return self._allow_iframe(response)
 
     def _has_pages(self, version: AppVersion) -> bool:
@@ -156,22 +149,22 @@ class AppPreviewView(View):
         spec = version.spec_json or {}
         pages = spec.get("pages") if isinstance(spec, dict) else None
         return bool(pages)
-    
+
     def _render_preview(self, app: InternalApp, version: AppVersion) -> str:
         """Render the preview HTML with embedded React code."""
-        
+
         # Get version files
         files = {f.path: f.content for f in version.files.all()}
-        
+
         # Get the page component
-        page_content = files.get('src/app/page.tsx', '')
-        table_view = files.get('src/components/TableView.tsx', '')
-        detail_drawer = files.get('src/components/DetailDrawer.tsx', '')
-        runtime_client = files.get('src/lib/runtimeClient.ts', '')
-        
+        page_content = files.get("src/app/page.tsx", "")
+        table_view = files.get("src/components/TableView.tsx", "")
+        detail_drawer = files.get("src/components/DetailDrawer.tsx", "")
+        runtime_client = files.get("src/lib/runtimeClient.ts", "")
+
         spec_json = json.dumps(version.spec_json)
-        
-        return f'''<!DOCTYPE html>
+
+        return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -475,11 +468,11 @@ class AppPreviewView(View):
         root.render(<App />);
     </script>
 </body>
-</html>'''
+</html>"""
 
     def _render_empty_preview(self, app: InternalApp) -> str:
         """Render empty state preview."""
-        return f'''<!DOCTYPE html>
+        return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -506,5 +499,4 @@ class AppPreviewView(View):
         </div>
     </div>
 </body>
-</html>'''
-
+</html>"""

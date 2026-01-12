@@ -4,6 +4,7 @@ Edit Handler
 Surgical code modifications without regenerating the entire app.
 Used for targeted changes like styling, text updates, and small fixes.
 """
+
 import logging
 import time
 from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
@@ -262,84 +263,82 @@ If your diff would leave unbalanced syntax, expand the hunk to include the match
 class EditHandler(BaseHandler):
     """
     Handler for surgical code modifications.
-    
+
     This handler is used when:
     - User wants to change specific code (styling, text, behavior)
     - Intent is classified as EDIT_CODE or REFACTOR
     - Changes are targeted and don't require rebuilding the app
     """
-    
+
     def execute(
         self,
-        intent: 'IntentResult',
-        context: 'AppContext',
+        intent: "IntentResult",
+        context: "AppContext",
         user_message: str,
         current_spec: Optional[Dict[str, Any]],
         registry_surface: Dict[str, Any],
         app_name: str,
         model: str,
-        app: Optional['InternalApp'] = None,
-        version: Optional['AppVersion'] = None,
+        app: Optional["InternalApp"] = None,
+        version: Optional["AppVersion"] = None,
         **kwargs,
     ) -> Generator[AgentEvent, None, List[FileChange]]:
         """
         Execute surgical code edits.
-        
+
         Only modifies the files that need to change.
         """
         start_time = time.time()
         generated_files: List[FileChange] = []
-        
+
         # Get additional context from kwargs
-        data_store_context = kwargs.get('data_store_context')
-        mcp_tools_context = kwargs.get('mcp_tools_context')
-        
+        data_store_context = kwargs.get("data_store_context")
+        mcp_tools_context = kwargs.get("mcp_tools_context")
+
         # ===== PHASE 1: ANALYZE =====
         yield self.emit_phase_change("researching", "Analyzing what needs to change...")
-        
+
         # Determine which files to modify
         target_files = self._identify_target_files(intent, context, user_message)
-        
+
         if not target_files:
             # Fallback: modify the main App.tsx
-            target_files = ['src/App.tsx']
+            target_files = ["src/App.tsx"]
             if context.entry_points:
                 target_files = context.entry_points[:1]
-        
+
         yield self.emit_thinking(
             f"Identified {len(target_files)} file(s) to modify: {', '.join(target_files)}",
             "observation",
         )
-        
+
         # ===== PHASE 2: PLAN =====
         yield self.emit_phase_change("planning", "Planning modifications...")
-        
+
         plan_steps = [
-            self.create_step("code", "Apply Changes", 
-                            f"Modify {len(target_files)} file(s) based on request"),
-            self.create_step("validation", "Validate Changes",
-                            "Ensure code compiles and works correctly"),
+            self.create_step("code", "Apply Changes", f"Modify {len(target_files)} file(s) based on request"),
+            self.create_step("validation", "Validate Changes", "Ensure code compiles and works correctly"),
         ]
-        
+
         yield self.emit_plan_created(
             steps=plan_steps,
             explored_dirs=1,
             explored_files=len(target_files),
             searches=0,
         )
-        
+
         # ===== PHASE 3: EXECUTE EDITS =====
         yield self.emit_phase_change("executing", "Applying changes...")
-        
+
         step = plan_steps[0]
         step_start = time.time()
-        
+
         yield self.emit_step_started(step, 0)
         yield self.emit_step_start(step, 0)
-        
+
         # Get current file contents
         file_contents = self._get_file_contents(version, target_files)
-        
+
         if not file_contents:
             yield self.emit_thinking(
                 "Could not read existing files - generating new content",
@@ -354,38 +353,38 @@ class EditHandler(BaseHandler):
                 data_store_context=data_store_context,
                 mcp_tools_context=mcp_tools_context,
             )
-            
+
             generated_files.extend(edited_files)
-            
+
             step.status = "complete"
             step.duration = int((time.time() - step_start) * 1000)
-            
+
             yield self.emit_step_completed(step, 0, step.duration)
             yield self.emit_step_complete(0, "complete", step.duration)
-            
+
         except Exception as e:
             logger.error(f"Edit execution error: {e}")
             step.status = "error"
             yield self.emit_step_complete(0, "error", int((time.time() - step_start) * 1000))
             yield self.emit_thinking(f"Error during edit: {str(e)}", "reflection")
-        
+
         # ===== PHASE 4: VALIDATE & FIX =====
         if generated_files:
             step = plan_steps[1]
             step_start = time.time()
-            
+
             yield self.emit_step_started(step, 1)
             yield self.emit_step_start(step, 1)
-            
+
             # Merge with existing files for validation
             all_files = self._merge_with_existing(context, version, generated_files)
-            
+
             # Run TypeScript validation with error fixing
             validation_passed, fix_attempts = yield from self.validate_and_fix(
                 generated_files=all_files,
                 model=model,
             )
-            
+
             # Update generated_files with any fixes
             generated_paths = {f.path for f in generated_files}
             for f in all_files:
@@ -395,69 +394,70 @@ class EditHandler(BaseHandler):
                         if gf.path == f.path:
                             generated_files[i] = f
                             break
-            
+
             step.duration = int((time.time() - step_start) * 1000)
             yield self.emit_step_completed(step, 1, step.duration)
             yield self.emit_step_complete(1, "complete", step.duration)
-            
+
             yield self.emit_validation_result(
                 passed=validation_passed,
                 fix_attempts=fix_attempts,
             )
-        
+
         return generated_files
-    
+
     def _identify_target_files(
         self,
-        intent: 'IntentResult',
-        context: 'AppContext',
+        intent: "IntentResult",
+        context: "AppContext",
         user_message: str,
     ) -> List[str]:
         """Identify which files need to be modified.
-        
+
         Uses cascade detection to find all potentially affected files.
         """
         target_files = []
-        
+
         # First, use files identified by intent classifier
         if intent.affected_files:
             for path in intent.affected_files:
                 if path in context.file_paths:
                     target_files.append(path)
-        
+
         if target_files:
             # Use cascade detection to find additional affected files
             from vector_app.services.context_analyzer import get_context_analyzer
+
             analyzer = get_context_analyzer()
-            
+
             cascade_affected = set()
             for primary_file in target_files:
                 affected = analyzer.find_cascade_affected_files(context, primary_file, max_depth=1)
                 cascade_affected.update(affected)
-            
+
             # Add cascade files that aren't already in target_files
             for path in cascade_affected:
                 if path not in target_files and path in context.file_paths:
                     target_files.append(path)
-            
+
             return target_files
-        
+
         # Try to find files based on keywords in the message
         message_lower = user_message.lower()
-        
+
         # Map common keywords to file patterns
         keyword_patterns = {
-            'header': ['Header', 'header', 'Nav', 'nav'],
-            'button': ['Button', 'button'],
-            'form': ['Form', 'form', 'Input', 'input'],
-            'table': ['Table', 'table', 'List', 'list'],
-            'card': ['Card', 'card'],
-            'modal': ['Modal', 'modal', 'Dialog', 'dialog'],
-            'sidebar': ['Sidebar', 'sidebar', 'Menu', 'menu'],
-            'footer': ['Footer', 'footer'],
-            'app': ['App'],
+            "header": ["Header", "header", "Nav", "nav"],
+            "button": ["Button", "button"],
+            "form": ["Form", "form", "Input", "input"],
+            "table": ["Table", "table", "List", "list"],
+            "card": ["Card", "card"],
+            "modal": ["Modal", "modal", "Dialog", "dialog"],
+            "sidebar": ["Sidebar", "sidebar", "Menu", "menu"],
+            "footer": ["Footer", "footer"],
+            "app": ["App"],
         }
-        
+
         for keyword, patterns in keyword_patterns.items():
             if keyword in message_lower:
                 for f in context.existing_files:
@@ -465,35 +465,36 @@ class EditHandler(BaseHandler):
                         if pattern in f.path:
                             if f.path not in target_files:
                                 target_files.append(f.path)
-        
+
         # If still no matches, use main entry point
         if not target_files and context.entry_points:
             target_files = [context.entry_points[0]]
-        
+
         # Fallback to App.tsx
         if not target_files:
-            if 'src/App.tsx' in context.file_paths:
-                target_files = ['src/App.tsx']
-        
+            if "src/App.tsx" in context.file_paths:
+                target_files = ["src/App.tsx"]
+
         return target_files
-    
+
     def _get_file_contents(
         self,
-        version: Optional['AppVersion'],
+        version: Optional["AppVersion"],
         file_paths: List[str],
     ) -> Dict[str, str]:
         """Get the current contents of files."""
         if not version:
             return {}
-        
+
         try:
             from vector_app.services.context_analyzer import get_context_analyzer
+
             analyzer = get_context_analyzer()
             return analyzer.get_file_contents(version, file_paths)
         except Exception as e:
             logger.warning(f"Error getting file contents: {e}")
             return {}
-    
+
     def _generate_edits(
         self,
         user_message: str,
@@ -504,7 +505,7 @@ class EditHandler(BaseHandler):
     ) -> Generator[AgentEvent, None, List[FileChange]]:
         """Generate edited versions of files."""
         files = []
-        
+
         # Build context of files to edit with line numbers for accurate diff generation
         files_context = ""
         for path, content in file_contents.items():
@@ -513,11 +514,11 @@ class EditHandler(BaseHandler):
 
         if not files_context:
             files_context = "No existing files to modify."
-        
+
         # Escape curly braces in file contents to prevent .format() errors
         # JSX code contains {variable} which breaks Python's .format()
-        escaped_files_context = files_context.replace('{', '{{').replace('}', '}}')
-        escaped_user_message = user_message.replace('{', '{{').replace('}', '}}')
+        escaped_files_context = files_context.replace("{", "{{").replace("}", "}}")
+        escaped_user_message = user_message.replace("{", "{{").replace("}", "}}")
 
         # Build the user prompt with additional context
         formatted_template = EDIT_PROMPT_TEMPLATE.format(
@@ -526,24 +527,29 @@ class EditHandler(BaseHandler):
         )
 
         prompt_parts = [formatted_template]
-        
+
         # Add data store context if available
         if data_store_context and "No data tables" not in data_store_context:
             prompt_parts.append(f"\n## Available Data Store\n{data_store_context}")
-        
+
         # Add MCP tools context if available
+        print("=" * 60)
+        print("MCP tools context:")
+
+        print(f"{mcp_tools_context}")
+        print("=" * 60)
         if mcp_tools_context:
             prompt_parts.append(f"\n## Available Integrations\n{mcp_tools_context}")
-        
+
         prompt = "\n".join(prompt_parts)
-        
+
         try:
             full_content = ""
             chunk_count = 0
-            
+
             # Create streaming validator for real-time checks
             validator = self.create_streaming_validator()
-            
+
             for chunk in self.stream_llm_response(
                 system_prompt=EDIT_SYSTEM_PROMPT,
                 user_prompt=prompt,
@@ -552,12 +558,12 @@ class EditHandler(BaseHandler):
             ):
                 full_content += chunk
                 chunk_count += 1
-                
+
                 # Real-time validation during streaming
                 streaming_warnings = validator.check_chunk(chunk, full_content)
                 for warning in streaming_warnings:
                     yield self.emit_streaming_warning(warning)
-                
+
                 if chunk_count % 10 == 0:
                     yield self.emit_step_progress(0, min(80, chunk_count), "Generating edits...")
 
@@ -569,7 +575,7 @@ class EditHandler(BaseHandler):
             # TODO: Add some type of validation + fallback to full file generation here
             # Parse unified diffs from LLM response
             diffs = parse_diffs(full_content)
-            
+
             # DEBUG: Log parsed diffs
             logger.debug(f"[EDIT] Parsed {len(diffs)} diff(s) from LLM response")
             for diff in diffs:
@@ -589,10 +595,10 @@ class EditHandler(BaseHandler):
                         continue
 
                     new_content = apply_diff(original, diff)
-                    
+
                     file_change = FileChange(
                         path=diff.path,
-                        action='modify',
+                        action="modify",
                         language=self.get_language(diff.path),
                         content=new_content,
                         previous_content=original,
@@ -607,7 +613,7 @@ class EditHandler(BaseHandler):
                 edited_files = self.parse_code_blocks(full_content)
 
                 for f in edited_files:
-                    f.action = 'modify'
+                    f.action = "modify"
                     yield self.emit_file_generated(f)
                     files.append(f)
 
@@ -616,17 +622,17 @@ class EditHandler(BaseHandler):
         except Exception as e:
             logger.error(f"Edit generation error: {e}")
             raise
-    
+
     def _merge_with_existing(
         self,
-        context: 'AppContext',
-        version: Optional['AppVersion'],
+        context: "AppContext",
+        version: Optional["AppVersion"],
         edited_files: List[FileChange],
     ) -> List[FileChange]:
         """Merge edited files with existing files for validation."""
         all_files = []
         edited_paths = {f.path for f in edited_files}
-        
+
         # Get all existing files
         if version:
             try:
@@ -634,36 +640,37 @@ class EditHandler(BaseHandler):
                     if vf.path in edited_paths:
                         # Use edited version
                         continue
-                    all_files.append(FileChange(
-                        path=vf.path,
-                        action='create',
-                        language=vf.path.split('.')[-1] if '.' in vf.path else 'tsx',
-                        content=vf.content or '',
-                        previous_content=vf.content or '',
-                    ))
+                    all_files.append(
+                        FileChange(
+                            path=vf.path,
+                            action="create",
+                            language=vf.path.split(".")[-1] if "." in vf.path else "tsx",
+                            content=vf.content or "",
+                            previous_content=vf.content or "",
+                        )
+                    )
             except Exception as e:
                 logger.warning(f"Error getting existing files: {e}")
-        
+
         # Add edited files
         all_files.extend(edited_files)
-        
+
         return all_files
-    
+
     def _quick_validate(self, files: List[FileChange]) -> bool:
         """Quick validation of edited files."""
         for f in files:
             if not f.content or len(f.content) < 10:
                 return False
-            
+
             # Basic syntax check for TSX/TS files
-            if f.language in ('tsx', 'ts'):
+            if f.language in ("tsx", "ts"):
                 # Check for obvious syntax issues
-                if f.content.count('{') != f.content.count('}'):
+                if f.content.count("{") != f.content.count("}"):
                     logger.warning(f"Mismatched braces in {f.path}")
                     return False
-                if f.content.count('(') != f.content.count(')'):
+                if f.content.count("(") != f.content.count(")"):
                     logger.warning(f"Mismatched parentheses in {f.path}")
                     return False
-        
-        return True
 
+        return True

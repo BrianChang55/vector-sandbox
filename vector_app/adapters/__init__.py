@@ -8,5 +8,4 @@ All backend communication goes through adapters to ensure security and abstracti
 from .base import BackendAdapter, AdapterContext, UserContext
 from .supabase import SupabaseAdapter
 
-__all__ = ['BackendAdapter', 'AdapterContext', 'UserContext', 'SupabaseAdapter']
-
+__all__ = ["BackendAdapter", "AdapterContext", "UserContext", "SupabaseAdapter"]

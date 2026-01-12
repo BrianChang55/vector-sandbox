@@ -4,6 +4,7 @@ OpenRouter AI Service for Code Generation
 Production-ready service supporting multiple AI models via OpenRouter.
 Includes streaming support for live updates (like Cursor, Lovable, Replit).
 """
+
 import logging
 import json
 from typing import Dict, Any, List, Optional, Generator, AsyncGenerator
@@ -19,16 +20,17 @@ logger = logging.getLogger(__name__)
 
 class AIModel(Enum):
     """Available AI models via OpenRouter - Agent-capable models only."""
+
     # Claude Models (Agent-capable)
     CLAUDE_OPUS_4_5 = "anthropic/claude-opus-4"
     CLAUDE_OPUS_4_5_HIGH = "anthropic/claude-opus-4"  # Same model, different settings
     CLAUDE_SONNET_4_5 = "anthropic/claude-sonnet-4"
     CLAUDE_HAIKU_4_5 = "anthropic/claude-haiku-4"
-    
+
     # OpenAI Models (Agent-capable)
     GPT_5_1 = "openai/gpt-4o"  # Best available
     GPT_5_1_HIGH = "openai/gpt-4o"  # Same model, different settings
-    
+
     # Google Models (Agent-capable)
     GEMINI_3_PRO = "google/gemini-2.0-flash-001"  # Best available
 
@@ -36,6 +38,7 @@ class AIModel(Enum):
 @dataclass
 class ModelConfig:
     """Configuration for an AI model."""
+
     model_id: str
     display_name: str
     description: str
@@ -74,7 +77,7 @@ MODEL_CONFIGS: Dict[str, ModelConfig] = {
         category="standard",
         recommended_for=["general_coding", "agents", "ui_generation"],
     ),
-     "anthropic/claude-haiku-4": ModelConfig(
+    "anthropic/claude-haiku-4": ModelConfig(
         model_id="anthropic/claude-haiku-4",
         display_name="Haiku 4.5",
         description="Fast and efficient for quick agentic tasks",
@@ -116,6 +119,7 @@ MODEL_CONFIGS: Dict[str, ModelConfig] = {
 @dataclass
 class StreamChunk:
     """Chunk of streaming response."""
+
     type: str  # 'content', 'thinking', 'error', 'done'
     content: str
     metadata: Optional[Dict[str, Any]] = None
@@ -124,7 +128,7 @@ class StreamChunk:
 class OpenRouterService:
     """
     Production-ready AI service using OpenRouter.
-    
+
     Features:
     - Multi-model support with automatic routing
     - Streaming responses for real-time updates
@@ -132,20 +136,20 @@ class OpenRouterService:
     - Error handling and retries
     - Cost tracking
     """
-    
+
     OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-    
+
     def __init__(self):
-        self.api_key = getattr(settings, 'OPENROUTER_API_KEY', None)
+        self.api_key = getattr(settings, "OPENROUTER_API_KEY", None)
         if not self.api_key:
             # Fall back to OpenAI key if OpenRouter not set
-            self.api_key = getattr(settings, 'OPENAI_API_KEY', None)
+            self.api_key = getattr(settings, "OPENAI_API_KEY", None)
             if self.api_key:
                 logger.info("Using OpenAI API key for OpenRouter (fallback mode)")
-        
-        self.app_name = getattr(settings, 'OPENROUTER_APP_NAME', 'Internal Apps Builder')
-        self.site_url = getattr(settings, 'BASE_URL', 'http://localhost:8001')
-    
+
+        self.app_name = getattr(settings, "OPENROUTER_APP_NAME", "Internal Apps Builder")
+        self.site_url = getattr(settings, "BASE_URL", "http://localhost:8001")
+
     def get_available_models(self) -> List[Dict[str, Any]]:
         """Get list of available models with their configurations."""
         return [
@@ -165,7 +169,7 @@ class OpenRouterService:
             }
             for key, config in MODEL_CONFIGS.items()
         ]
-    
+
     def _build_headers(self) -> Dict[str, str]:
         """Build request headers for OpenRouter."""
         return {
@@ -174,7 +178,7 @@ class OpenRouterService:
             "HTTP-Referer": self.site_url,
             "X-Title": self.app_name,
         }
-    
+
     def generate_app_spec(
         self,
         intent_message: str,
@@ -184,23 +188,23 @@ class OpenRouterService:
     ) -> Dict[str, Any]:
         """
         Generate AppSpec JSON from user intent (non-streaming).
-        
+
         Args:
             intent_message: User's intent/prompt
             current_spec: Current AppSpec (if editing)
             registry_surface: Sanitized registry data
             model: Model ID to use
-            
+
         Returns:
             AppSpec JSON dictionary
         """
         if not self.api_key:
             raise ValueError("OpenRouter/OpenAI API key not configured")
-        
+
         system_prompt = build_system_prompt(registry_surface, mode="appspec")
-        
+
         user_prompt = build_user_prompt(intent_message, current_spec)
-        
+
         try:
             with httpx.Client(timeout=120.0) as client:
                 response = client.post(
@@ -217,21 +221,21 @@ class OpenRouterService:
                     },
                 )
                 response.raise_for_status()
-                
+
                 result = response.json()
                 content = result["choices"][0]["message"]["content"]
                 spec_json = json.loads(content)
-                
+
                 # Validate basic structure
-                if not isinstance(spec_json, dict) or 'appName' not in spec_json:
+                if not isinstance(spec_json, dict) or "appName" not in spec_json:
                     raise ValueError("Invalid AppSpec structure")
-                
+
                 return spec_json
-                
+
         except Exception as e:
             logger.error(f"Error generating AppSpec: {e}")
             raise
-    
+
     def generate_app_spec_streaming(
         self,
         intent_message: str,
@@ -242,29 +246,31 @@ class OpenRouterService:
     ) -> Generator[StreamChunk, None, None]:
         """
         Generate AppSpec with streaming response.
-        
+
         Yields StreamChunk objects for real-time updates.
         """
         if not self.api_key:
             yield StreamChunk(type="error", content="API key not configured")
             return
-        
+
         system_prompt = build_system_prompt(registry_surface, mode="appspec")
-        
+
         messages = [{"role": "system", "content": system_prompt}]
-        
+
         # Add chat history if provided
         if chat_history:
             for msg in chat_history[-10:]:  # Last 10 messages for context
-                messages.append({
-                    "role": msg.get("role", "user"),
-                    "content": msg.get("content", ""),
-                })
-        
+                messages.append(
+                    {
+                        "role": msg.get("role", "user"),
+                        "content": msg.get("content", ""),
+                    }
+                )
+
         # Add current request
         user_prompt = build_user_prompt(intent_message, current_spec)
         messages.append({"role": "user", "content": user_prompt})
-        
+
         try:
             with httpx.Client(timeout=120.0) as client:
                 with client.stream(
@@ -280,22 +286,22 @@ class OpenRouterService:
                     },
                 ) as response:
                     response.raise_for_status()
-                    
+
                     full_content = ""
                     for line in response.iter_lines():
                         if not line:
                             continue
-                        
+
                         if line.startswith("data: "):
                             data = line[6:]
                             if data == "[DONE]":
                                 break
-                            
+
                             try:
                                 chunk_data = json.loads(data)
                                 delta = chunk_data.get("choices", [{}])[0].get("delta", {})
                                 content = delta.get("content", "")
-                                
+
                                 if content:
                                     full_content += content
                                     yield StreamChunk(
@@ -305,7 +311,7 @@ class OpenRouterService:
                                     )
                             except json.JSONDecodeError:
                                 continue
-                    
+
                     # Parse final JSON
                     try:
                         spec_json = json.loads(full_content)
@@ -320,7 +326,7 @@ class OpenRouterService:
                             content=f"Failed to parse response as JSON: {str(e)}",
                             metadata={"raw_content": full_content},
                         )
-                        
+
         except httpx.HTTPStatusError as e:
             yield StreamChunk(
                 type="error",
@@ -329,7 +335,7 @@ class OpenRouterService:
         except Exception as e:
             logger.error(f"Streaming error: {e}")
             yield StreamChunk(type="error", content=str(e))
-    
+
     def generate_code_streaming(
         self,
         intent_message: str,
@@ -340,34 +346,38 @@ class OpenRouterService:
     ) -> Generator[StreamChunk, None, None]:
         """
         Generate code files with streaming response.
-        
+
         For direct code generation (bypassing AppSpec when user wants raw code).
         """
         if not self.api_key:
             yield StreamChunk(type="error", content="API key not configured")
             return
-        
+
         system_prompt = build_system_prompt(registry_surface, mode="code")
-        
+
         messages = [{"role": "system", "content": system_prompt}]
-        
+
         if chat_history:
             for msg in chat_history[-10:]:
-                messages.append({
-                    "role": msg.get("role", "user"),
-                    "content": msg.get("content", ""),
-                })
-        
+                messages.append(
+                    {
+                        "role": msg.get("role", "user"),
+                        "content": msg.get("content", ""),
+                    }
+                )
+
         # Build user prompt with current code context
         user_prompt = f"Request: {intent_message}\n\n"
         if current_files:
             user_prompt += "Current files:\n"
             for path, content in current_files.items():
                 user_prompt += f"\n--- {path} ---\n{content[:2000]}...\n"
-        
-        user_prompt += "\nGenerate the requested code changes. Wrap each file in ```filepath:path/to/file.tsx blocks."
+
+        user_prompt += (
+            "\nGenerate the requested code changes. Wrap each file in ```filepath:path/to/file.tsx blocks."
+        )
         messages.append({"role": "user", "content": user_prompt})
-        
+
         try:
             with httpx.Client(timeout=180.0) as client:
                 with client.stream(
@@ -382,28 +392,28 @@ class OpenRouterService:
                     },
                 ) as response:
                     response.raise_for_status()
-                    
+
                     full_content = ""
                     for line in response.iter_lines():
                         if not line:
                             continue
-                        
+
                         if line.startswith("data: "):
                             data = line[6:]
                             if data == "[DONE]":
                                 break
-                            
+
                             try:
                                 chunk_data = json.loads(data)
                                 delta = chunk_data.get("choices", [{}])[0].get("delta", {})
                                 content = delta.get("content", "")
-                                
+
                                 if content:
                                     full_content += content
                                     yield StreamChunk(type="content", content=content)
                             except json.JSONDecodeError:
                                 continue
-                    
+
                     # Parse files from response
                     files = self._parse_code_blocks(full_content)
                     yield StreamChunk(
@@ -411,28 +421,28 @@ class OpenRouterService:
                         content="",
                         metadata={"files": files},
                     )
-                        
+
         except Exception as e:
             logger.error(f"Code generation error: {e}")
             yield StreamChunk(type="error", content=str(e))
-    
+
     def _parse_code_blocks(self, content: str) -> Dict[str, str]:
         """Parse code blocks from response into file dict."""
         import re
-        
+
         files = {}
-        
+
         # Match ```filepath:path/to/file.ext or ```path/to/file.ext
-        pattern = r'```(?:filepath:)?([^\n`]+)\n(.*?)```'
+        pattern = r"```(?:filepath:)?([^\n`]+)\n(.*?)```"
         matches = re.findall(pattern, content, re.DOTALL)
-        
+
         for filepath, code in matches:
             filepath = filepath.strip()
             # Clean up filepath
-            if filepath.startswith(('tsx', 'ts', 'js', 'jsx', 'css', 'json')):
+            if filepath.startswith(("tsx", "ts", "js", "jsx", "css", "json")):
                 continue  # Skip language-only markers
             files[filepath] = code.strip()
-        
+
         return files
 
 
@@ -446,4 +456,3 @@ def get_openrouter_service() -> OpenRouterService:
     if _openrouter_service is None:
         _openrouter_service = OpenRouterService()
     return _openrouter_service
-

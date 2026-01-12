@@ -10,6 +10,7 @@ Key differences from connectors_context.py:
 - Generates TypeScript type definitions for tool parameters
 - Creates ready-to-use code snippets
 """
+
 import json
 import logging
 from dataclasses import dataclass, field
@@ -24,8 +25,9 @@ logger = logging.getLogger(__name__)
 @dataclass
 class MCPToolDefinition:
     """Definition of a single MCP tool with full schema."""
-    name: str                    # e.g., "hubspot_list_deals"
-    connector_id: str            # e.g., "hubspot" (derived from name prefix)
+
+    name: str  # e.g., "hubspot_list_deals"
+    connector_id: str  # e.g., "hubspot" (derived from name prefix)
     description: str
     input_schema: Dict[str, Any]  # Full JSON Schema for parameters
     typescript_interface: str = ""  # Generated TS interface for this tool's params
@@ -34,42 +36,43 @@ class MCPToolDefinition:
 @dataclass
 class MCPToolsContext:
     """Complete MCP tools context for LLM consumption."""
+
     tools: List[MCPToolDefinition] = field(default_factory=list)
-    connectors_summary: str = ""      # Brief list for planning
-    full_context: str = ""            # Rich description for code generation
-    typescript_definitions: str = ""   # All TypeScript interfaces
+    connectors_summary: str = ""  # Brief list for planning
+    full_context: str = ""  # Rich description for code generation
+    typescript_definitions: str = ""  # All TypeScript interfaces
     has_tools: bool = False
-    provider_id: str = ""             # Provider ID for API calls
+    provider_id: str = ""  # Provider ID for API calls
     authenticated_connectors: List[str] = field(default_factory=list)  # Already connected integrations
 
 
-def build_mcp_tools_context(app: 'InternalApp') -> MCPToolsContext:
+def build_mcp_tools_context(app: "InternalApp") -> MCPToolsContext:
     """
     Build MCP tools context for LLM consumption.
-    
+
     This function:
     1. Gets the organization's integration provider
     2. Fetches which connectors are already authenticated
     3. For authenticated connectors, fetches actual tools from tool pack API
     4. Formats tools with descriptions for code generation
     5. Generates TypeScript type definitions
-    
+
     Note: We use the tool pack API (list_connectors) to get actual connector tools,
     not MCP tools/list which only returns authenticate_* tools.
-    
+
     Args:
         app: The InternalApp to get MCP tools for
-        
+
     Returns:
         MCPToolsContext with tools, summaries, and TypeScript definitions
     """
     from ..models import MergeIntegrationProvider, OrganizationConnectorLink
     from ..services.merge_service import merge_service, MergeAPIError, is_merge_configured
-    
+
     # Check if Merge is configured
     if not is_merge_configured():
         return _build_no_merge_context()
-    
+
     # Get the organization's integration provider
     try:
         provider = MergeIntegrationProvider.objects.get(
@@ -78,17 +81,17 @@ def build_mcp_tools_context(app: 'InternalApp') -> MCPToolsContext:
         )
     except MergeIntegrationProvider.DoesNotExist:
         return _build_no_provider_context()
-    
+
     # Check if organization is registered
     if not provider.merge_registered_user_id:
         return _build_not_registered_context()
-    
+
     # Fetch authenticated connectors from database
     authenticated_connectors = _get_authenticated_connectors(provider)
-    
+
     if not authenticated_connectors:
         return _build_no_authenticated_context(str(provider.id))
-    
+
     # Fetch connector tools from tool pack API (not MCP tools/list which only has authenticate_* tools)
     try:
         all_connectors = merge_service.list_connectors()
@@ -98,25 +101,25 @@ def build_mcp_tools_context(app: 'InternalApp') -> MCPToolsContext:
     except Exception as e:
         logger.exception(f"Unexpected error fetching connectors: {e}")
         return _build_error_context("Failed to fetch available connectors")
-    
+
     if not all_connectors:
         return _build_no_tools_context(str(provider.id))
-    
+
     # Build tools list from authenticated connectors only
     tools = _build_tools_from_connectors(all_connectors, authenticated_connectors)
-    
+
     if not tools:
         return _build_no_tools_context(str(provider.id))
-    
+
     # Generate TypeScript definitions
     typescript_defs = _generate_typescript_definitions(tools)
-    
+
     # Build the full context string for LLM
     full_context = _build_full_context(tools, typescript_defs, str(provider.id), authenticated_connectors)
-    
+
     # Build summary for planning phase
     connectors_summary = _build_connectors_summary(tools, authenticated_connectors)
-    
+
     return MCPToolsContext(
         tools=tools,
         connectors_summary=connectors_summary,
@@ -134,62 +137,64 @@ def _build_tools_from_connectors(
 ) -> List[MCPToolDefinition]:
     """
     Build MCPToolDefinition list from connector info for authenticated connectors.
-    
+
     For each authenticated connector, extracts its tools using the exact tool names
     from the Merge API (e.g., "retrieve_balance", "list_customers").
     """
     tools = []
-    
+
     for connector in all_connectors:
         connector_id = connector.id.lower()
-        
+
         # Only include tools for authenticated connectors
         if connector_id not in authenticated_connectors:
             continue
-        
+
         for tool_info in connector.tools:
-            tool_id = tool_info.get('id', tool_info.get('name', ''))
+            tool_id = tool_info.get("id", tool_info.get("name", ""))
             if not tool_id:
                 continue
-            
+
             # MCP tool names use the format: {connector}__{tool_id} (double underscore)
             # e.g., "stripe__retrieve_balance", "github__get_issue"
             tool_name = f"{connector_id}__{tool_id}"
-            description = tool_info.get('description', f'{tool_id} operation for {connector.name}')
-            
+            description = tool_info.get("description", f"{tool_id} operation for {connector.name}")
+
             # Build input schema from tool parameters if available
-            params = tool_info.get('parameters', tool_info.get('input_schema', {}))
+            params = tool_info.get("parameters", tool_info.get("input_schema", {}))
             if not params:
                 params = {"type": "object", "properties": {}, "required": []}
-            
-            tools.append(MCPToolDefinition(
-                name=tool_name,
-                connector_id=connector_id,
-                description=description,
-                input_schema=params,
-                typescript_interface=_generate_tool_interface(tool_name, params),
-            ))
-    
+
+            tools.append(
+                MCPToolDefinition(
+                    name=tool_name,
+                    connector_id=connector_id,
+                    description=description,
+                    input_schema=params,
+                    typescript_interface=_generate_tool_interface(tool_name, params),
+                )
+            )
+
     return tools
 
 
-def _get_authenticated_connectors(provider: 'MergeIntegrationProvider') -> List[str]:
+def _get_authenticated_connectors(provider: "MergeIntegrationProvider") -> List[str]:
     """
     Get list of already authenticated connector IDs from database.
-    
+
     Returns:
         List of connector IDs that are already authenticated (e.g., ['stripe', 'hubspot'])
     """
     from ..models import OrganizationConnectorLink
-    
+
     authenticated_links = OrganizationConnectorLink.objects.filter(
         provider=provider,
         is_connected=True,
-    ).select_related('connector')
-    
+    ).select_related("connector")
+
     return [
-        link.connector.connector_id 
-        for link in authenticated_links 
+        link.connector.connector_id
+        for link in authenticated_links
         if link.connector and link.connector.connector_id
     ]
 
@@ -197,7 +202,7 @@ def _get_authenticated_connectors(provider: 'MergeIntegrationProvider') -> List[
 def _parse_mcp_tools(raw_tools: List[Dict[str, Any]]) -> List[MCPToolDefinition]:
     """
     Parse raw MCP tools response into structured definitions.
-    
+
     MCP tools/list returns tools in format:
     {
         "name": "hubspot_list_deals",
@@ -210,141 +215,143 @@ def _parse_mcp_tools(raw_tools: List[Dict[str, Any]]) -> List[MCPToolDefinition]
     }
     """
     tools = []
-    
+
     for raw_tool in raw_tools:
-        name = raw_tool.get('name', '')
+        name = raw_tool.get("name", "")
         if not name:
             continue
-        
+
         # Extract connector ID from tool name (e.g., "hubspot_list_deals" -> "hubspot")
-        connector_id = name.split('_')[0] if '_' in name else 'unknown'
-        
-        description = raw_tool.get('description', '')
-        input_schema = raw_tool.get('inputSchema', {})
-        
+        connector_id = name.split("_")[0] if "_" in name else "unknown"
+
+        description = raw_tool.get("description", "")
+        input_schema = raw_tool.get("inputSchema", {})
+
         # Generate TypeScript interface for this tool
         ts_interface = _generate_tool_interface(name, input_schema)
-        
-        tools.append(MCPToolDefinition(
-            name=name,
-            connector_id=connector_id,
-            description=description,
-            input_schema=input_schema,
-            typescript_interface=ts_interface,
-        ))
-    
+
+        tools.append(
+            MCPToolDefinition(
+                name=name,
+                connector_id=connector_id,
+                description=description,
+                input_schema=input_schema,
+                typescript_interface=ts_interface,
+            )
+        )
+
     return tools
 
 
 def _generate_tool_interface(tool_name: str, schema: Dict[str, Any]) -> str:
     """Generate TypeScript interface for a tool's parameters."""
     interface_name = _to_pascal_case(tool_name) + "Params"
-    
-    properties = schema.get('properties', {})
-    required = set(schema.get('required', []))
-    
+
+    properties = schema.get("properties", {})
+    required = set(schema.get("required", []))
+
     if not properties:
         return f"type {interface_name} = Record<string, any>;"
-    
+
     lines = [f"interface {interface_name} {{"]
-    
+
     for prop_name, prop_info in properties.items():
         is_required = prop_name in required
         ts_type = _json_schema_to_typescript(prop_info)
         optional_marker = "" if is_required else "?"
-        
+
         # Add description as comment if available
-        description = prop_info.get('description', '')
+        description = prop_info.get("description", "")
         if description:
             lines.append(f"  /** {description} */")
-        
+
         lines.append(f"  {prop_name}{optional_marker}: {ts_type};")
-    
+
     lines.append("}")
-    
+
     return "\n".join(lines)
 
 
 def _json_schema_to_typescript(schema: Dict[str, Any]) -> str:
     """Convert JSON Schema type to TypeScript type."""
-    schema_type = schema.get('type', 'any')
-    
-    if schema_type == 'string':
+    schema_type = schema.get("type", "any")
+
+    if schema_type == "string":
         # Check for enum
-        enum_values = schema.get('enum')
+        enum_values = schema.get("enum")
         if enum_values:
             return " | ".join(f'"{v}"' for v in enum_values)
-        return 'string'
-    elif schema_type == 'integer' or schema_type == 'number':
-        return 'number'
-    elif schema_type == 'boolean':
-        return 'boolean'
-    elif schema_type == 'array':
-        items = schema.get('items', {})
+        return "string"
+    elif schema_type == "integer" or schema_type == "number":
+        return "number"
+    elif schema_type == "boolean":
+        return "boolean"
+    elif schema_type == "array":
+        items = schema.get("items", {})
         item_type = _json_schema_to_typescript(items)
-        return f'{item_type}[]'
-    elif schema_type == 'object':
+        return f"{item_type}[]"
+    elif schema_type == "object":
         # Check for additional properties
-        additional_props = schema.get('additionalProperties')
+        additional_props = schema.get("additionalProperties")
         if additional_props:
             value_type = _json_schema_to_typescript(additional_props)
-            return f'Record<string, {value_type}>'
-        return 'Record<string, any>'
-    elif schema_type == 'null':
-        return 'null'
+            return f"Record<string, {value_type}>"
+        return "Record<string, any>"
+    elif schema_type == "null":
+        return "null"
     elif isinstance(schema_type, list):
         # Union type
-        types = [_json_schema_to_typescript({'type': t}) for t in schema_type]
+        types = [_json_schema_to_typescript({"type": t}) for t in schema_type]
         return " | ".join(types)
     else:
-        return 'any'
+        return "any"
 
 
 def _to_pascal_case(snake_str: str) -> str:
     """Convert snake_case to PascalCase."""
-    components = snake_str.split('_')
-    return ''.join(x.title() for x in components)
+    components = snake_str.split("_")
+    return "".join(x.title() for x in components)
 
 
 def _generate_typescript_definitions(tools: List[MCPToolDefinition]) -> str:
     """Generate all TypeScript definitions for the tools."""
     if not tools:
         return ""
-    
+
     lines = [
         "// Auto-generated TypeScript definitions for MCP tools",
         "// These types help ensure correct parameter usage",
         "",
     ]
-    
+
     # Group by connector
     by_connector: Dict[str, List[MCPToolDefinition]] = {}
     for tool in tools:
         if tool.connector_id not in by_connector:
             by_connector[tool.connector_id] = []
         by_connector[tool.connector_id].append(tool)
-    
+
     for connector_id, connector_tools in sorted(by_connector.items()):
         lines.append(f"// === {connector_id.upper()} Tools ===")
         lines.append("")
-        
+
         for tool in connector_tools:
             if tool.typescript_interface:
                 lines.append(tool.typescript_interface)
                 lines.append("")
-    
+
     return "\n".join(lines)
 
 
 def _build_full_context(
-    tools: List[MCPToolDefinition], 
+    tools: List[MCPToolDefinition],
     typescript_defs: str,
     provider_id: str,
     authenticated_connectors: List[str] = None,
 ) -> str:
     """Build the complete context string for LLM consumption."""
     authenticated_connectors = authenticated_connectors or []
-    
+
     lines = [
         "## Available MCP Integration Tools",
         "",
@@ -352,11 +359,13 @@ def _build_full_context(
         "These tools allow interaction with connected services like Hubspot, Jira, Slack, etc.",
         "",
     ]
-    
+
     # Add authentication flow explanation
     lines.append("### ⚡ MCP Authentication Flow")
     lines.append("")
-    lines.append("**IMPORTANT:** Before using integration tools, you must check if the connector is authenticated.")
+    lines.append(
+        "**IMPORTANT:** Before using integration tools, you must check if the connector is authenticated."
+    )
     lines.append("MCP tools require authentication before functional tools are available.")
     lines.append("")
     lines.append("**Authentication Pattern:**")
@@ -376,59 +385,65 @@ def _build_full_context(
     lines.append("}")
     lines.append("```")
     lines.append("")
-    
+
     # Show which connectors have org-level connections (for reference)
     if authenticated_connectors:
-        lines.append("**Organization Connections:** The following connectors have been connected at the organization level:")
+        lines.append(
+            "**Organization Connections:** The following connectors have been connected at the organization level:"
+        )
         lines.append("")
         for connector_id in sorted(authenticated_connectors):
-            connector_name = connector_id.replace('_', ' ').title()
+            connector_name = connector_id.replace("_", " ").title()
             lines.append(f"- {connector_name}")
         lines.append("")
         lines.append("These connectors may require MCP authentication to activate their tools in the app.")
         lines.append("")
-    
+
     # Group tools by connector for better organization
     by_connector: Dict[str, List[MCPToolDefinition]] = {}
     for tool in tools:
         if tool.connector_id not in by_connector:
             by_connector[tool.connector_id] = []
         by_connector[tool.connector_id].append(tool)
-    
+
     # List available tools by connector
     lines.append("### Available Tools by Integration")
     lines.append("")
-    lines.append("*These tools become available after MCP authentication. Call `authenticate_<connector>` first if tools return 'not found'.*")
+    lines.append(
+        "*These tools become available after MCP authentication. Call `authenticate_<connector>` first if tools return 'not found'.*"
+    )
     lines.append("")
-    
+
     for connector_id, connector_tools in sorted(by_connector.items()):
-        connector_name = connector_id.replace('_', ' ').title()
+        connector_name = connector_id.replace("_", " ").title()
         is_authenticated = connector_id in authenticated_connectors
         auth_tool = f"authenticate_{connector_id}"
         lines.append(f"**{connector_name}** ({len(connector_tools)} tools)")
         lines.append(f"  *Auth tool: `{auth_tool}`*")
         lines.append("")
-        
+
         for tool in connector_tools[:15]:  # Limit to 15 tools per connector for prompt size
-            lines.append(f"- `{tool.name}`: {tool.description[:100]}{'...' if len(tool.description) > 100 else ''}")
-            
+            lines.append(
+                f"- `{tool.name}`: {tool.description[:100]}{'...' if len(tool.description) > 100 else ''}"
+            )
+
             # Add key parameters
-            props = tool.input_schema.get('properties', {})
-            required = tool.input_schema.get('required', [])
+            props = tool.input_schema.get("properties", {})
+            required = tool.input_schema.get("required", [])
             if props:
                 param_strs = []
                 for prop_name in list(props.keys())[:5]:  # Show first 5 params
                     is_required = prop_name in required
-                    prop_type = props[prop_name].get('type', 'any')
+                    prop_type = props[prop_name].get("type", "any")
                     req_marker = " (required)" if is_required else ""
                     param_strs.append(f"`{prop_name}: {prop_type}{req_marker}`")
                 if param_strs:
                     lines.append(f"  Parameters: {', '.join(param_strs)}")
-        
+
         if len(connector_tools) > 15:
             lines.append(f"  ... and {len(connector_tools) - 15} more tools")
         lines.append("")
-    
+
     # Add TypeScript definitions
     if typescript_defs:
         lines.append("### TypeScript Definitions")
@@ -437,7 +452,7 @@ def _build_full_context(
         lines.append(typescript_defs)
         lines.append("```")
         lines.append("")
-    
+
     # Add usage instructions
     lines.append("### Using MCP Tools in Code")
     lines.append("")
@@ -460,7 +475,7 @@ def _build_full_context(
     lines.append("}")
     lines.append("```")
     lines.append("")
-    
+
     # Add mcpTools.ts client template
     lines.append("### MCP Tools Client Library")
     lines.append("")
@@ -470,7 +485,7 @@ def _build_full_context(
     lines.append(_get_mcp_tools_client_template(provider_id))
     lines.append("```")
     lines.append("")
-    
+
     # Add common patterns
     lines.append("### Common Patterns")
     lines.append("")
@@ -494,13 +509,13 @@ def _build_full_context(
     lines.append("}, []);")
     lines.append("```")
     lines.append("")
-    
+
     return "\n".join(lines)
 
 
 def _get_mcp_tools_client_template(provider_id: str) -> str:
     """Get the mcpTools.ts client library template."""
-    return f'''/**
+    return f"""/**
  * MCP Tools Client - Auto-generated
  * Provides typed access to external integration tools via MCP protocol
  */
@@ -588,39 +603,41 @@ export const mcpTools = {{
       return [];
     }}
   }},
-}};'''
+}};"""
 
 
-def _build_connectors_summary(tools: List[MCPToolDefinition], authenticated_connectors: List[str] = None) -> str:
+def _build_connectors_summary(
+    tools: List[MCPToolDefinition], authenticated_connectors: List[str] = None
+) -> str:
     """Build a brief summary for planning phase."""
     authenticated_connectors = authenticated_connectors or []
-    
+
     if not tools:
         return "No MCP integration tools available."
-    
+
     # Group by connector
     by_connector: Dict[str, int] = {}
     for tool in tools:
         by_connector[tool.connector_id] = by_connector.get(tool.connector_id, 0) + 1
-    
+
     summaries = []
     for connector_id, count in sorted(by_connector.items()):
-        connector_name = connector_id.replace('_', ' ').title()
+        connector_name = connector_id.replace("_", " ").title()
         auth_status = "✅ AUTHENTICATED" if connector_id in authenticated_connectors else "Not connected"
         summaries.append(f"- {connector_name}: {count} tools [{auth_status}]")
-    
+
     result = "Available MCP integrations:\n" + "\n".join(summaries)
-    
+
     if authenticated_connectors:
         result += f"\n\n⚡ Ready-to-use (no auth needed): {', '.join(authenticated_connectors)}"
-    
+
     return result
 
 
-def get_mcp_tools_summary(app: 'InternalApp') -> str:
+def get_mcp_tools_summary(app: "InternalApp") -> str:
     """
     Get a brief summary of available MCP tools (for planning prompts).
-    
+
     This is a lighter-weight version that just returns the summary string.
     """
     context = build_mcp_tools_context(app)
@@ -630,6 +647,7 @@ def get_mcp_tools_summary(app: 'InternalApp') -> str:
 # ============================================================================
 # Context builders for various states
 # ============================================================================
+
 
 def _build_no_merge_context() -> MCPToolsContext:
     """Build context when Merge is not configured."""
@@ -722,4 +740,3 @@ functionality, suggest they check the Settings > Integrations page.
 """,
         connectors_summary=f"Error fetching MCP tools: {error_message}",
     )
-

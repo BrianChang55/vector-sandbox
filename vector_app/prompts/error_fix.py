@@ -153,7 +153,7 @@ def build_error_fix_prompt(
 ) -> str:
     """
     Build a focused prompt for fixing compilation errors using unified diffs.
-    
+
     Args:
         files: List of FileChange objects with current code
         errors: List of CompilationError objects to fix
@@ -164,51 +164,53 @@ def build_error_fix_prompt(
     # Group errors by file
     errors_by_file = {}
     for error in errors:
-        file_path = error.file if hasattr(error, 'file') else error.get('file', 'unknown')
+        file_path = error.file if hasattr(error, "file") else error.get("file", "unknown")
         if file_path not in errors_by_file:
             errors_by_file[file_path] = []
         errors_by_file[file_path].append(error)
-    
+
     # Build error summary
     error_lines = []
     for file_path, file_errors in errors_by_file.items():
         error_lines.append(f"\n## Errors in {file_path}:")
         for err in file_errors:
-            if hasattr(err, 'line'):
+            if hasattr(err, "line"):
                 line = err.line
                 col = err.column
                 msg = err.message
-                code = err.code or ''
+                code = err.code or ""
             else:
-                line = err.get('line', '?')
-                col = err.get('column', '?')
-                msg = err.get('message', 'Unknown error')
-                code = err.get('code', '')
-            
+                line = err.get("line", "?")
+                col = err.get("column", "?")
+                msg = err.get("message", "Unknown error")
+                code = err.get("code", "")
+
             error_lines.append(f"  - Line {line}, Column {col}: {msg} [{code}]")
-    
-    errors_section = '\n'.join(error_lines)
-    
+
+    errors_section = "\n".join(error_lines)
+
     # Build files section with line numbers for accurate diff generation
     files_section_parts = []
     for file in files:
-        file_path = file.path if hasattr(file, 'path') else file.get('path', '')
-        content = file.content if hasattr(file, 'content') else file.get('content', '')
-        
+        file_path = file.path if hasattr(file, "path") else file.get("path", "")
+        content = file.content if hasattr(file, "content") else file.get("content", "")
+
         # Include file if it has errors or if it might be referenced
-        if file_path in errors_by_file or file_path.endswith('.tsx') or file_path.endswith('.ts'):
+        if file_path in errors_by_file or file_path.endswith(".tsx") or file_path.endswith(".ts"):
             # Use format_with_line_numbers for consistent formatting
             numbered_content = format_with_line_numbers(content)
-            
-            files_section_parts.append(f"""
+
+            files_section_parts.append(
+                f"""
 ### {file_path}
 ```
 {numbered_content}
 ```
-""")
-    
-    files_section = '\n'.join(files_section_parts)
-    
+"""
+            )
+
+    files_section = "\n".join(files_section_parts)
+
     # Build the prompt
     prompt = f"""Fix the following TypeScript compilation errors. This is attempt {attempt} of {max_attempts}.
 
@@ -243,46 +245,48 @@ def build_bundler_error_fix_prompt(
 ) -> str:
     """
     Build a prompt for fixing Sandpack bundler errors using unified diffs.
-    
+
     These are runtime/bundler errors that TypeScript didn't catch.
     """
     # Build error summary
     error_lines = []
     for err in bundler_errors:
         if isinstance(err, dict):
-            title = err.get('title', 'Error')
-            message = err.get('message', 'Unknown error')
-            file_path = err.get('file', 'unknown')
-            line = err.get('line', '?')
+            title = err.get("title", "Error")
+            message = err.get("message", "Unknown error")
+            file_path = err.get("file", "unknown")
+            line = err.get("line", "?")
         else:
-            title = getattr(err, 'title', 'Error')
-            message = getattr(err, 'message', str(err))
-            file_path = getattr(err, 'file', 'unknown')
-            line = getattr(err, 'line', '?')
-        
+            title = getattr(err, "title", "Error")
+            message = getattr(err, "message", str(err))
+            file_path = getattr(err, "file", "unknown")
+            line = getattr(err, "line", "?")
+
         error_lines.append(f"- [{title}] {file_path}:{line} - {message}")
-    
-    errors_section = '\n'.join(error_lines)
-    
+
+    errors_section = "\n".join(error_lines)
+
     # Build files section with line numbers
     files_section_parts = []
     for file in files:
-        file_path = file.path if hasattr(file, 'path') else file.get('path', '')
-        content = file.content if hasattr(file, 'content') else file.get('content', '')
-        
-        if file_path.endswith('.tsx') or file_path.endswith('.ts'):
+        file_path = file.path if hasattr(file, "path") else file.get("path", "")
+        content = file.content if hasattr(file, "content") else file.get("content", "")
+
+        if file_path.endswith(".tsx") or file_path.endswith(".ts"):
             # Use format_with_line_numbers for consistent formatting
             numbered_content = format_with_line_numbers(content)
-            
-            files_section_parts.append(f"""
+
+            files_section_parts.append(
+                f"""
 ### {file_path}
 ```
 {numbered_content}
 ```
-""")
-    
-    files_section = '\n'.join(files_section_parts)
-    
+"""
+            )
+
+    files_section = "\n".join(files_section_parts)
+
     prompt = f"""Fix the following bundler/runtime errors. This is attempt {attempt} of {max_attempts}.
 
 ## BUNDLER ERRORS:

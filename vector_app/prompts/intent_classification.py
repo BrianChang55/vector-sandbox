@@ -153,7 +153,7 @@ def build_intent_classification_prompt(
     table_columns: str = "",
 ) -> str:
     """Build the intent classification prompt with context.
-    
+
     Args:
         user_message: The user's request
         has_files: Whether the app has existing files
@@ -172,4 +172,3 @@ def build_intent_classification_prompt(
         has_data_store=has_data_store,
         table_columns=table_columns or "None",
     )
-

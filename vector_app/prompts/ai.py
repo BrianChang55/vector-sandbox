@@ -80,8 +80,6 @@ def build_system_prompt(registry_surface: Dict[str, Any]) -> str:
     return SYSTEM_PROMPT_TEMPLATE.format(resources_text=resources_text)
 
 
-
-
 def build_user_prompt(intent_message: str, current_spec: Optional[Dict[str, Any]]) -> str:
     """Build user prompt with intent and current spec."""
     if current_spec:
@@ -91,6 +89,3 @@ def build_user_prompt(intent_message: str, current_spec: Optional[Dict[str, Any]
         )
 
     return USER_PROMPT_NEW_APP_TEMPLATE.format(intent_message=intent_message)
-
-
-
