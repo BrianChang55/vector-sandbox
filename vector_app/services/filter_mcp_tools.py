@@ -50,7 +50,7 @@ def _log_matched_tools_details(
     
     # Log each matched tool with full details
     for idx, tool in enumerate(tool_match_result.matched_tools, 1):
-        logger.info(
+        logger.debug(
             "[MCP Tools] Tool %d/%d: %s.%s (action_type=%s)",
             idx,
             len(tool_match_result.matched_tools),
@@ -63,8 +63,7 @@ def _log_matched_tools_details(
     
     # Log the actual context that goes into the LLM prompt
     if mcp_context_str:
-        logger.info("[MCP Tools] Context size for LLM prompt: %d characters", len(mcp_context_str))
-        logger.debug("[MCP Tools] Full context for LLM prompt:\n%s\n%s\n%s", '-'*80, mcp_context_str, '-'*80)
+        logger.debug("[MCP Tools] Context size for LLM prompt: %d characters", len(mcp_context_str))
 
 
 def get_tools_for_connectors(
