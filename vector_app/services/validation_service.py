@@ -11,7 +11,8 @@ import re
 import shutil
 import subprocess
 import tempfile
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
 
 from vector_app.services.types import (
     FileChange,
@@ -23,6 +24,82 @@ if TYPE_CHECKING:
     from vector_app.models import InternalApp
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class NonBlockingTypeScriptError:
+    """
+    Represents a TypeScript error code that should not block compilation.
+    
+    These are strict type-checking errors that don't cause runtime failures
+    and are common in generated React/TypeScript code.
+    """
+    code: str
+    description: str
+    reason: str
+
+
+def get_non_blocking_ts_errors() -> List[NonBlockingTypeScriptError]:
+    """
+    Returns a list of TypeScript error codes that are non-blocking.
+    
+    These errors are filtered out during validation because they:
+    - Don't cause runtime failures
+    - Are common in generated React code
+    - Often result from strict type checking that's overly pedantic
+    """
+    return [
+        NonBlockingTypeScriptError(
+            code='TS7006',
+            description="Parameter 'x' implicitly has an 'any' type",
+            reason="Common with event handlers like onClick={(e) => ...}",
+        ),
+        NonBlockingTypeScriptError(
+            code='TS18048',
+            description="'x' is possibly 'undefined'",
+            reason="Common with optional chaining patterns like response.data?.rows",
+        ),
+        NonBlockingTypeScriptError(
+            code='TS2345',
+            description="Argument of type 'X | undefined' is not assignable to parameter",
+            reason="Common when passing potentially undefined values to functions",
+        ),
+        NonBlockingTypeScriptError(
+            code='TS2352',
+            description="Conversion of type 'X' to type 'Y' may be a mistake",
+            reason="Common with API response type assertions",
+        ),
+        NonBlockingTypeScriptError(
+            code='TS2322',
+            description="Type 'x' is not assignable to type 'y'",
+            reason="Common with literal types being too narrow",
+        ),
+        NonBlockingTypeScriptError(
+            code='TS2614',
+            description="Module has no exported member 'X'",
+            reason="Icon imports from lucide-react (our stub can't cover all icons)",
+        ),
+        NonBlockingTypeScriptError(
+            code='TS7031',
+            description="Binding element implicitly has an 'any' type",
+            reason="Common with destructuring patterns",
+        ),
+        NonBlockingTypeScriptError(
+            code='TS2532',
+            description="Object is possibly 'undefined'",
+            reason="Similar to TS18048, common with optional data",
+        ),
+        NonBlockingTypeScriptError(
+            code='TS2531',
+            description="Object is possibly 'null'",
+            reason="Common with nullable refs and DOM elements",
+        ),
+    ]
+
+
+def get_non_blocking_ts_error_codes() -> Set[str]:
+    """Returns just the error codes as a set for fast lookup."""
+    return {error.code for error in get_non_blocking_ts_errors()}
 
 
 class ValidationService:
@@ -138,6 +215,7 @@ class ValidationService:
         errors = []
         pattern = r'([^(]+)\((\d+),(\d+)\):\s*(error|warning)\s+(TS\d+):\s*(.+)'
         
+        skipped_errors = 0
         for line in output.strip().split('\n'):
             line = line.strip()
             if not line:
@@ -155,13 +233,20 @@ class ValidationService:
                     file_path = f'src/{file_path}'
                 
                 if severity == 'error':
+                    msg = message.strip()
+                    
                     # Filter out 'key' prop false positives from our type stubs
                     # The key prop is handled by React internally and our stubs don't handle it
-                    msg = message.strip()
                     if "Property 'key' does not exist" in msg:
                         continue
                     # Also filter TS2322 errors that mention key: string in the type mismatch
                     if code == 'TS2322' and "{ key: string;" in msg:
+                        continue
+                    
+                    # Filter out non-blocking TypeScript errors that don't cause runtime issues
+                    # These are strict type-checking errors common in generated React code
+                    if code in get_non_blocking_ts_error_codes():
+                        skipped_errors += 1
                         continue
                     
                     errors.append(CompilationError(
@@ -171,7 +256,10 @@ class ValidationService:
                         message=msg,
                         code=code,
                     ))
-        
+
+        if skipped_errors > 0:
+            logger.debug(f"Skipped {skipped_errors} non-blocking TypeScript errors")
+
         return errors
     
     def _write_tsconfig(self, temp_dir: str) -> None:

@@ -13,7 +13,7 @@ import time
 import uuid
 from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
-from .base_handler import BaseHandler, AgentEvent, FileChange, PlanStep
+from .base_handler import BaseHandler, AgentEvent, FileChange, PlanStep, exclude_protected_files
 from .parallel_executor import create_parallel_executor, ParallelStepExecutor
 from ..datastore import TableDefinitionParser, get_system_columns
 from vector_app.models import AppDataTable
@@ -25,6 +25,11 @@ if TYPE_CHECKING:
     from vector_app.services.context_analyzer import AppContext
 
 logger = logging.getLogger(__name__)
+
+
+PROTECTED_FILES = {
+    'src/lib/types.ts',      # Auto-generated TypeScript types from table schemas
+}
 
 
 class GenerateHandler(BaseHandler):
@@ -388,28 +393,54 @@ class GenerateHandler(BaseHandler):
                     response = response[start : end + 1]
 
             plan_data = json.loads(response)
-
-            return [
+            
+            reasoning = plan_data.get("reasoning", "Building the requested app.")
+            steps_data = plan_data.get("steps", [])
+            
+            steps = [
                 PlanStep(
                     id=str(uuid.uuid4()),
                     type=s.get("type", "code"),
                     title=s.get("title", "Generate Code"),
                     description=s.get("description", ""),
+                    step_order=s.get("step_order", 0),
                 )
-                for s in plan_data.get("steps", [])
+                for s in steps_data
             ]
-
+            
+            # Log the plan details
+            logger.info("=" * 80)
+            logger.info("📋 GENERATED PLAN")
+            logger.info("=" * 80)
+            logger.info(f"Reasoning: {reasoning}")
+            logger.info(f"Total Steps: {len(steps)}")
+            logger.info("-" * 80)
+            for i, step in enumerate(steps, 1):
+                logger.info(f"Step {i} (order={step.step_order}): [{step.type}] {step.title}")
+                logger.info(f"  Description: {step.description}")
+            logger.info("=" * 80)
+            
+            return steps
+            
         except Exception as e:
             logger.error(f"Plan generation error: {e}")
-            # Fallback to default plan
+            # Fallback to default plan with explicit step_order
             return [
-                self.create_step(
-                    "design", "Design App Structure", "Plan the component hierarchy and data flow"
-                ),
-                self.create_step("component", "Create Main Component", "Build the primary app component"),
-                self.create_step("component", "Build UI Components", "Create reusable UI components"),
-                self.create_step("integration", "Connect Data Layer", "Integrate with the runtime API"),
-                self.create_step("styling", "Apply Styling", "Add professional styling with Tailwind"),
+                self.create_step("design", "Design App Structure", 
+                                "Plan the component hierarchy and data flow",
+                                step_order=0),
+                self.create_step("component", "Create Main Component", 
+                                "Create src/App.tsx with main app structure",
+                                step_order=1),
+                self.create_step("component", "Build UI Components", 
+                                "Create src/components/ with reusable UI components",
+                                step_order=1),
+                self.create_step("integration", "Connect Data Layer", 
+                                "Modify src/App.tsx to integrate with the runtime API",
+                                step_order=2),
+                self.create_step("styling", "Apply Styling", 
+                                "Add professional styling with Tailwind to all components",
+                                step_order=3),
             ]
 
     def _stream_llm_with_validation(
@@ -554,6 +585,9 @@ class GenerateHandler(BaseHandler):
 
         # Re-parse fixed content
         files = self.parse_code_blocks(fixed_content)
+        
+        # Filter out protected files (e.g., auto-generated types.ts)
+        files = exclude_protected_files(files, PROTECTED_FILES)
 
         # Check if Claude created new tables in the fix response
         fix_tables = self._parse_table_definitions(fixed_content)
@@ -632,6 +666,9 @@ class GenerateHandler(BaseHandler):
 
             # Parse files
             files = self.parse_code_blocks(full_content)
+            
+            # Filter out protected files (e.g., auto-generated types.ts)
+            files = exclude_protected_files(files, PROTECTED_FILES)
 
             # Validate and fix field names
             for event in self._validate_and_fix_fields(files, full_content, app, version, model):
