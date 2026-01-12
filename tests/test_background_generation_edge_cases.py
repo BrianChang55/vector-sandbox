@@ -650,7 +650,7 @@ class CeleryTaskEdgeCasesTestCase(TransactionTestCase):
     def test_task_mid_generation_cancellation(self, mock_get_service):
         """Task should stop immediately when cancelled mid-generation."""
         from vector_app.tasks import run_agentic_generation
-        from vector_app.services.handlers.base_handler import AgentEvent
+        from vector_app.services.types import AgentEvent
         
         events_yielded = []
         
@@ -689,7 +689,7 @@ class CeleryTaskEdgeCasesTestCase(TransactionTestCase):
     def test_task_stores_version_from_event(self, mock_get_service):
         """Task should create version and link it to job."""
         from vector_app.tasks import run_agentic_generation
-        from vector_app.services.handlers.base_handler import AgentEvent
+        from vector_app.services.types import AgentEvent
         
         def mock_generate(*args, **kwargs):
             yield AgentEvent(type='agent_start', data={'goal': 'Test'})

@@ -1,14 +1,10 @@
 """
-Tests for diff_utils.py - unified diff parsing and application.
+Tests for diff.py - unified diff parsing and application.
 """
-
-import pytest
-from relay_app.services.handlers.diff_utils import (
+from vector_app.services.diff import (
     FileDiff,
     parse_diffs,
     apply_diff,
-    _parse_hunk,
-    _parse_diff_block,
 )
 
 
@@ -425,52 +421,6 @@ line3'''
         assert lines[1] == 'inserted'
         assert lines[2] == 'line2'
         assert lines[3] == 'line3'
-
-
-# =============================================================================
-# _parse_hunk Tests
-# =============================================================================
-
-class TestParseHunk:
-    """Tests for _parse_hunk helper function."""
-    
-    def test_basic_hunk(self):
-        """Parse a basic hunk with additions and removals."""
-        hunk = '''@@ -10,6 +10,7 @@ function App() {
-   const [count, setCount] = useState(0);
-+  const [name, setName] = useState('');
-   
-   return ('''
-        
-        result = _parse_hunk(hunk)
-        
-        assert result is not None
-        start_line, old_count, new_lines, context_before = result
-        assert start_line == 10
-        assert old_count == 6
-    
-    def test_hunk_without_count(self):
-        """Parse a hunk header without explicit line count (implies 1)."""
-        hunk = '''@@ -5 +5,2 @@
--old line
-+new line 1
-+new line 2'''
-        
-        result = _parse_hunk(hunk)
-        
-        assert result is not None
-        start_line, old_count, new_lines, context_before = result
-        assert start_line == 5
-        assert old_count == 1
-    
-    def test_invalid_hunk(self):
-        """Return None for invalid hunk format."""
-        hunk = 'not a valid hunk'
-        
-        result = _parse_hunk(hunk)
-        
-        assert result is None
-
 
 # =============================================================================
 # Integration Tests

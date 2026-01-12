@@ -12,7 +12,8 @@ from dataclasses import dataclass
 from itertools import groupby
 from typing import Callable, Dict, Generator, List, Optional, Set, TYPE_CHECKING
 
-from .base_handler import AgentEvent, FileChange, PlanStep
+from .base_handler import AgentEvent, FileChange
+from vector_app.services.planning_service import PlanStep, PlanStepStatus
 
 if TYPE_CHECKING:
     from vector_app.models import InternalApp, AppVersion
@@ -173,12 +174,12 @@ class ParallelStepExecutor:
                         lines_removed=file_data.get("lines_removed", 0),
                     ))
             
-            step.status = "complete"
+            step.status = PlanStepStatus.COMPLETE
             step.duration = int((time.time() - step_start) * 1000)
             
         except Exception as e:
             logger.error(f"Step {step_index} execution error: {e}")
-            step.status = "error"
+            step.status = PlanStepStatus.ERROR
             step.duration = int((time.time() - step_start) * 1000)
             raise
     
@@ -236,12 +237,12 @@ class ParallelStepExecutor:
                             lines_removed=file_data.get("lines_removed", 0),
                         ))
                 
-                step.status = "complete"
+                step.status = PlanStepStatus.COMPLETE
                 step.duration = int((time.time() - step_start) * 1000)
                 
             except Exception as e:
                 logger.error(f"Parallel step {step_idx} error: {e}")
-                step.status = "error"
+                step.status = PlanStepStatus.ERROR
                 step.duration = int((time.time() - step_start) * 1000)
                 error = e
             
