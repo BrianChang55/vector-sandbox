@@ -125,10 +125,14 @@ class PlanningService:
                         type=s.get("type", "code"),
                         title=s.get("title", "Generate Code"),
                         description=s.get("description", ""),
+                        step_order=s.get("step_order", 0),
+                        status=PlanStepStatus.PENDING,
+                        duration=s.get("duration", None),
+                        output=s.get("output", None),
                     )
                     for s in steps_data
                 ]
-                
+
                 plan = AgentPlan(
                     id=str(uuid.uuid4()),
                     goal=user_message,
@@ -145,7 +149,7 @@ class PlanningService:
                 logger.debug(f"Total Steps: {len(steps)}")
                 logger.debug("-" * 80)
                 for i, step in enumerate(steps, 1):
-                    logger.debug(f"Step {i}: [{step.type}] {step.title}")
+                    logger.debug(f"Step {i}: [{step.type}] {step.title} (Order: {step.step_order})")
                     logger.debug(f"  Description: {step.description}")
                 logger.debug("=" * 80)
                 
