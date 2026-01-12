@@ -6,7 +6,8 @@ of an app's data store for use in LLM prompts.
 """
 
 from typing import Any, Dict, List, Optional
-from ..models import InternalApp, AppDataTable, AppDataRow
+from ..models import InternalApp, AppDataTable, AppDataRow, AppVersion, AppDataTableSnapshot
+from .typescript_types_generator import generate_typescript_types
 
 
 def build_data_store_context(app: InternalApp, include_samples: bool = True, max_samples: int = 3) -> str:
@@ -28,6 +29,7 @@ def build_data_store_context(app: InternalApp, include_samples: bool = True, max
 
     sections = ["## App Data Store\n"]
     sections.append(_build_tables_section(tables, include_samples, max_samples))
+    sections.append(_build_typescript_types_section(tables))
     sections.append(_build_operations_section())
     sections.append(_build_table_creation_section())
 
@@ -49,8 +51,6 @@ def build_data_store_context_for_version(
     Returns:
         A formatted string describing tables at the specific version.
     """
-    from ..models import AppVersion, AppDataTableSnapshot
-
     try:
         version = AppVersion.objects.get(id=version_id, internal_app=app)
     except AppVersion.DoesNotExist:
@@ -68,6 +68,9 @@ def build_data_store_context_for_version(
 
     sections = ["## App Data Store\n"]
     sections.append(_build_tables_section_from_snapshots(snapshots, include_samples, max_samples))
+    # Get tables from snapshots for type generation
+    snapshot_tables = [s.table for s in snapshots]
+    sections.append(_build_typescript_types_section(snapshot_tables))
     sections.append(_build_operations_section())
     sections.append(_build_table_creation_section())
 
@@ -108,6 +111,23 @@ def _build_tables_section_from_snapshots(snapshots: List, include_samples: bool,
         lines.append(_format_table_from_snapshot(snapshot, include_samples, max_samples))
 
     return "\n".join(lines)
+
+
+def _build_typescript_types_section(tables: List[AppDataTable]) -> str:
+    """Build TypeScript types section from tables."""
+    types_content = generate_typescript_types(list(tables))
+    
+    if not types_content:
+        return ""
+    
+    return f"""### TypeScript Types
+
+Available type definitions for your tables (import from './lib/types'):
+
+```typescript
+{types_content}
+```
+"""
 
 
 def _format_table(table: AppDataTable, include_samples: bool, max_samples: int) -> str:

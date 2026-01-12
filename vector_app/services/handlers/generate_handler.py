@@ -15,6 +15,9 @@ from typing import Any, Dict, Generator, List, Optional, Union, TYPE_CHECKING
 
 from .base_handler import BaseHandler, AgentEvent, FileChange, PlanStep
 from .parallel_executor import create_parallel_executor, ParallelStepExecutor
+from vector_app.models import AppDataTable
+from vector_app.services.app_data_service import AppDataService
+from vector_app.services.typescript_types_generator import generate_typescript_types
 
 if TYPE_CHECKING:
     from vector_app.models import InternalApp, AppVersion
@@ -377,6 +380,11 @@ class GenerateHandler(BaseHandler):
         for event in self._apply_table_definitions(table_defs, app, version):
             yield event
 
+        # Generate TypeScript types file for new app
+        types_file = self._generate_types_file(app)
+        if types_file:
+            yield self.emit_file_generated(types_file)
+
         # Early return after table creation (table/code separation)
         logger.info(f"🚫 [TABLE/CODE SEPARATION] Tables created - returning early")
         yield self.emit_thinking(
@@ -640,8 +648,6 @@ class GenerateHandler(BaseHandler):
         version: "AppVersion",
     ) -> Generator[AgentEvent, None, None]:
         """Apply table definitions to the app's data store."""
-        from vector_app.models import AppDataTable
-        from vector_app.services.app_data_service import AppDataService
 
         for table_def in table_defs:
             slug = table_def["slug"]
@@ -718,7 +724,30 @@ class GenerateHandler(BaseHandler):
                 )
             else:
                 logger.warning(f"Failed to create table {slug}: {errors}")
-
+    
+    def _generate_types_file(
+        self,
+        app: 'InternalApp',
+    ) -> Optional[FileChange]:
+        """Generate TypeScript types file for all app tables."""
+        tables = AppDataTable.objects.filter(internal_app=app)
+        if not tables.exists():
+            return None
+        
+        types_content = generate_typescript_types(list(tables))
+        if not types_content:
+            return None
+        
+        logger.debug(f"Generated types file content: {types_content}")
+        return FileChange(
+            path="src/lib/types.ts",
+            action="create",
+            language="ts",
+            content=types_content,
+            lines_added=types_content.count('\n') + 1,
+            lines_removed=0,
+        )
+    
     def _validate_and_fix(
         self,
         generated_files: List[FileChange],
@@ -829,4 +858,14 @@ class GenerateHandler(BaseHandler):
             final = self._validate_typescript(generated_files)
             validation_passed = final["passed"]
 
-        return (validation_passed, fix_attempts)
+
+    def _validate_typescript(self, files: List[FileChange]) -> Dict[str, Any]:
+        """
+        Validate TypeScript code.
+        
+        Returns:
+            Dictionary with 'passed' (bool), 'errors' (list), 'warnings' (list)
+        """
+        from vector_app.services.validation_service import get_validation_service
+        validation_service = get_validation_service()
+        return validation_service.validate_typescript(files)
