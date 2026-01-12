@@ -43,7 +43,7 @@ class User(AbstractUser, BaseModel):
     # 1. OAuth provider URL (stored in profile_image_url)
     # 2. Uploaded image (stored in profile_image_storage_key)
     profile_image_url = models.URLField(
-        max_length=500, blank=True, null=True, help_text="Profile image URL from OAuth provider"
+        max_length=500, blank=True, null=True, help_text="Profile image URL from OAuth provider (legacy)"
     )
     
     # New storage key field for uploaded profile images (cloud/local unified storage)
