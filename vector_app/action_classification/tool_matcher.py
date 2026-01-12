@@ -113,7 +113,7 @@ class ToolMatcher:
         action: ActionResult,
         provider: MergeIntegrationProvider,
         connected_connectors: List[str],
-        limit: int = 20,
+        limit: int = 20, # TODO: limit yes, but we need to do an embedding / semantic matching to get the most relevant tools and order them by relevance
     ) -> ToolMatchResult:
         """
         Find available tools matching the action classification.
