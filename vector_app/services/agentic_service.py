@@ -29,7 +29,6 @@ from vector_app.prompts.agentic import (
     DESIGN_STYLE_PROMPT,
     FINAL_APP_SYSTEM_PROMPT,
     apply_design_style_prompt,
-    build_plan_prompt,
     build_step_prompt,
     build_codegen_system_prompt,
     build_final_app_prompt,
@@ -61,6 +60,11 @@ from vector_app.services.types import (
     AgentEvent,
 )
 from vector_app.services.validation_service import get_validation_service
+from vector_app.services.planning_service import (
+    get_planning_service,
+    PlanStep,
+    AgentPlan,
+)
 
 if TYPE_CHECKING:
     from vector_app.models import InternalApp, AppVersion
@@ -87,28 +91,6 @@ class StepType(Enum):
     STYLING = "styling"
     INTEGRATION = "integration"
     VALIDATION = "validation"
-
-
-@dataclass
-class PlanStep:
-    """A single step in the execution plan."""
-    id: str
-    type: str
-    title: str
-    description: str
-    status: str = "pending"
-    duration: Optional[int] = None
-    output: Optional[str] = None
-
-
-@dataclass
-class AgentPlan:
-    """The complete execution plan."""
-    id: str
-    goal: str
-    reasoning: str
-    steps: List[PlanStep]
-    estimated_duration: int
 
 
 @dataclass
@@ -313,7 +295,8 @@ class AgenticService:
         })
         
         # Generate plan
-        plan = self._create_plan(styled_user_message, context_analysis, model)
+        planning_service = get_planning_service()
+        plan = planning_service.create_plan(styled_user_message, context_analysis, model)
         
         # Convert plan steps to the format frontend expects
         plan_steps = [
@@ -708,109 +691,6 @@ class AgenticService:
             "duration": total_duration,
             "intent": intent.intent.value,
         })
-    
-    def _create_plan(
-        self,
-        user_message: str,
-        context: Dict[str, Any],
-        model: str,
-    ) -> AgentPlan:
-        """Create an execution plan for the app generation."""
-        
-        # Use AI to generate a smart plan
-        plan_prompt = build_plan_prompt(user_message, context)
-
-        try:
-            with httpx.Client(timeout=60.0) as client:
-                response = client.post(
-                    self.OPENROUTER_API_URL,
-                    headers=self._build_headers(),
-                    json={
-                        "model": model,
-                        "messages": [
-                            {"role": "user", "content": plan_prompt}
-                        ],
-                        "temperature": 0.3,
-                    },
-                )
-                response.raise_for_status()
-                
-                result = response.json()
-                content = result["choices"][0]["message"]["content"]
-                
-                # Try to parse JSON - handle markdown code blocks
-                import re
-                json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
-                if json_match:
-                    content = json_match.group(1)
-                
-                # Clean up content for JSON parsing
-                content = content.strip()
-                if not content.startswith('{'):
-                    # Find first { and last }
-                    start = content.find('{')
-                    end = content.rfind('}')
-                    if start >= 0 and end > start:
-                        content = content[start:end+1]
-                
-                plan_data = json.loads(content)
-                
-                reasoning = plan_data.get("reasoning", "Building the requested app.")
-                steps_data = plan_data.get("steps", [])
-
-                steps = [
-                    PlanStep(
-                        id=str(uuid.uuid4()),
-                        type=s.get("type", "code"),
-                        title=s.get("title", "Generate Code"),
-                        description=s.get("description", ""),
-                    )
-                    for s in steps_data
-                ]
-                
-                plan = AgentPlan(
-                    id=str(uuid.uuid4()),
-                    goal=user_message,
-                    reasoning=reasoning,
-                    steps=steps,
-                    estimated_duration=len(steps) * 5000,  # 5s per step estimate
-                )
-                
-                # Log the plan details
-                logger.debug("=" * 80)
-                logger.debug("📋 GENERATED PLAN")
-                logger.debug("=" * 80)
-                logger.debug(f"Reasoning: {reasoning}")
-                logger.debug(f"Total Steps: {len(steps)}")
-                logger.debug("-" * 80)
-                for i, step in enumerate(steps, 1):
-                    logger.debug(f"Step {i}: [{step.type}] {step.title}")
-                    logger.debug(f"  Description: {step.description}")
-                logger.debug("=" * 80)
-                
-                return plan
-                
-        except Exception as e:
-            logger.error(f"Plan generation error: {e}")
-            # Fallback to default plan
-            return AgentPlan(
-                id=str(uuid.uuid4()),
-                goal=user_message,
-                reasoning="Building a React app based on your request.",
-                steps=[
-                    PlanStep(str(uuid.uuid4()), "design", "Design App Structure", 
-                            "Plan the component hierarchy and data flow"),
-                    PlanStep(str(uuid.uuid4()), "component", "Create Main Component", 
-                            "Build the primary app component"),
-                    PlanStep(str(uuid.uuid4()), "component", "Build UI Components", 
-                            "Create reusable UI components"),
-                    PlanStep(str(uuid.uuid4()), "integration", "Connect Data Layer", 
-                            "Integrate with the runtime API"),
-                    PlanStep(str(uuid.uuid4()), "styling", "Apply Styling", 
-                            "Add professional styling with Tailwind"),
-                ],
-                estimated_duration=25000,
-            )
     
     def _execute_step(
         self,
