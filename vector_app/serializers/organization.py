@@ -22,12 +22,23 @@ class OrganizationSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'slug', 'created_at', 'updated_at']
     
     def get_logo_url(self, obj):
-        """Return full URL for the logo if it exists."""
-        if obj.logo:
-            request = self.context.get('request')
-            if request:
-                return request.build_absolute_uri(obj.logo.url)
-            return obj.logo.url
+        """
+        Return full URL for the logo if it exists.
+        
+        Prefers the new storage key system (cloud/local unified storage),
+        falls back to legacy ImageField for backwards compatibility.
+        """
+        # Use the model's get_logo_url method which handles both storage types
+        url = obj.get_logo_url()
+        
+        if url:
+            # If it's a relative URL (from legacy ImageField), build absolute URL
+            if not url.startswith('http') and not url.startswith('//'):
+                request = self.context.get('request')
+                if request:
+                    return request.build_absolute_uri(url)
+            return url
+        
         return None
 
 

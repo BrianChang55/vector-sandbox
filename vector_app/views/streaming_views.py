@@ -923,9 +923,13 @@ class AgenticGenerateView(View):
             # Timeout if job never starts
             if job.status == CodeGenerationJob.STATUS_QUEUED and waited > max_wait_for_start:
                 yield sse_event("agent_error", {
-                    "message": "Job failed to start - Celery worker may be unavailable",
+                    "message": "Job timed out waiting to start. The background worker may need to be restarted.",
                     "phase": "error",
-                    "recoverable": False,
+                    "recoverable": True,
+                    "details": {
+                        "timeout_seconds": max_wait_for_start,
+                        "suggestion": "Try refreshing the page. If the issue persists, the worker may need to be restarted.",
+                    },
                 })
                 break
 
@@ -1022,9 +1026,13 @@ class JobStreamView(View):
             # Timeout if job never starts
             if job.status == CodeGenerationJob.STATUS_QUEUED and waited > max_wait_for_start:
                 yield sse_event("agent_error", {
-                    "message": "Job failed to start - Celery worker may be unavailable",
+                    "message": "Job timed out waiting to start. The background worker may need to be restarted.",
                     "phase": "error",
-                    "recoverable": False,
+                    "recoverable": True,
+                    "details": {
+                        "timeout_seconds": max_wait_for_start,
+                        "suggestion": "Try refreshing the page. If the issue persists, the worker may need to be restarted.",
+                    },
                 })
                 # Also emit done event for timeout
                 yield sse_event("done", {

@@ -12,6 +12,7 @@ from django.shortcuts import get_object_or_404
 from ..models import Organization, UserOrganization
 from ..serializers import OrganizationSerializer, OrganizationCreateSerializer, UserOrganizationSerializer
 from ..serializers.organization import OrganizationUpdateSerializer, OrganizationLogoUploadSerializer
+from ..services.image_upload_service import ImageUploadService
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +93,13 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['post'], parser_classes=[MultiPartParser, FormParser])
     def logo(self, request, pk=None):
-        """Upload organization logo."""
+        """
+        Upload organization logo.
+        
+        Uses the unified ImageUploadService which automatically routes to:
+        - Cloudflare R2 (production, when configured)
+        - Local MEDIA_ROOT storage (development)
+        """
         org = self.get_object()
         
         # Check if user is admin
@@ -112,24 +119,50 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         
-        # Delete old logo if exists
+        uploaded_file = serializer.validated_data['logo']
+        
+        # Delete old logo if exists (handles both cloud and legacy local storage)
+        if org.logo_storage_key:
+            ImageUploadService.delete_image(org.logo_storage_key)
         if org.logo:
             org.logo.delete(save=False)
         
-        # Save new logo
-        org.logo = serializer.validated_data['logo']
-        org.save()
+        # Upload new logo using the unified image service
+        result = ImageUploadService.upload_image(
+            uploaded_file=uploaded_file,
+            folder=ImageUploadService.FOLDER_ORG_LOGOS,
+            filename_prefix=f"org_{org.id}",
+            validate=False,  # Already validated by serializer
+        )
         
-        logger.info(f"Logo uploaded for organization {org.id}")
+        if not result['success']:
+            logger.error(f"Failed to upload logo for organization {org.id}: {result.get('error')}")
+            return Response(
+                {'error': f"Failed to upload logo: {result.get('error', 'Unknown error')}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        
+        # Update organization with new storage key
+        org.logo_storage_key = result['storage_key']
+        org.logo = None  # Clear legacy field since we're using new storage
+        org.save(update_fields=['logo_storage_key', 'logo', 'updated_at'])
+        
+        storage_type = result.get('storage_type', 'unknown')
+        logger.info(f"Logo uploaded for organization {org.id} (storage: {storage_type})")
         
         return Response({
             'message': 'Logo uploaded successfully',
+            'storage_type': storage_type,
             'organization': OrganizationSerializer(org, context={'request': request}).data,
         })
     
     @logo.mapping.delete
     def delete_logo(self, request, pk=None):
-        """Delete organization logo."""
+        """
+        Delete organization logo.
+        
+        Handles deletion from both cloud storage (R2) and local storage.
+        """
         org = self.get_object()
         
         # Check if user is admin
@@ -145,8 +178,21 @@ class OrganizationViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
         
+        deleted = False
+        
+        # Delete from new storage if set
+        if org.logo_storage_key:
+            ImageUploadService.delete_image(org.logo_storage_key)
+            org.logo_storage_key = None
+            deleted = True
+        
+        # Delete legacy logo if set
         if org.logo:
-            org.logo.delete(save=True)
+            org.logo.delete(save=False)
+            deleted = True
+        
+        if deleted:
+            org.save(update_fields=['logo', 'logo_storage_key', 'updated_at'])
             logger.info(f"Logo deleted for organization {org.id}")
         
         return Response({

@@ -11,6 +11,8 @@ class UserSerializer(serializers.ModelSerializer):
     """
     Serializer for User model.
     """
+    profile_image_url = serializers.SerializerMethodField()
+    
     class Meta:
         model = User
         fields = [
@@ -18,11 +20,21 @@ class UserSerializer(serializers.ModelSerializer):
             'email',
             'first_name',
             'last_name',
+            'profile_image_url',
             'date_joined',
             'created_at',
             'updated_at',
         ]
         read_only_fields = ['id', 'date_joined', 'created_at', 'updated_at']
+    
+    def get_profile_image_url(self, obj):
+        """
+        Get the user's profile image URL.
+        
+        Uses the model's get_profile_image_url method which handles
+        both uploaded images (cloud/local) and OAuth provider URLs.
+        """
+        return obj.get_profile_image_url()
 
 
 class SignUpSerializer(serializers.ModelSerializer):
