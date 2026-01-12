@@ -105,8 +105,23 @@ class SchemaValidator:
             if not cls.COLUMN_NAME_PATTERN.match(name):
                 errors.append(f'{prefix}: name must start with a letter and contain only letters, numbers, and underscores')
 
-            # Check reserved names (both new and legacy)
-            if name in RESERVED_FIELD_NAMES or name in cls.LEGACY_RESERVED_NAMES:
+            # Check reserved names - but allow system columns if they match expected definition
+            if name in RESERVED_FIELD_NAMES:
+                # Allow if this matches the system column definition exactly
+                from .schema import SYSTEM_COLUMNS
+                system_col = next((sc for sc in SYSTEM_COLUMNS if sc['name'] == name), None)
+                if system_col:
+                    # Check if it matches the system definition
+                    is_system_col = all(
+                        col.get(key) == value
+                        for key, value in system_col.items()
+                        if key != 'name'  # Name already matched
+                    )
+                    if not is_system_col:
+                        errors.append(f'{prefix}: name "{name}" is reserved (system columns cannot be customized)')
+                else:
+                    errors.append(f'{prefix}: name "{name}" is reserved')
+            elif name in cls.LEGACY_RESERVED_NAMES:
                 errors.append(f'{prefix}: name "{name}" is reserved')
 
             if name in existing_names:
