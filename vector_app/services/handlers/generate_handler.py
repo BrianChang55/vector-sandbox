@@ -9,15 +9,27 @@ OPTIMIZED: Uses parallel execution for independent plan steps when possible.
 
 import json
 import logging
+import re
 import time
 import uuid
 from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
-from .base_handler import BaseHandler, AgentEvent, FileChange, PlanStep, exclude_protected_files
+from .base_handler import BaseHandler, AgentEvent, FileChange, exclude_protected_files
 from .parallel_executor import create_parallel_executor, ParallelStepExecutor
-from ..datastore import TableDefinitionParser, get_system_columns
+from ..datastore import TableDefinitionParser, build_data_store_context, get_system_columns
 from vector_app.models import AppDataTable
+from vector_app.prompts.agentic import (
+    apply_design_style_prompt,
+    build_codegen_system_prompt,
+    build_plan_prompt,
+    build_step_prompt,
+)
 from vector_app.services.typescript_types_generator import generate_typescript_types
+from vector_app.services.app_data_service import AppDataService
+from vector_app.services.error_fix_service import get_error_fix_service
+from vector_app.services.planning_service import PlanStep, PlanStepStatus
+from vector_app.services.types import CompilationError
+from vector_app.services.validation_service import get_validation_service
 
 if TYPE_CHECKING:
     from vector_app.models import InternalApp, AppVersion
@@ -78,17 +90,9 @@ class GenerateHandler(BaseHandler):
         generated_files: List[FileChange] = []
 
         # Get additional context
-        data_store_context = kwargs.get("data_store_context")
-        mcp_tools_context = kwargs.get("mcp_tools_context")
-
-        # Import prompts
-        from vector_app.prompts.agentic import (
-            build_plan_prompt,
-            build_step_prompt,
-            build_codegen_system_prompt,
-            apply_design_style_prompt,
-        )
-
+        data_store_context = kwargs.get('data_store_context')
+        mcp_tools_context = kwargs.get('mcp_tools_context')
+        
         # Apply design style to user message
         styled_user_message = apply_design_style_prompt(
             user_message,
@@ -127,7 +131,7 @@ class GenerateHandler(BaseHandler):
         code_steps = [s for s in plan_steps if s.type != "data"]
 
         # Track files generated in data phase (including TypeScript types)
-        data_phase_files = []
+        data_phase_files: List[FileChange] = []
 
         # PHASE 2a: Execute data steps sequentially (create DB + TypeScript types)
         if data_steps:
@@ -147,20 +151,18 @@ class GenerateHandler(BaseHandler):
                 if hasattr(event, 'type') and event.type == 'file_generated':
                     file_data = event.data.get('file')
                     if file_data:
-                        from ..types import FileChange
                         data_phase_files.append(FileChange(**file_data))
                         logger.info(f"📁 [DATA PHASE] Captured file: {file_data.get('path', 'unknown')}")
                 yield event
 
             # Refresh data store context after data phase
             if app:
-                from ..datastore import build_data_store_context
                 data_store_context = build_data_store_context(app)
                 logger.info(f"🔄 [DATA PHASE COMPLETE] Schema frozen, TypeScript types generated")
 
                 # Log which files will be available to code phase
                 if data_phase_files:
-                    file_paths = [f.path for f in data_phase_files]
+                    file_paths = [str(f.path) for f in data_phase_files]
                     logger.info(f"📁 [DATA PHASE] Generated {len(data_phase_files)} file(s) for code phase: {', '.join(file_paths)}")
 
         # PHASE 2b: Execute code steps in parallel (NO DB changes allowed)
@@ -272,17 +274,17 @@ class GenerateHandler(BaseHandler):
                 ):
                     yield event
 
-                step.status = "complete"
+                step.status = PlanStepStatus.COMPLETE
                 step.duration = int((time.time() - step_start) * 1000)
 
-                yield self.emit_step_completed(step, step_index, step.duration)
-                yield self.emit_step_complete(step_index, "complete", step.duration)
+                yield self.emit_step_completed(step, step_index)
+                yield self.emit_step_complete(step_index, PlanStepStatus.COMPLETE.value, step.duration)
 
             except Exception as e:
                 logger.error(f"Data step execution error: {e}")
-                step.status = "error"
+                step.status = PlanStepStatus.ERROR
                 step.duration = int((time.time() - step_start) * 1000)
-                yield self.emit_step_complete(step_index, "error", step.duration)
+                yield self.emit_step_complete(step_index, PlanStepStatus.ERROR.value, step.duration)
                 raise
 
     def _execute_steps_parallel(
@@ -336,17 +338,17 @@ class GenerateHandler(BaseHandler):
                 ):
                     yield event
 
-                step.status = "complete"
+                step.status = PlanStepStatus.COMPLETE
                 step.duration = int((time.time() - step_start) * 1000)
 
-                yield self.emit_step_completed(step, step_index, step.duration)
-                yield self.emit_step_complete(step_index, "complete", step.duration)
+                yield self.emit_step_completed(step, step_index)
+                yield self.emit_step_complete(step_index, PlanStepStatus.COMPLETE.value, step.duration)
 
             except Exception as e:
                 logger.error(f"Step execution error: {e}")
-                step.status = "error"
+                step.status = PlanStepStatus.ERROR
                 step.duration = int((time.time() - step_start) * 1000)
-                yield self.emit_step_complete(step_index, "error", step.duration)
+                yield self.emit_step_complete(step_index, PlanStepStatus.ERROR.value, step.duration)
                 raise
 
         # Use the parallel executor to run steps
@@ -365,8 +367,6 @@ class GenerateHandler(BaseHandler):
         model: str,
     ) -> List[PlanStep]:
         """Create an execution plan for the app generation."""
-        from vector_app.prompts.agentic import build_plan_prompt
-
         plan_prompt = build_plan_prompt(user_message, context)
 
         try:
@@ -378,9 +378,7 @@ class GenerateHandler(BaseHandler):
             )
 
             # Parse JSON from response
-            import re
-
-            json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", response, re.DOTALL)
+            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response, re.DOTALL)
             if json_match:
                 response = json_match.group(1)
 
@@ -518,10 +516,6 @@ class GenerateHandler(BaseHandler):
 
         # Generate TypeScript types file after tables are created
         if app:
-            from vector_app.models import AppDataTable
-            from vector_app.services import generate_typescript_types
-            from vector_app.services.types import FileChange
-
             tables = AppDataTable.objects.filter(internal_app=app).order_by('name')
             if tables.exists():
                 logger.info(f"📝 [TYPESCRIPT] Generating types file for {tables.count()} table(s)")
@@ -563,8 +557,6 @@ class GenerateHandler(BaseHandler):
         logger.error(f"🚨 [FIELD VALIDATION] BLOCKING generation due to field errors")
 
         # Build fix prompt with fresh schema context
-        from vector_app.services.data_store_context import build_data_store_context
-
         data_store_context = build_data_store_context(app)
 
         fix_prompt = self._build_field_fix_prompt(
@@ -625,9 +617,7 @@ class GenerateHandler(BaseHandler):
         allow_table_creation: bool = True,
     ) -> Generator[AgentEvent, None, None]:
         """Execute a single plan step and yield progress events."""
-        from vector_app.prompts.agentic import build_step_prompt, build_codegen_system_prompt
-
-        has_data_store = context.get("has_data_store", False)
+        has_data_store = context.get('has_data_store', False)
 
         # Build prompts
         prompt = build_step_prompt(
@@ -697,9 +687,6 @@ class GenerateHandler(BaseHandler):
         version: "AppVersion",
     ) -> Generator[AgentEvent, None, None]:
         """Apply table definitions to the app's data store."""
-        from vector_app.models import AppDataTable
-        from vector_app.services.app_data_service import AppDataService
-        
         for table_def in table_defs:
             slug = table_def["slug"]
 
@@ -716,8 +703,6 @@ class GenerateHandler(BaseHandler):
             # 🚨 CRITICAL: Add system columns (id, created_at, updated_at)
             # The parser filters these out if LLM defines them
             # We add them here before validation so they're part of the schema
-            from ..datastore import get_system_columns
-
             # Start with user-defined columns
             columns = table_def['columns'].copy()
 
@@ -758,8 +743,6 @@ class GenerateHandler(BaseHandler):
 
         Returns (validation_passed, fix_attempts)
         """
-        from vector_app.services.error_fix_service import get_error_fix_service
-
         MAX_FIX_ATTEMPTS = 2
         validation_passed = False
         fix_attempts = 0
@@ -784,10 +767,9 @@ class GenerateHandler(BaseHandler):
             fix_service = get_error_fix_service()
 
             # Convert FileChange to the format expected by fix service
-            from vector_app.services.agentic_service import FileChange as AgenticFileChange
-
+            # Note: FileChange from types.py is compatible with agentic_service
             agentic_files = [
-                AgenticFileChange(
+                FileChange(
                     path=f.path,
                     action=f.action,
                     language=f.language,
@@ -800,8 +782,6 @@ class GenerateHandler(BaseHandler):
             ]
 
             # Create CompilationError objects
-            from vector_app.services.agentic_service import CompilationError
-
             errors = [
                 CompilationError(
                     file=e.get("file", ""),
@@ -863,7 +843,4 @@ class GenerateHandler(BaseHandler):
         """
         Validate TypeScript files using ValidationService.
         """
-        from vector_app.services.validation_service import ValidationService
-        service = ValidationService()
-        result = service.validate_typescript(files)
-        return result.to_dict()
+        return get_validation_service().validate_typescript(files).to_dict()

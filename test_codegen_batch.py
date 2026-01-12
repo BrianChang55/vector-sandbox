@@ -16,7 +16,7 @@ import re
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'internal_apps.settings')
 django.setup()
 
-from vector_app.services.handlers.base_handler import FileChange, PlanStep
+from vector_app.services.planning_service import PlanStep
 from vector_app.services.handlers.generate_handler import GenerateHandler
 from vector_app.prompts.agentic import (
     build_plan_prompt,

@@ -885,6 +885,10 @@ Rules for parallel steps (same step_order):
 - They MUST NOT depend on each other's output
 - Each step's description MUST explicitly list the files it will create
 
+Integration/styling steps that hook up components in App.tsx should have a HIGHER step_order \
+than the component steps they depend on - they cannot run in parallel with \
+steps that create the components they need to import.
+
 ## 3. Explicit File Ownership in Descriptions
 Each step description MUST clearly state which files it will create or modify:
 - ❌ BAD: "Build UI components"
@@ -943,6 +947,17 @@ Each step description must be self-contained and specific enough that an AI exec
 1. **Exact file paths** - Every step must list files it creates or modifies
 2. **Data dependencies** - Reference table slugs for any data access
 3. **Self-contained** - Another AI should be able to execute this step with ONLY its description
+
+
+### 5. Go Back and Confirm Everything was added to the Data Step
+
+After drafting all steps, **REVIEW YOUR PLAN** and verify:
+- Did you include ALL tables needed by EVERY component and feature?
+- Look at each component step - what data will it need? Is that table in the data step?
+- Check integration steps - do they reference tables that exist?
+- If a component needs to store/fetch data that's not in your data step, **ADD IT NOW**
+
+This is your ONLY chance to define tables - you CANNOT add tables in later steps!
 
 Generate a plan with 2-5 steps. Return JSON:
 {{

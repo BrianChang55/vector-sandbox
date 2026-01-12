@@ -30,7 +30,7 @@ from vector_app.services.types import (
     FileChange,
     CompilationError,
 )
-from vector_app.services.handlers.diff_utils import (
+from vector_app.services.diff import (
     parse_diffs,
     apply_diff,
 )
@@ -362,7 +362,7 @@ class ErrorFixService:
         """
         Parse unified diffs from LLM response and apply them to files.
         
-        Uses diff_utils.parse_diffs and apply_diff for surgical changes.
+        Uses diff.parse_diffs and apply_diff for surgical changes.
         
         Args:
             content: Full LLM response content
