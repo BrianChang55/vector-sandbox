@@ -14,10 +14,12 @@ from typing import Any, Dict, Generator, List, Optional, Union, TYPE_CHECKING
 
 from .base_handler import BaseHandler, AgentEvent, FileChange, PlanStep
 from .parallel_executor import create_parallel_executor, ParallelStepExecutor
+from vector_app.models import AppDataTable
+from vector_app.services.app_data_service import AppDataService
+from vector_app.services.typescript_types_generator import generate_typescript_types
 
 if TYPE_CHECKING:
-    from vector_app.models import InternalApp, AppVersion, AppDataTable
-    from vector_app.services.app_data_service import AppDataService
+    from vector_app.models import InternalApp, AppVersion
     from vector_app.services.intent_classifier import IntentResult
     from vector_app.services.context_analyzer import AppContext
 
@@ -721,22 +723,18 @@ class GenerateHandler(BaseHandler):
         if not tables.exists():
             return None
         
-        types_content = []
-        for table in tables:
-            type_def = AppDataService.typescript_generator(table)
-            if type_def:
-                types_content.append(type_def)
-        
+        types_content = generate_typescript_types(list(tables))
         if not types_content:
             return None
         
-        combined = "\n\n".join(types_content)
-        logger.debug(f"Generated types file content: {combined}")
+        logger.debug(f"Generated types file content: {types_content}")
         return FileChange(
             path="src/lib/types.ts",
             action="create",
             language="ts",
-            content=combined,
+            content=types_content,
+            lines_added=types_content.count('\n') + 1,
+            lines_removed=0,
         )
     
     def _validate_and_fix(
@@ -851,3 +849,14 @@ class GenerateHandler(BaseHandler):
         
         return (validation_passed, fix_attempts)
 
+
+    def _validate_typescript(self, files: List[FileChange]) -> Dict[str, Any]:
+        """
+        Validate TypeScript code.
+        
+        Returns:
+            Dictionary with 'passed' (bool), 'errors' (list), 'warnings' (list)
+        """
+        from vector_app.services.validation_service import get_validation_service
+        validation_service = get_validation_service()
+        return validation_service.validate_typescript(files)

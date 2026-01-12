@@ -6,7 +6,7 @@ of an app's data store for use in LLM prompts.
 """
 from typing import Any, Dict, List, Optional
 from ..models import InternalApp, AppDataTable, AppDataRow, AppVersion, AppDataTableSnapshot
-from .app_data_service import AppDataService
+from .typescript_types_generator import generate_typescript_types
 
 
 def build_data_store_context(app: InternalApp, include_samples: bool = True, max_samples: int = 3) -> str:
@@ -118,14 +118,9 @@ def _build_tables_section_from_snapshots(
 
 def _build_typescript_types_section(tables: List[AppDataTable]) -> str:
     """Build TypeScript types section from tables."""
-    newline = "\n"
-    types = []
-    for table in tables:
-        type_def = AppDataService.typescript_generator(table)
-        if type_def:
-            types.append(type_def)
+    types_content = generate_typescript_types(list(tables))
     
-    if not types:
+    if not types_content:
         return ""
     
     return f"""### TypeScript Types
@@ -133,7 +128,7 @@ def _build_typescript_types_section(tables: List[AppDataTable]) -> str:
 Available type definitions for your tables (import from './lib/types'):
 
 ```typescript
-{newline.join(types)}
+{types_content}
 ```
 """
 

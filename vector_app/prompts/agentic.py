@@ -247,17 +247,28 @@ const Toast = ({ id, message, type, onClose }: ToastProps) => {...}
 // ERROR: Type '(id: string) => void' is not assignable to type '() => void'
 ```
 
-### 12. Self-Contained Components - Define Types in Same File
-To avoid cross-file type mismatches, prefer defining types in the same file as the component that uses them:
+### 12. Data Table Types - ALWAYS Import from ./lib/types.ts
+🚨 **CRITICAL: For data table types, ALWAYS import from `./lib/types.ts`**
+
+The file `src/lib/types.ts` is AUTOMATICALLY generated with TypeScript types for all your data tables.
+You MUST import and use these predefined types - DO NOT define your own types for data tables:
 
 ```typescript
-// ✅ CORRECT - Type defined in same file as component
-// In Toast.tsx:
-export interface ToastData {{
-  id: string;
-  message: string;
-  type: 'success' | 'error';
-}}
+// ✅ CORRECT - Import data table types from ./lib/types.ts
+import {{ CustomerData, OrderData }} from './lib/types';  // From App.tsx
+import {{ CustomerData, OrderData }} from '../lib/types'; // From components/
+
+// ❌ WRONG - Never define your own types for data tables
+interface Customer {{ id: string; name: string; email: string; }}  // DON'T DO THIS
+// ✅ CORRECT - Use imported types with dataStore
+const result = await dataStore.query<CustomerData>('customers', {{}});
+
+
+```
+For UI-only component props (not data tables), you CAN define props interfaces locally:
+```typescript
+// ✅ OK for UI-only props (like button, modal, toast props)
+interface ToastProps {{ message: string; type: 'success' | 'error'; onClose: () => void; }}
 
 export function Toast({{ id, message, type, onClose }}: ToastData & {{ onClose: () => void }}) {{...}}
 
