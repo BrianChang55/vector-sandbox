@@ -242,7 +242,7 @@ def apply_diff(original_content: str, diff: FileDiff) -> str:
         result = _apply_with_subprocess_patch(original_content, diff_text)
         return result
     except Exception as e:
-        logger.warning(f"Subprocess patch failed for {diff.path}: {e}, falling back to whatthepatch")
+        logger.warning(f"Subprocess patch failed for {diff.path}: {e}, falling back to whatthepatch. Hunk: {diff_text}")
     
     # Fallback to whatthepatch for systems without patch command
     try:
@@ -273,15 +273,18 @@ def _fix_hunk_header(hunk: str) -> str:
     LLMs often generate incorrect line counts in @@ headers. This function
     recalculates them based on the actual lines in the hunk.
     
+    Ensures the hunk ends with a single newline.
+    
     Args:
         hunk: A single hunk string starting with @@ header
         
     Returns:
         The hunk with corrected @@ header line counts
     """
+    hunk = hunk.strip()
     lines = hunk.split('\n')
     if not lines or not lines[0].startswith('@@'):
-        return hunk
+        return hunk + '\n'
     
     header = lines[0]
     content_lines = lines[1:]
@@ -290,7 +293,7 @@ def _fix_hunk_header(hunk: str) -> str:
     # Format: @@ -start,count +start,count @@ optional context
     match = re.match(r'@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)?(?: @@(.*))?', header)
     if not match:
-        return hunk
+        return hunk + '\n'
     
     old_start = match.group(1)
     new_start = match.group(2)
@@ -313,7 +316,7 @@ def _fix_hunk_header(hunk: str) -> str:
     # Reconstruct header with correct counts
     new_header = f'@@ -{old_start},{old_count} +{new_start},{new_count} @@{context_text}'
     
-    return new_header + '\n' + '\n'.join(content_lines)
+    return new_header + '\n' + '\n'.join(content_lines) + '\n'
 
 
 def _get_hunk_start_line(hunk: str) -> int:
@@ -338,7 +341,8 @@ def _reconstruct_diff(diff: FileDiff) -> str:
     Reconstruct a proper unified diff string from FileDiff for whatthepatch.
     
     Fixes hunk headers with incorrect line counts (common LLM error).
-    Sorts hunks by starting line number to ensure correct order.
+    Deduplicates hunks (last suggestion wins) and sorts them by starting line 
+    number to ensure correct order.
     
     Args:
         diff: FileDiff object with path and hunks
@@ -356,11 +360,31 @@ def _reconstruct_diff(diff: FileDiff) -> str:
         lines.append(f'--- {diff.path}')
     lines.append(f'+++ {diff.path}')
     
+    # Deduplicate hunks: last suggestion wins for same start line
+    # LLMs sometimes repeat the same hunk or provide multiple versions of the same edit
+    unique_hunks = {}
+    for hunk in diff.hunks:
+        start_line = _get_hunk_start_line(hunk)
+        unique_hunks[start_line] = hunk
+
     # Sort hunks by starting line number (LLMs sometimes generate out of order)
-    sorted_hunks = sorted(diff.hunks, key=_get_hunk_start_line)
+    original_start_lines = [_get_hunk_start_line(h) for h in diff.hunks]
+    # Filter out duplicates from original order for comparison
+    seen = set()
+    original_uniques = []
+    for sl in original_start_lines:
+        if sl not in seen:
+            original_uniques.append(sl)
+            seen.add(sl)
     
+    sorted_start_lines = sorted(unique_hunks.keys())
+
+    if original_uniques != sorted_start_lines:
+        logger.warning(f"Misordered or duplicate hunks detected for {diff.path}. Reordering and deduplicating. Original order (uniques): {original_uniques}, Sorted: {sorted_start_lines}")
+
     # Add all hunks with fixed headers
-    for hunk in sorted_hunks:
+    for start_line in sorted_start_lines:
+        hunk = unique_hunks[start_line]
         fixed_hunk = _fix_hunk_header(hunk)
         lines.append(fixed_hunk)
 

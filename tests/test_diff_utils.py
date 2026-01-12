@@ -1,8 +1,6 @@
 """
 Tests for diff.py - unified diff parsing and application.
 """
-
-import pytest
 from vector_app.services.diff import (
     FileDiff,
     parse_diffs,
