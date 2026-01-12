@@ -247,28 +247,17 @@ const Toast = ({ id, message, type, onClose }: ToastProps) => {...}
 // ERROR: Type '(id: string) => void' is not assignable to type '() => void'
 ```
 
-### 12. Data Table Types - ALWAYS Import from ./lib/types.ts
-🚨 **CRITICAL: For data table types, ALWAYS import from `./lib/types.ts`**
-
-The file `src/lib/types.ts` is AUTOMATICALLY generated with TypeScript types for all your data tables.
-You MUST import and use these predefined types - DO NOT define your own types for data tables:
+### 12. Self-Contained Components - Define Types in Same File
+To avoid cross-file type mismatches, prefer defining types in the same file as the component that uses them:
 
 ```typescript
-// ✅ CORRECT - Import data table types from ./lib/types.ts
-import {{ CustomerData, OrderData }} from './lib/types';  // From App.tsx
-import {{ CustomerData, OrderData }} from '../lib/types'; // From components/
-
-// ❌ WRONG - Never define your own types for data tables
-interface Customer {{ id: string; name: string; email: string; }}  // DON'T DO THIS
-// ✅ CORRECT - Use imported types with dataStore
-const result = await dataStore.query<CustomerData>('customers', {{}});
-
-
-```
-For UI-only component props (not data tables), you CAN define props interfaces locally:
-```typescript
-// ✅ OK for UI-only props (like button, modal, toast props)
-interface ToastProps {{ message: string; type: 'success' | 'error'; onClose: () => void; }}
+// ✅ CORRECT - Type defined in same file as component
+// In Toast.tsx:
+export interface ToastData {{
+  id: string;
+  message: string;
+  type: 'success' | 'error';
+}}
 
 export function Toast({{ id, message, type, onClose }}: ToastData & {{ onClose: () => void }}) {{...}}
 
@@ -877,22 +866,35 @@ App Name: {app_name}
 Available Resources: {available_resources}
 Has Existing Spec: {has_existing_spec}
 
-IMPORTANT: If the app needs to store/manage data (tasks, customers, products, etc.), your plan MUST include:
-1. A step to define data table schemas (using TABLE_DEFINITION blocks)
-2. A step to generate the dataStore client
-3. Steps to build UI components that use the dataStore API
+🚨 **CRITICAL PLANNING RULE FOR DATA STORAGE:**
+
+If the app needs to store/manage ANY data, you MUST:
+
+1. **First Step MUST be type="data"**: Define ALL table schemas needed for the ENTIRE application
+   - Think through EVERY entity that needs to be stored
+   - Include ALL tables needed by ALL features upfront
+   - Examples: If building a project tracker, you might need: projects, tasks, sprints, burndown_snapshots, comments, etc.
+   - **YOU CANNOT CREATE TABLES LATER** - all tables must be defined in this first step!
+
+2. **Remaining Steps MUST be type="code"**: Build UI using ONLY the tables from step 1
+   - Code steps can ONLY use tables defined in the data step
+   - Cannot create new tables during code generation
+
+3. **Be Comprehensive**: List out EVERY table in the data step description
+   - ❌ BAD: "Create table schemas for core data"
+   - ✅ GOOD: "Create table schemas for: projects, tasks, sprints, burndown_snapshots, team_members"
 
 Generate a plan with 2-4 steps (fewer for simple requests). Return JSON:
 {{
-    "reasoning": "Your analysis of what needs to be built, including what data tables are needed",
+    "reasoning": "Your analysis of what needs to be built. LIST ALL DATA TABLES NEEDED.",
     "steps": [
-        {{"type": "data", "title": "Define Data Tables", "description": "Create table schemas for X, Y, Z"}},
+        {{"type": "data", "title": "Define All Data Tables", "description": "Create table schemas for: [LIST EVERY TABLE NAME HERE]"}},
         {{"type": "code", "title": "Build Core Components", "description": "..."}}
     ]
 }}
 
 Step types: research, design, data, code, component, styling, integration, validation
-Keep it concise but comprehensive. ALWAYS include a 'data' step if the app manages any kind of data."""
+**REMEMBER**: ALL data tables must be created in ONE data step at the beginning!"""
 
 STEP_PROMPT_TEMPLATE = """Step {step_number}: {step_title}
 Description: {step_description}
@@ -963,64 +965,72 @@ columns:
 
 Then use the table slug in dataStore calls: `dataStore.query('your-table-slug')`
 
+### 🎯 CRITICAL: Import TypeScript Types for Type Safety
+
+**If tables exist, `src/lib/types.ts` is AUTO-GENERATED with ALL table types.**
+
+✅ **ALWAYS import and use these types to ensure correct field names:**
+
+```typescript
+import {{ dataStore }} from '../lib/dataStore';
+import type {{ Database }} from '../lib/types';
+
+// Type-safe insert - TypeScript validates field names!
+const newItem: Database['your-table-slug']['insert'] = {{
+  title: 'Example',        // ✅ TypeScript ensures this field exists
+  status: 'active'         // ✅ TypeScript ensures this field exists
+  // text: 'wrong'         // ❌ TypeScript error if field doesn't exist
+}};
+await dataStore.insert('your-table-slug', newItem);
+
+// Type-safe query results
+const result = await dataStore.query('your-table-slug', {{}});
+const items: Database['your-table-slug']['row'][] = result.rows;
+```
+
+**Why this matters:** The types file contains the EXACT field names from the database schema. If you try to use a field that doesn't exist, TypeScript will show an error at compile time, preventing runtime errors.
+
 ### Using dataStore in Components (DO NOT recreate dataStore.ts)
 
 ```typescript
 import {{ dataStore }} from '../lib/dataStore';
+import type {{ Database }} from '../lib/types';
 
 // In a component:
-const [items, setItems] = useState([]);
+const [items, setItems] = useState<Database['your-table-slug']['row'][]>([]);
 useEffect(() => {{
   dataStore.query('your-table-slug', {{}}).then(r => setItems(r.rows || []));
 }}, []);
 ```
 
-### TypeScript Types and Schema (CRITICAL)
-
-🚨 **DO NOT MODIFY THE SCHEMA** - The data tables have already been defined. Do NOT:
-- Create new tables (no TABLE_DEFINITION blocks during code generation)
-- Add or remove columns
-- Change the schema in any way
-
-🚨 **DO NOT define your own types for data tables!**
-
-The file `src/lib/types.ts` is AUTOMATICALLY generated with TypeScript types for all your data tables.
-You MUST import and use these predefined types instead of creating your own.
-
-```typescript
-import {{ CustomerData, OrderData }} from './lib/types';  // For App.tsx
-import {{ CustomerData, OrderData }} from '../lib/types'; // For components
-
-// Use the predefined types with dataStore
-const result = await dataStore.query<CustomerData>('customers', {{}});
-```
-
-❌ FORBIDDEN:
-- Creating TABLE_DEFINITION blocks (schema is already set)
-- Defining your own types: `interface Customer {{ ... }}`
-
-✅ CORRECT:
-- Import types from ./lib/types
-- Use only the tables that already exist
-
 ## OUTPUT FORMAT
 
 You MUST format each file exactly like this:
+
 ```src/App.tsx
 import React from 'react';
+import type {{ Database }} from ../lib/types';  // 🚨 REQUIRED if using dataStore!
+import {{ dataStore }} from './lib/dataStore';
+
 // ... complete code here
 export default function App() {{ ... }}
 ```
 
-Another example:
-```src/components/DataTable.tsx
+```src/components/TaskList.tsx
+import React from 'react';
+import type {{ Database }} from '../lib/types';  // 🚨 REQUIRED if using dataStore!
+import {{ dataStore }} from '../lib/dataStore';
+
 // Component code here
 ```
 
 Requirements:
-- Use TypeScript with proper types (import from ./lib/types)
+- Use TypeScript with proper types
+- **MANDATORY**: If a file uses dataStore, it MUST import `type {{ Database }} from '../lib/types'`
+- **MANDATORY**: Use `Database['table-slug']['insert']` types for ALL insert operations
+- **MANDATORY**: Use `Database['table-slug']['row']` types for ALL query results
 - Use Tailwind CSS for all styling (available via CDN)
-- Use the existing dataStore tables - NO hardcoded mock data, NO new table definitions
+- For apps with data, ALWAYS create tables and use dataStore - NO hardcoded mock data
 - Create a complete, functional UI that looks professional
 - Include proper loading states and error handling
 - Make sure the code is complete and runnable - no placeholders or TODOs
@@ -1052,7 +1062,6 @@ CRITICAL REQUIREMENTS:
 7. Use Tailwind CSS for all styling
 8. Handle loading and error states
 9. Make it interactive (search, filters, etc. as appropriate)
-10. Use predefined types from './lib/types' - DO NOT define your own types for data tables
 
 OUTPUT FORMAT - Generate ONLY the App.tsx file:
 ```src/App.tsx
@@ -1312,34 +1321,11 @@ Guidelines:
 1. Generate complete, runnable code
 2. Handle loading and error states elegantly
 3. Use professional, modern UI patterns
-4. Use predefined TypeScript types from `./lib/types.ts` - DO NOT define your own types for data tables
+4. Include proper TypeScript types
 5. Make responsive designs
 6. Use semantic HTML
 7. Add helpful comments
 8. Use dataStore API for all data operations - no mock data for main functionality
-
-### TypeScript Types and Schema (CRITICAL)
-
-🚨 **DO NOT MODIFY THE SCHEMA** - The data tables have already been defined. Do NOT:
-- Create new tables (no TABLE_DEFINITION blocks)
-- Add or remove columns
-- Change the schema in any way
-
-TypeScript types for all data tables are pre-generated in `src/lib/types.ts`.
-You MUST import and use these types instead of defining your own:
-
-```typescript
-import {{ CustomerData, OrderData }} from './lib/types';  // From App.tsx
-import {{ CustomerData, OrderData }} from '../lib/types'; // From components/
-
-// Use with dataStore
-const result = await dataStore.query<CustomerData>('customers', {{}});
-```
-
-❌ DO NOT define your own types for data tables
-❌ DO NOT create TABLE_DEFINITION blocks - schema is already set
-✅ Always import from './lib/types'
-✅ Use only the tables that already exist
 
 Base design/style requirements (always follow):
 {design_style}
@@ -1538,9 +1524,104 @@ def build_step_prompt(
 ) -> str:
     """Build the per-step execution prompt for streaming code generation."""
     existing_code = ""
+    typescript_types_section = ""
+
+    # Check if types.ts exists in existing files - show it in full (not truncated)
+    types_ts_file = None
+    other_files = []
+
     if existing_files:
-        existing_code = "\n\nExisting files generated so far:\n"
-        for f in list(existing_files)[-3:]:
+        for f in existing_files:
+            path = getattr(f, "path", "")
+            if path == "src/lib/types.ts":
+                types_ts_file = f
+            else:
+                other_files.append(f)
+
+    # If types.ts exists, show it prominently with full content
+    if types_ts_file:
+        content = getattr(types_ts_file, "content", "")
+
+        # Extract table names from the Database type definition
+        import re
+        table_slugs = re.findall(r"'([^']+)':\s*\{", content)
+        table_list = ", ".join(f"'{t}'" for t in table_slugs) if table_slugs else "none"
+
+        # Generate concrete examples using the first table if available
+        concrete_examples = ""
+        if table_slugs:
+            first_table = table_slugs[0]
+            # Try to extract field names for the first table
+            # Look for the insert type fields
+            insert_match = re.search(rf"'{first_table}':\s*\{{\s*insert:\s*\{{([^}}]+)\}}", content, re.DOTALL)
+            if insert_match:
+                fields_str = insert_match.group(1)
+                # Extract field names (look for patterns like "field_name:")
+                field_names = re.findall(r'(\w+):', fields_str)
+                if field_names:
+                    # Show first 2-3 fields as example
+                    example_fields = field_names[:3]
+                    fields_example = "\n  ".join(f"{fname}: 'value'," for fname in example_fields)
+                    concrete_examples = f"""
+
+**CONCRETE EXAMPLE using YOUR actual table '{first_table}':**
+
+```typescript
+import {{ dataStore }} from '../lib/dataStore';
+import type {{ Database }} from '../lib/types';
+
+// ✅ Type-safe insert with ACTUAL field names from YOUR schema
+const newItem: Database['{first_table}']['insert'] = {{
+  {fields_example}
+}};
+await dataStore.insert('{first_table}', newItem);
+
+// ✅ Type-safe query results
+const result = await dataStore.query('{first_table}', {{}});
+const items: Database['{first_table}']['row'][] = result.rows;
+```
+
+**DO THIS FOR ALL YOUR TABLES**: Replace '{first_table}' with the actual table slug you're working with.
+"""
+
+        typescript_types_section = f"""
+## 🎯 CRITICAL: TypeScript Types File Available
+
+The file `src/lib/types.ts` has been generated with ALL table types.
+**YOU MUST import and use these types to ensure correct field names!**
+
+**AVAILABLE TABLES:** {table_list}
+🚨 **YOU CAN ONLY USE THESE TABLES** - DO NOT reference any other tables!
+🚨 **DO NOT CREATE NEW TABLES** - all tables are already defined!
+
+Full content of src/lib/types.ts:
+```typescript
+{content}
+```
+{concrete_examples}
+
+**MANDATORY INSTRUCTIONS:**
+1. **ALWAYS import the Database type** in EVERY file that uses dataStore:
+   `import type {{ Database }} from '../lib/types'` (or '../lib/types' from src/)
+
+2. **ALWAYS type your insert objects** using Database['table-slug']['insert']:
+   ❌ WRONG: `await dataStore.insert('tasks', {{ name: 'Do thing' }})`
+   ✅ CORRECT: `const item: Database['tasks']['insert'] = {{ title: 'Do thing' }}; await dataStore.insert('tasks', item)`
+
+3. **ALWAYS type your query results** using Database['table-slug']['row']:
+   ❌ WRONG: `const items = result.rows`
+   ✅ CORRECT: `const items: Database['tasks']['row'][] = result.rows`
+
+4. **Look at the database.ts content above** to see EXACT field names - don't guess!
+
+5. **If you use a wrong field name**, validation will FAIL and you'll have to fix it!
+
+"""
+
+    # Show other existing files (last 3, truncated)
+    if other_files:
+        existing_code = "\n\nOther existing files generated so far:\n"
+        for f in list(other_files)[-3:]:
             path = getattr(f, "path", "")
             content = getattr(f, "content", "")
             existing_code += f"\n--- {path} ---\n{content[:1000]}...\n"
@@ -1585,10 +1666,16 @@ def build_step_prompt(
 
 🚨 **THIS IS A DATA DEFINITION STEP - CRITICAL INSTRUCTIONS:**
 
-1. **ONLY generate TABLE_DEFINITION blocks** - DO NOT generate any TypeScript/React code
-2. **DO NOT use dataStore** API in this step - that will be done in the next step
-3. **DO NOT define 'id', 'created_at', 'updated_at'** - these are AUTO-GENERATED by the system!
-4. **Your output should ONLY contain TABLE_DEFINITION blocks** like this:
+1. **Define EVERY TABLE needed for the ENTIRE application** - not just some tables!
+   - Review the user's request and think about ALL features
+   - Think about ALL entities that need to be stored
+   - Include tables for: main entities, join tables, history/audit tables, snapshots, etc.
+   - **YOU CANNOT CREATE TABLES LATER** - this is your ONLY chance to define tables!
+
+2. **ONLY generate TABLE_DEFINITION blocks** - DO NOT generate any TypeScript/React code
+3. **DO NOT use dataStore** API in this step - that will be done in the next step
+4. **DO NOT define 'id', 'created_at', 'updated_at'** - these are AUTO-GENERATED by the system!
+5. **Your output should ONLY contain TABLE_DEFINITION blocks** like this:
 
 ```table:users
 name: Users
@@ -1599,14 +1686,24 @@ columns:
   - name: role, type: string, default: member
 ```
 
+```table:user-activities
+name: User Activities
+description: Track user actions for history
+columns:
+  - name: user_id, type: uuid, nullable: false
+  - name: activity_type, type: string, nullable: false
+  - name: metadata, type: json
+```
+
 **System automatically adds to every table:** `id` (UUID), `created_at`, `updated_at`
 
-5. **DO NOT generate App.tsx, components, or any UI code** - this step is ONLY for defining the data schema
-6. The next step will generate code that uses these tables
+6. **DO NOT generate App.tsx, components, or any UI code** - this step is ONLY for defining the data schema
+7. The next step will generate code that uses these tables - make sure you create ALL tables they'll need!
 
 """
 
     return (
+        typescript_types_section +
         STEP_PROMPT_TEMPLATE.format(
             step_number=step_index + 1,
             step_title=getattr(step, "title", ""),
@@ -1616,9 +1713,10 @@ columns:
             resources_info=resources_info.strip(),
             existing_code=existing_code.strip(),
             over_eagerness_guard=OVER_EAGERNESS_GUARD,
-        )
-        + data_step_instruction
+        ) + data_step_instruction
     )
+
+
 
 
 def build_codegen_system_prompt(registry_surface: Dict[str, Any], has_data_store: bool = False) -> str:

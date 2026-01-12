@@ -299,9 +299,17 @@ class FeatureHandler(BaseHandler):
         generated_files: List[FileChange] = []
 
         # Get additional context from kwargs
-        data_store_context = kwargs.get("data_store_context")
-        mcp_tools_context = kwargs.get("mcp_tools_context")
-
+        data_store_context = kwargs.get('data_store_context')
+        mcp_tools_context = kwargs.get('mcp_tools_context')
+        
+        # Debug log the context being passed to LLM
+        self.log_llm_context(
+            intent_name=intent.intent.value if intent else "ADD_FEATURE",
+            handler_name="FeatureHandler",
+            data_store_context=data_store_context,
+            mcp_tools_context=mcp_tools_context,
+        )
+        
         # If no existing app, fall back to generation
         if not context.has_existing_app:
             yield self.emit_thinking(

@@ -35,9 +35,10 @@ from vector_app.prompts.agentic import (
     build_codegen_system_prompt,
     build_final_app_prompt,
 )
-from vector_app.services.data_store_context import (
+from vector_app.services.datastore import (
     build_data_store_context,
     get_table_summary,
+    TableDefinitionParser,
 )
 from vector_app.services.mcp_context import (
     build_mcp_tools_context,
@@ -1350,101 +1351,38 @@ class AgenticService:
           - name: id, type: uuid, primary_key: true, auto_generate: true
         ```
         """
+        # Use the centralized parser
+        table_dicts = TableDefinitionParser.parse_table_definitions(content)
+
+        # Convert to TableDefinition dataclass
         tables = []
-
-        # Pattern to match table definition blocks
-        pattern = r"```table:([a-z0-9-]+)\n(.*?)```"
-        matches = re.findall(pattern, content, re.DOTALL | re.IGNORECASE)
-
-        for slug, table_content in matches:
-            try:
-                table_def = self._parse_single_table_definition(slug.strip(), table_content.strip())
-                if table_def:
-                    tables.append(table_def)
-            except Exception as e:
-                logger.warning(f"Failed to parse table definition for {slug}: {e}")
+        for table_dict in table_dicts:
+            tables.append(TableDefinition(
+                slug=table_dict['slug'],
+                name=table_dict['name'],
+                description=table_dict.get('description', ''),
+                columns=table_dict['columns']
+            ))
 
         return tables
 
     def _parse_single_table_definition(self, slug: str, content: str) -> Optional[TableDefinition]:
-        """Parse a single table definition content."""
-        lines = content.strip().split("\n")
-
-        name = slug.replace("-", " ").title()
-        description = ""
-        columns = []
-        in_columns = False
-
-        for line in lines:
-            line = line.strip()
-
-            if line.startswith("name:"):
-                name = line[5:].strip()
-            elif line.startswith("description:"):
-                description = line[12:].strip()
-            elif line.startswith("columns:"):
-                in_columns = True
-            elif in_columns and line.startswith("- "):
-                col_def = self._parse_column_definition(line[2:].strip())
-                if col_def:
-                    columns.append(col_def)
-
-        if not columns:
+        """DEPRECATED: Use TableDefinitionParser.parse_single_table instead."""
+        table_dict = TableDefinitionParser.parse_single_table(slug, content)
+        if not table_dict:
             return None
 
-        return TableDefinition(slug=slug, name=name, description=description, columns=columns)
+        return TableDefinition(
+            slug=table_dict['slug'],
+            name=table_dict['name'],
+            description=table_dict.get('description', ''),
+            columns=table_dict['columns']
+        )
 
     def _parse_column_definition(self, line: str) -> Optional[Dict[str, Any]]:
-        """Parse a column definition line."""
-        # Format: name: col_name, type: string, nullable: true, enum_values: [a, b, c]
-        col = {}
-
-        # First, extract any list values that might contain commas
-        # Pattern: key: [values] - handle this specially
-        import re
-
-        list_pattern = r"(\w+):\s*\[([^\]]+)\]"
-        list_matches = re.findall(list_pattern, line)
-        for key, value_str in list_matches:
-            values = [v.strip().strip('"').strip("'") for v in value_str.split(",")]
-            col[key] = values
-            # Remove from line to avoid re-parsing
-            line = re.sub(rf"{key}:\s*\[[^\]]+\]", "", line)
-
-        # Split remaining by comma and parse each key-value pair
-        parts = [p.strip() for p in line.split(",") if p.strip()]
-
-        for part in parts:
-            if ":" in part:
-                key, value = part.split(":", 1)
-                key = key.strip()
-                value = value.strip()
-
-                # Skip if already parsed as a list
-                if key in col:
-                    continue
-
-                # Handle boolean values
-                if value.lower() == "true":
-                    value = True
-                elif value.lower() == "false":
-                    value = False
-                # Handle integer values
-                elif value.isdigit():
-                    value = int(value)
-
-                col[key] = value
-
-        # Validate required fields
-        if "name" not in col or "type" not in col:
-            return None
-
-        # If type is enum but no enum_values, convert to string
-        if col.get("type") == "enum" and "enum_values" not in col:
-            col["type"] = "string"
-
-        return col
-
+        """DEPRECATED: Use TableDefinitionParser.parse_column instead."""
+        return TableDefinitionParser.parse_column(line)
+    
     def _apply_table_definitions(
         self, table_defs: List[TableDefinition], app: "InternalApp", version: "AppVersion"
     ) -> Generator[AgentEvent, None, List[Dict[str, Any]]]:
