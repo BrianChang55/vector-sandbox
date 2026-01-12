@@ -562,9 +562,6 @@ class BaseHandler(ABC):
         
         Logs TypeScript types if present, otherwise logs all file context.
         """
-        if not DEBUG_LOG_LLM_CONTEXT:
-            return
-
         logger.debug(
             f"{'='*60}\n"
             f"[LLM CONTEXT DEBUG] Intent: {intent_name} | Handler: {handler_name}\n"
