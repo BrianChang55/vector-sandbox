@@ -7,7 +7,7 @@ Extracts user intent actions and matches them to available MCP tools.
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, Generator, Optional, Union
+from typing import Any, Dict, Iterator, Optional, Union
 
 from vector_app.action_classification.action_classifier import get_action_classifier
 from vector_app.action_classification.build_mcp_context import build_context_from_matched_tools
@@ -43,7 +43,7 @@ def filter_mcp_tools(
     app_context: "AppContext",
     intent: "IntentResult",
     app: Optional["InternalApp"] = None,
-) -> Generator[Union[FilterMCPToolsEvent, FilterMCPToolsResult], None, None]:
+) -> Iterator[Union[FilterMCPToolsEvent, FilterMCPToolsResult]]:
     """
     Classify user actions and match them to available MCP tools.
 
@@ -76,7 +76,7 @@ def filter_mcp_tools(
         actions_summary = ", ".join(
             f"{a.action.value}({a.confidence:.0%})" for a in action_result.actions
         )
-        logger.info(f"Actions classified: {actions_summary}")
+        logger.info("Actions classified: %s", actions_summary)
     else:
         logger.warning("No actions classified")
 

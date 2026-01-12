@@ -3,6 +3,102 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 
+# Keywords that indicate the app needs to READ/FETCH external data
+# e.g., "show my pull requests", "display issues", "list users"
+QUERY_KEYWORDS = [
+    "show",
+    "display",
+    "list",
+    "fetch",
+    "get",
+    "retrieve",
+    "find",
+    "search",
+    "filter",
+    "sort",
+    "view",
+    "see",
+    "query",
+    "pull",
+    "load",
+    "read",
+    "look up",
+    "browse",
+    "explore",
+    "dashboard",
+    "report",
+    "analytics",
+    "monitor",
+    "track",
+    "ranks",
+    "ranking",
+    "order by",
+    "aggregate",
+]
+
+# Keywords that indicate the app needs to CREATE external records
+# e.g., "create jira tickets", "add new issues", "submit forms"
+CREATE_KEYWORDS = [
+    "creates",
+    "add",
+    "insert",
+    "submit",
+    "post",
+    "new record",
+    "new issue",
+    "new ticket",
+    "new task",
+    "new item",
+    "file",
+    "open ticket",
+    "open issue",
+    "log",
+    "register",
+]
+
+# Keywords that indicate the app needs to UPDATE external records
+# e.g., "update status", "modify tickets", "change priority"
+UPDATE_KEYWORDS = [
+    "updates",
+    "modify",
+    "change status",
+    "edit record",
+    "mark as",
+    "set status",
+    "assign",
+    "reassign",
+    "close",
+    "resolve",
+    "transition",
+    "move to",
+    "change priority",
+]
+
+# Keywords that indicate the app needs to DELETE external records
+# e.g., "delete old tickets", "remove completed tasks"
+DELETE_KEYWORDS = ["deletes", "remove record", "archive", "trash", "clean up", "purge", "clear old"]
+
+# Keywords that indicate the app needs to SEND notifications/messages
+# e.g., "send slack message", "notify team", "email updates"
+SEND_KEYWORDS = [
+    "send",
+    "notify",
+    "message",
+    "email",
+    "alert",
+    "post message",
+    "broadcast",
+    "publish",
+    "share",
+    "slack",
+    "notification",
+    "announce",
+    "ping",
+    "remind",
+    "trigger webhook",
+]
+
+
 class ActionType(StrEnum):
     """Action type categories for MCP tools."""
 

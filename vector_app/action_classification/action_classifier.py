@@ -16,13 +16,21 @@ For example:
 
 import logging
 import json
-from typing import List, Optional, TYPE_CHECKING
+from typing import List, Optional
 
 import httpx
 
-if TYPE_CHECKING:
-    from vector_app.action_classification.types import ActionType, ActionResult
-    from vector_app.services.intent_classifier import IntentResult
+from vector_app.action_classification.types import (
+    ActionType,
+    ActionResult,
+    QUERY_KEYWORDS,
+    CREATE_KEYWORDS,
+    UPDATE_KEYWORDS,
+    DELETE_KEYWORDS,
+    SEND_KEYWORDS,
+)
+from vector_app.action_classification.prompts import build_action_classification_prompts
+from vector_app.services.intent_classifier import IntentResult
 
 logger = logging.getLogger(__name__)
 
@@ -34,101 +42,6 @@ class ActionClassifier:
 
     This identifies the data operations required, not what we do to the app.
     """
-
-    # Keywords that indicate the app needs to READ/FETCH external data
-    # e.g., "show my pull requests", "display issues", "list users"
-    QUERY_KEYWORDS = [
-        "show",
-        "display",
-        "list",
-        "fetch",
-        "get",
-        "retrieve",
-        "find",
-        "search",
-        "filter",
-        "sort",
-        "view",
-        "see",
-        "query",
-        "pull",
-        "load",
-        "read",
-        "look up",
-        "browse",
-        "explore",
-        "dashboard",
-        "report",
-        "analytics",
-        "monitor",
-        "track",
-        "ranks",
-        "ranking",
-        "order by",
-        "aggregate",
-    ]
-
-    # Keywords that indicate the app needs to CREATE external records
-    # e.g., "create jira tickets", "add new issues", "submit forms"
-    CREATE_KEYWORDS = [
-        "creates",
-        "add",
-        "insert",
-        "submit",
-        "post",
-        "new record",
-        "new issue",
-        "new ticket",
-        "new task",
-        "new item",
-        "file",
-        "open ticket",
-        "open issue",
-        "log",
-        "register",
-    ]
-
-    # Keywords that indicate the app needs to UPDATE external records
-    # e.g., "update status", "modify tickets", "change priority"
-    UPDATE_KEYWORDS = [
-        "updates",
-        "modify",
-        "change status",
-        "edit record",
-        "mark as",
-        "set status",
-        "assign",
-        "reassign",
-        "close",
-        "resolve",
-        "transition",
-        "move to",
-        "change priority",
-    ]
-
-    # Keywords that indicate the app needs to DELETE external records
-    # e.g., "delete old tickets", "remove completed tasks"
-    DELETE_KEYWORDS = ["deletes", "remove record", "archive", "trash", "clean up", "purge", "clear old"]
-
-    # Keywords that indicate the app needs to SEND notifications/messages
-    # e.g., "send slack message", "notify team", "email updates"
-    SEND_KEYWORDS = [
-        "send",
-        "notify",
-        "message",
-        "email",
-        "alert",
-        "post message",
-        "broadcast",
-        "publish",
-        "share",
-        "slack",
-        "notification",
-        "announce",
-        "ping",
-        "remind",
-        "trigger webhook",
-    ]
 
     def classify(
         self,
@@ -160,46 +73,8 @@ class ActionClassifier:
             logger.info("  Intent type: %s", intent.intent.value)
             logger.info("  Intent confidence: %.0f%%", intent.confidence * 100)
 
-        # Build prompt for LLM classification
-        system_prompt = """You are an expert at classifying user requests for internal app building.
-
-Your task is to determine what type of MCP (Model Context Protocol) tool operations the user's app will need to perform on external systems.
-
-IMPORTANT: A single request can require MULTIPLE action types. For example:
-- "Fetch GitHub issues and send Slack notifications" = [QUERY, SEND]
-- "Create a Jira ticket and update the status" = [CREATE, UPDATE]
-- "Show all users" = [QUERY]
-
-Action Types:
-- QUERY: The app needs to READ/FETCH data (e.g., "show GitHub PRs", "display Jira issues", "list users")
-- CREATE: The app needs to CREATE new records (e.g., "create Jira tickets", "add calendar events", "submit forms")
-- UPDATE: The app needs to MODIFY existing records (e.g., "update issue status", "edit documents", "modify settings")
-- DELETE: The app needs to REMOVE records (e.g., "delete old files", "archive tickets", "remove users")
-- SEND: The app needs to SEND messages/notifications (e.g., "send Slack messages", "email notifications", "SMS alerts")
-- OTHER: Fallback for operations that don't fit the above categories
-
-Also identify the target service/system for each action (e.g., "github", "jira", "slack", "database", "api", "email").
-
-Return a JSON object with:
-{
-  "actions": [
-    {
-      "action": "QUERY|CREATE|UPDATE|DELETE|SEND|OTHER",
-      "confidence": 0.0-1.0,
-      "target": "service name or 'unknown'",
-      "description": "brief description of this specific operation"
-    }
-    // ... more actions if the request requires multiple operations
-  ],
-  "reasoning": "why you chose these classifications"
-}
-
-Always return at least 1 action. Return multiple actions only when the request clearly requires different operation types."""
-
-        user_prompt = f"""User's request: {user_message}"""
-        
-        if intent:
-            user_prompt += f"\n\nIntent context: The user wants to {intent.intent.value} the app (confidence: {intent.confidence:.0%})"
+        # Build prompts for LLM classification
+        system_prompt, user_prompt = build_action_classification_prompts(user_message, intent)
 
         logger.info("-" * 40)
         logger.info("LLM CLASSIFICATION:")
@@ -357,11 +232,11 @@ Always return at least 1 action. Return multiple actions only when the request c
         # Fallback to simple keyword matching if LLM fails
         message_lower = user_message.lower()
         scores = {
-            ActionType.QUERY: self._count_matches(message_lower, self.QUERY_KEYWORDS),
-            ActionType.CREATE: self._count_matches(message_lower, self.CREATE_KEYWORDS),
-            ActionType.UPDATE: self._count_matches(message_lower, self.UPDATE_KEYWORDS),
-            ActionType.DELETE: self._count_matches(message_lower, self.DELETE_KEYWORDS),
-            ActionType.SEND: self._count_matches(message_lower, self.SEND_KEYWORDS),
+            ActionType.QUERY: self._count_matches(message_lower, QUERY_KEYWORDS),
+            ActionType.CREATE: self._count_matches(message_lower, CREATE_KEYWORDS),
+            ActionType.UPDATE: self._count_matches(message_lower, UPDATE_KEYWORDS),
+            ActionType.DELETE: self._count_matches(message_lower, DELETE_KEYWORDS),
+            ActionType.SEND: self._count_matches(message_lower, SEND_KEYWORDS),
         }
         
         total = sum(scores.values())
