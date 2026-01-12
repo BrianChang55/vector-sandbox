@@ -478,11 +478,6 @@ class GenerateHandler(BaseHandler):
         """Execute a single plan step and yield progress events."""
         from vector_app.prompts.agentic import build_step_prompt, build_codegen_system_prompt
 
-        print("=" * 60)
-        print("MCP tools context:")
-        print(f"{mcp_tools_context}")
-        print("=" * 60)
-
         has_data_store = context.get("has_data_store", False)
 
         # Build prompts

@@ -533,11 +533,6 @@ class EditHandler(BaseHandler):
             prompt_parts.append(f"\n## Available Data Store\n{data_store_context}")
 
         # Add MCP tools context if available
-        print("=" * 60)
-        print("MCP tools context:")
-
-        print(f"{mcp_tools_context}")
-        print("=" * 60)
         if mcp_tools_context:
             prompt_parts.append(f"\n## Available Integrations\n{mcp_tools_context}")
 
