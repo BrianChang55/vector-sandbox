@@ -143,7 +143,7 @@ class AppDataService:
             table: The table to delete
         """
         table.delete()
-    
+
     @staticmethod
     def get_table(app: InternalApp, slug: str) -> Optional[AppDataTable]:
         """

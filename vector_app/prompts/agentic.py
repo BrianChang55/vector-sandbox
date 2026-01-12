@@ -964,13 +964,13 @@ Then use the table slug in dataStore calls: `dataStore.query('your-table-slug')`
 
 ### 🎯 CRITICAL: Import TypeScript Types for Type Safety
 
-**If tables exist, `src/types/database.ts` is AUTO-GENERATED with ALL table types.**
+**If tables exist, `src/lib/types.ts` is AUTO-GENERATED with ALL table types.**
 
 ✅ **ALWAYS import and use these types to ensure correct field names:**
 
 ```typescript
 import {{ dataStore }} from '../lib/dataStore';
-import type {{ Database }} from '../types/database';
+import type {{ Database }} from '../lib/types';
 
 // Type-safe insert - TypeScript validates field names!
 const newItem: Database['your-table-slug']['insert'] = {{
@@ -991,7 +991,7 @@ const items: Database['your-table-slug']['row'][] = result.rows;
 
 ```typescript
 import {{ dataStore }} from '../lib/dataStore';
-import type {{ Database }} from '../types/database';
+import type {{ Database }} from '../lib/types';
 
 // In a component:
 const [items, setItems] = useState<Database['your-table-slug']['row'][]>([]);
@@ -1006,7 +1006,7 @@ You MUST format each file exactly like this:
 
 ```src/App.tsx
 import React from 'react';
-import type {{ Database }} from './types/database';  // 🚨 REQUIRED if using dataStore!
+import type {{ Database }} from ../lib/types';  // 🚨 REQUIRED if using dataStore!
 import {{ dataStore }} from './lib/dataStore';
 
 // ... complete code here
@@ -1015,7 +1015,7 @@ export default function App() {{ ... }}
 
 ```src/components/TaskList.tsx
 import React from 'react';
-import type {{ Database }} from '../types/database';  // 🚨 REQUIRED if using dataStore!
+import type {{ Database }} from '../lib/types';  // 🚨 REQUIRED if using dataStore!
 import {{ dataStore }} from '../lib/dataStore';
 
 // Component code here
@@ -1023,7 +1023,7 @@ import {{ dataStore }} from '../lib/dataStore';
 
 Requirements:
 - Use TypeScript with proper types
-- **MANDATORY**: If a file uses dataStore, it MUST import `type {{ Database }} from '../types/database'`
+- **MANDATORY**: If a file uses dataStore, it MUST import `type {{ Database }} from '../lib/types'`
 - **MANDATORY**: Use `Database['table-slug']['insert']` types for ALL insert operations
 - **MANDATORY**: Use `Database['table-slug']['row']` types for ALL query results
 - Use Tailwind CSS for all styling (available via CDN)
@@ -1529,21 +1529,21 @@ def build_step_prompt(
     existing_code = ""
     typescript_types_section = ""
 
-    # Check if database.ts exists in existing files - show it in full (not truncated)
-    database_ts_file = None
+    # Check if types.ts exists in existing files - show it in full (not truncated)
+    types_ts_file = None
     other_files = []
 
     if existing_files:
         for f in existing_files:
             path = getattr(f, "path", "")
-            if path == "src/types/database.ts":
-                database_ts_file = f
+            if path == "src/lib/types.ts":
+                types_ts_file = f
             else:
                 other_files.append(f)
 
-    # If database.ts exists, show it prominently with full content
-    if database_ts_file:
-        content = getattr(database_ts_file, "content", "")
+    # If types.ts exists, show it prominently with full content
+    if types_ts_file:
+        content = getattr(types_ts_file, "content", "")
 
         # Extract table names from the Database type definition
         import re
@@ -1571,7 +1571,7 @@ def build_step_prompt(
 
 ```typescript
 import {{ dataStore }} from '../lib/dataStore';
-import type {{ Database }} from '../types/database';
+import type {{ Database }} from '../lib/types';
 
 // ✅ Type-safe insert with ACTUAL field names from YOUR schema
 const newItem: Database['{first_table}']['insert'] = {{
@@ -1590,14 +1590,14 @@ const items: Database['{first_table}']['row'][] = result.rows;
         typescript_types_section = f"""
 ## 🎯 CRITICAL: TypeScript Types File Available
 
-The file `src/types/database.ts` has been generated with ALL table types.
+The file `src/lib/types.ts` has been generated with ALL table types.
 **YOU MUST import and use these types to ensure correct field names!**
 
 **AVAILABLE TABLES:** {table_list}
 🚨 **YOU CAN ONLY USE THESE TABLES** - DO NOT reference any other tables!
 🚨 **DO NOT CREATE NEW TABLES** - all tables are already defined!
 
-Full content of src/types/database.ts:
+Full content of src/lib/types.ts:
 ```typescript
 {content}
 ```
@@ -1605,7 +1605,7 @@ Full content of src/types/database.ts:
 
 **MANDATORY INSTRUCTIONS:**
 1. **ALWAYS import the Database type** in EVERY file that uses dataStore:
-   `import type {{ Database }} from '../types/database'` (or '../types/database' from src/)
+   `import type {{ Database }} from '../lib/types'` (or '../lib/types' from src/)
 
 2. **ALWAYS type your insert objects** using Database['table-slug']['insert']:
    ❌ WRONG: `await dataStore.insert('tasks', {{ name: 'Do thing' }})`

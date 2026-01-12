@@ -15,6 +15,8 @@ from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 from .base_handler import BaseHandler, AgentEvent, FileChange, PlanStep
 from .parallel_executor import create_parallel_executor, ParallelStepExecutor
 from ..datastore import TableDefinitionParser, get_system_columns
+from vector_app.models import AppDataTable
+from vector_app.services.typescript_types_generator import generate_typescript_types
 
 if TYPE_CHECKING:
     from vector_app.models import InternalApp, AppVersion
@@ -501,7 +503,7 @@ class GenerateHandler(BaseHandler):
                 ts_types_content = generate_typescript_types(list(tables))
 
                 types_file = FileChange(
-                    path='src/types/database.ts',
+                    path='src/lib/types.ts',
                     action='create',
                     language='typescript',
                     content=ts_types_content,
@@ -509,7 +511,7 @@ class GenerateHandler(BaseHandler):
                 )
 
                 yield self.emit_file_generated(types_file)
-                logger.info(f"✅ [TYPESCRIPT] Generated src/types/database.ts ({len(ts_types_content)} chars)")
+                logger.info(f"✅ [TYPESCRIPT] Generated src/lib/types.ts ({len(ts_types_content)} chars)")
 
     def _validate_and_fix_fields(
         self,

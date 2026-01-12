@@ -36,11 +36,11 @@ def generate_typescript_types(tables: List[Any]) -> str:
                 'slug': table.slug
             })
 
-    # Database type union
-    sections.append(_generate_database_type(table_types))
-
-    # Helper type for table slugs
+    # TableSlug enum (must come before Database which references it)
     sections.append(_generate_table_slug_type(table_types))
+
+    # Database type mapping
+    sections.append(_generate_database_type(table_types))
 
     return "\n\n".join(sections)
 
@@ -83,7 +83,7 @@ def _generate_empty_types() -> str:
  */
 
 export type Database = Record<string, never>;
-export type TableSlug = never;
+export const enum TableSlug {}
 """
 
 
@@ -202,7 +202,7 @@ def _generate_table_type(table: Any) -> Optional[str]:
 
 
 def _generate_database_type(table_types: List[Dict[str, str]]) -> str:
-    """Generate the Database type union."""
+    """Generate the Database type mapping using TableSlug enum keys."""
     if not table_types:
         return "export type Database = Record<string, never>;"
 
@@ -216,9 +216,8 @@ def _generate_database_type(table_types: List[Dict[str, str]]) -> str:
 
     for table_info in table_types:
         type_name = table_info['name']
-        slug = table_info['slug']
         lines.extend([
-            f"  '{slug}': {{",
+            f"  [TableSlug.{type_name}]: {{",
             f"    row: {type_name};",
             f"    insert: {type_name}Insert;",
             f"    update: {type_name}Update;",
@@ -231,17 +230,24 @@ def _generate_database_type(table_types: List[Dict[str, str]]) -> str:
 
 
 def _generate_table_slug_type(table_types: List[Dict[str, str]]) -> str:
-    """Generate TableSlug type for type-safe slug references."""
+    """Generate TableSlug const enum for type-safe slug references."""
     if not table_types:
-        return "export type TableSlug = never;"
+        return "export const enum TableSlug {}"
 
-    slugs = [f"'{t['slug']}'" for t in table_types]
+    lines = [
+        "/**",
+        " * Valid table slugs",
+        " * Use this enum for type-safe table slug references",
+        " */",
+        "export const enum TableSlug {",
+    ]
 
-    return f"""/**
- * Valid table slugs
- * Use this type for type-safe table slug references
- */
-export type TableSlug = {' | '.join(slugs)};"""
+    for t in table_types:
+        enum_key = t['name']  # Already PascalCase
+        lines.append(f"  {enum_key} = '{t['slug']}',")
+
+    lines.append("}")
+    return "\n".join(lines)
 
 
 def _map_column_type_to_typescript(col: Dict[str, Any]) -> str:
