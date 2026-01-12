@@ -90,7 +90,9 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "logo_url",
-                    models.URLField(blank=True, help_text="URL to connector logo image", null=True),
+                    models.URLField(
+                        blank=True, help_text="URL to connector logo image", null=True
+                    ),
                 ),
                 (
                     "source_url",
@@ -109,7 +111,9 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "description",
-                    models.TextField(blank=True, help_text="Description of the connector"),
+                    models.TextField(
+                        blank=True, help_text="Description of the connector"
+                    ),
                 ),
                 (
                     "icon_url",
@@ -237,7 +241,9 @@ class Migration(migrations.Migration):
                 ("password", models.CharField(max_length=128, verbose_name="password")),
                 (
                     "last_login",
-                    models.DateTimeField(blank=True, null=True, verbose_name="last login"),
+                    models.DateTimeField(
+                        blank=True, null=True, verbose_name="last login"
+                    ),
                 ),
                 (
                     "is_superuser",
@@ -249,11 +255,15 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "first_name",
-                    models.CharField(blank=True, max_length=150, verbose_name="first name"),
+                    models.CharField(
+                        blank=True, max_length=150, verbose_name="first name"
+                    ),
                 ),
                 (
                     "last_name",
-                    models.CharField(blank=True, max_length=150, verbose_name="last name"),
+                    models.CharField(
+                        blank=True, max_length=150, verbose_name="last name"
+                    ),
                 ),
                 (
                     "is_staff",
@@ -273,14 +283,18 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "date_joined",
-                    models.DateTimeField(default=django.utils.timezone.now, verbose_name="date joined"),
+                    models.DateTimeField(
+                        default=django.utils.timezone.now, verbose_name="date joined"
+                    ),
                 ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 ("email", models.EmailField(max_length=254, unique=True)),
                 (
                     "username",
-                    models.CharField(blank=True, max_length=150, null=True, unique=True),
+                    models.CharField(
+                        blank=True, max_length=150, null=True, unique=True
+                    ),
                 ),
                 (
                     "google_id",
@@ -414,7 +428,9 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "generation_current_step",
-                    models.IntegerField(default=0, help_text="Current step index in generation plan"),
+                    models.IntegerField(
+                        default=0, help_text="Current step index in generation plan"
+                    ),
                 ),
                 (
                     "generation_error",
@@ -448,7 +464,9 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "fix_attempts",
-                    models.IntegerField(default=0, help_text="Number of auto-fix attempts made"),
+                    models.IntegerField(
+                        default=0, help_text="Number of auto-fix attempts made"
+                    ),
                 ),
                 (
                     "created_by",
@@ -687,7 +705,9 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "connector_slug",
-                    models.CharField(help_text='Connector ID slug (e.g., "jira")', max_length=255),
+                    models.CharField(
+                        help_text='Connector ID slug (e.g., "jira")', max_length=255
+                    ),
                 ),
                 ("tool_id", models.CharField(max_length=255)),
                 (
@@ -696,7 +716,9 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "result_json",
-                    models.JSONField(blank=True, help_text="Execution result", null=True),
+                    models.JSONField(
+                        blank=True, help_text="Execution result", null=True
+                    ),
                 ),
                 (
                     "status",
@@ -767,7 +789,9 @@ class Migration(migrations.Migration):
                 ("user_message", models.TextField(blank=True)),
                 (
                     "model_id",
-                    models.CharField(default="anthropic/claude-sonnet-4", max_length=100),
+                    models.CharField(
+                        default="anthropic/claude-sonnet-4", max_length=100
+                    ),
                 ),
                 (
                     "status",
@@ -917,7 +941,9 @@ class Migration(migrations.Migration):
                 ("name", models.CharField(max_length=255)),
                 (
                     "query_spec",
-                    models.JSONField(help_text="Query specification: filters, sort, pagination"),
+                    models.JSONField(
+                        help_text="Query specification: filters, sort, pagination"
+                    ),
                 ),
                 (
                     "table",
@@ -962,7 +988,9 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "result_json",
-                    models.JSONField(blank=True, help_text="Adapter execution result", null=True),
+                    models.JSONField(
+                        blank=True, help_text="Adapter execution result", null=True
+                    ),
                 ),
                 (
                     "status",
@@ -1054,7 +1082,9 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "is_used",
-                    models.BooleanField(default=False, help_text="Whether this token has been used"),
+                    models.BooleanField(
+                        default=False, help_text="Whether this token has been used"
+                    ),
                 ),
                 (
                     "first_name",
@@ -1098,7 +1128,9 @@ class Migration(migrations.Migration):
                         fields=["email", "created_at"],
                         name="vector_app__email_1626bc_idx",
                     ),
-                    models.Index(fields=["expires_at"], name="vector_app__expires_24a522_idx"),
+                    models.Index(
+                        fields=["expires_at"], name="vector_app__expires_24a522_idx"
+                    ),
                 ],
             },
         ),
@@ -1254,7 +1286,9 @@ class Migration(migrations.Migration):
                 ("description", models.TextField(blank=True)),
                 (
                     "default_model",
-                    models.CharField(default="anthropic/claude-sonnet-4", max_length=100),
+                    models.CharField(
+                        default="anthropic/claude-sonnet-4", max_length=100
+                    ),
                 ),
                 (
                     "fallback_model",
@@ -1292,7 +1326,9 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "enable_thinking_display",
-                    models.BooleanField(default=True, help_text="Show AI thinking process"),
+                    models.BooleanField(
+                        default=True, help_text="Show AI thinking process"
+                    ),
                 ),
                 ("is_default", models.BooleanField(default=False)),
                 (
@@ -1515,15 +1551,21 @@ class Migration(migrations.Migration):
                 ("enabled", models.BooleanField(default=True)),
                 (
                     "exposed_fields_json",
-                    models.JSONField(default=list, help_text="List of field names that are exposed"),
+                    models.JSONField(
+                        default=list, help_text="List of field names that are exposed"
+                    ),
                 ),
                 (
                     "ui_constraints_json",
-                    models.JSONField(default=dict, help_text="UI constraints (read_only, etc.)"),
+                    models.JSONField(
+                        default=dict, help_text="UI constraints (read_only, etc.)"
+                    ),
                 ),
                 (
                     "allowed_actions_json",
-                    models.JSONField(default=list, help_text="List of allowed ActionDef JSON objects"),
+                    models.JSONField(
+                        default=list, help_text="List of allowed ActionDef JSON objects"
+                    ),
                 ),
                 (
                     "backend_connection",
@@ -1770,7 +1812,9 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "total_tables",
-                    models.IntegerField(default=0, help_text="Number of data tables at this version"),
+                    models.IntegerField(
+                        default=0, help_text="Number of data tables at this version"
+                    ),
                 ),
                 (
                     "total_rows",
@@ -1781,7 +1825,9 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "file_count",
-                    models.IntegerField(default=0, help_text="Number of code files at this version"),
+                    models.IntegerField(
+                        default=0, help_text="Number of code files at this version"
+                    ),
                 ),
                 (
                     "app_version",
@@ -1810,11 +1856,15 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "data",
-                    models.JSONField(default=dict, help_text="Row data matching table schema"),
+                    models.JSONField(
+                        default=dict, help_text="Row data matching table schema"
+                    ),
                 ),
                 (
                     "row_index",
-                    models.PositiveIntegerField(help_text="Sequential index within table"),
+                    models.PositiveIntegerField(
+                        help_text="Sequential index within table"
+                    ),
                 ),
                 (
                     "table",
@@ -1859,15 +1909,21 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "table_name",
-                    models.CharField(help_text="Table name at this version", max_length=255),
+                    models.CharField(
+                        help_text="Table name at this version", max_length=255
+                    ),
                 ),
                 (
                     "table_slug",
-                    models.SlugField(help_text="Table slug at this version", max_length=255),
+                    models.SlugField(
+                        help_text="Table slug at this version", max_length=255
+                    ),
                 ),
                 (
                     "table_description",
-                    models.TextField(blank=True, help_text="Table description at this version"),
+                    models.TextField(
+                        blank=True, help_text="Table description at this version"
+                    ),
                 ),
                 (
                     "operation",
@@ -1924,7 +1980,9 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="chatmessage",
-            index=models.Index(fields=["session", "created_at"], name="vector_app__session_f77165_idx"),
+            index=models.Index(
+                fields=["session", "created_at"], name="vector_app__session_f77165_idx"
+            ),
         ),
         migrations.AddIndex(
             model_name="connectorexecutionlog",
@@ -1935,7 +1993,9 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="connectorexecutionlog",
-            index=models.Index(fields=["user", "-created_at"], name="vector_app__user_id_9cff60_idx"),
+            index=models.Index(
+                fields=["user", "-created_at"], name="vector_app__user_id_9cff60_idx"
+            ),
         ),
         migrations.AddIndex(
             model_name="connectorexecutionlog",
@@ -1946,11 +2006,15 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="codegenerationjob",
-            index=models.Index(fields=["internal_app", "status"], name="vector_app__interna_7baef3_idx"),
+            index=models.Index(
+                fields=["internal_app", "status"], name="vector_app__interna_7baef3_idx"
+            ),
         ),
         migrations.AddIndex(
             model_name="codegenerationjob",
-            index=models.Index(fields=["status", "-created_at"], name="vector_app__status_1f9b8c_idx"),
+            index=models.Index(
+                fields=["status", "-created_at"], name="vector_app__status_1f9b8c_idx"
+            ),
         ),
         migrations.AddIndex(
             model_name="chatsession",
@@ -1972,7 +2036,9 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="appdatatable",
-            index=models.Index(fields=["internal_app", "slug"], name="vector_app__interna_75393c_idx"),
+            index=models.Index(
+                fields=["internal_app", "slug"], name="vector_app__interna_75393c_idx"
+            ),
         ),
         migrations.AlterUniqueTogether(
             name="appdatatable",
@@ -2013,7 +2079,9 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="internalapp",
-            index=models.Index(fields=["organization", "slug"], name="vector_app__organiz_3793b2_idx"),
+            index=models.Index(
+                fields=["organization", "slug"], name="vector_app__organiz_3793b2_idx"
+            ),
         ),
         migrations.AlterUniqueTogether(
             name="internalapp",
@@ -2021,7 +2089,9 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="appfavorite",
-            index=models.Index(fields=["user", "organization"], name="vector_app__user_id_dc17f8_idx"),
+            index=models.Index(
+                fields=["user", "organization"], name="vector_app__user_id_dc17f8_idx"
+            ),
         ),
         migrations.AlterUniqueTogether(
             name="appfavorite",
@@ -2036,7 +2106,9 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="aiusagelog",
-            index=models.Index(fields=["user", "-created_at"], name="vector_app__user_id_9c348a_idx"),
+            index=models.Index(
+                fields=["user", "-created_at"], name="vector_app__user_id_9c348a_idx"
+            ),
         ),
         migrations.AddIndex(
             model_name="aiusagelog",
@@ -2055,15 +2127,21 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="organizationinvite",
-            index=models.Index(fields=["organization", "email"], name="vector_app__organiz_99937b_idx"),
+            index=models.Index(
+                fields=["organization", "email"], name="vector_app__organiz_99937b_idx"
+            ),
         ),
         migrations.AddIndex(
             model_name="organizationinvite",
-            index=models.Index(fields=["expires_at"], name="vector_app__expires_4c6454_idx"),
+            index=models.Index(
+                fields=["expires_at"], name="vector_app__expires_4c6454_idx"
+            ),
         ),
         migrations.AddIndex(
             model_name="organizationinvite",
-            index=models.Index(fields=["token_hash"], name="vector_app__token_h_81faef_idx"),
+            index=models.Index(
+                fields=["token_hash"], name="vector_app__token_h_81faef_idx"
+            ),
         ),
         migrations.AlterUniqueTogether(
             name="projectuserbackendauth",
@@ -2100,7 +2178,9 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="versionauditlog",
-            index=models.Index(fields=["user", "-created_at"], name="vector_app__user_id_0d8872_idx"),
+            index=models.Index(
+                fields=["user", "-created_at"], name="vector_app__user_id_0d8872_idx"
+            ),
         ),
         migrations.AddIndex(
             model_name="versionauditlog",
@@ -2111,7 +2191,9 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="versionfile",
-            index=models.Index(fields=["app_version", "path"], name="vector_app__app_ver_690af0_idx"),
+            index=models.Index(
+                fields=["app_version", "path"], name="vector_app__app_ver_690af0_idx"
+            ),
         ),
         migrations.AlterUniqueTogether(
             name="versionfile",
@@ -2119,6 +2201,8 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="versionstatesnapshot",
-            index=models.Index(fields=["app_version"], name="vector_app__app_ver_47bb03_idx"),
+            index=models.Index(
+                fields=["app_version"], name="vector_app__app_ver_47bb03_idx"
+            ),
         ),
     ]

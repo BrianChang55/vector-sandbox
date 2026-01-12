@@ -8,7 +8,6 @@ Production-ready code generation with:
 - Tailwind styling with dark/light themes
 - Error boundaries and loading states
 """
-
 import json
 import hashlib
 from typing import Dict, Any, List, Optional
@@ -20,7 +19,6 @@ from ..models import AppVersion, VersionFile
 @dataclass
 class GeneratedFile:
     """A generated code file."""
-
     path: str
     content: str
     description: str
@@ -30,95 +28,99 @@ class EnhancedCodegenService:
     """
     Enhanced code generation service for production-ready internal apps.
     """
-
+    
     # Expanded allowlisted file paths for V2
     ALLOWLISTED_PATHS = [
         # Core app files
-        "src/app/page.tsx",
-        "src/app/layout.tsx",
-        "src/app/globals.css",
+        'src/app/page.tsx',
+        'src/app/layout.tsx',
+        'src/app/globals.css',
+        
         # Components
-        "src/components/TableView.tsx",
-        "src/components/DetailDrawer.tsx",
-        "src/components/DataGrid.tsx",
-        "src/components/FormBuilder.tsx",
-        "src/components/Dashboard.tsx",
-        "src/components/Kanban.tsx",
-        "src/components/Charts.tsx",
-        "src/components/Filters.tsx",
-        "src/components/Pagination.tsx",
-        "src/components/SearchBar.tsx",
-        "src/components/ActionButtons.tsx",
-        "src/components/StatusBadge.tsx",
-        "src/components/UserAvatar.tsx",
-        "src/components/EmptyState.tsx",
-        "src/components/LoadingState.tsx",
-        "src/components/ErrorBoundary.tsx",
+        'src/components/TableView.tsx',
+        'src/components/DetailDrawer.tsx',
+        'src/components/DataGrid.tsx',
+        'src/components/FormBuilder.tsx',
+        'src/components/Dashboard.tsx',
+        'src/components/Kanban.tsx',
+        'src/components/Charts.tsx',
+        'src/components/Filters.tsx',
+        'src/components/Pagination.tsx',
+        'src/components/SearchBar.tsx',
+        'src/components/ActionButtons.tsx',
+        'src/components/StatusBadge.tsx',
+        'src/components/UserAvatar.tsx',
+        'src/components/EmptyState.tsx',
+        'src/components/LoadingState.tsx',
+        'src/components/ErrorBoundary.tsx',
+        
         # UI primitives
-        "src/components/ui/button.tsx",
-        "src/components/ui/input.tsx",
-        "src/components/ui/select.tsx",
-        "src/components/ui/dialog.tsx",
-        "src/components/ui/dropdown.tsx",
-        "src/components/ui/table.tsx",
-        "src/components/ui/card.tsx",
-        "src/components/ui/badge.tsx",
-        "src/components/ui/avatar.tsx",
-        "src/components/ui/toast.tsx",
+        'src/components/ui/button.tsx',
+        'src/components/ui/input.tsx',
+        'src/components/ui/select.tsx',
+        'src/components/ui/dialog.tsx',
+        'src/components/ui/dropdown.tsx',
+        'src/components/ui/table.tsx',
+        'src/components/ui/card.tsx',
+        'src/components/ui/badge.tsx',
+        'src/components/ui/avatar.tsx',
+        'src/components/ui/toast.tsx',
+        
         # Lib/utilities
-        "src/lib/runtimeClient.ts",
-        "src/lib/types.ts",
-        "src/lib/utils.ts",
-        "src/lib/hooks.ts",
-        "src/lib/constants.ts",
+        'src/lib/runtimeClient.ts',
+        'src/lib/types.ts',
+        'src/lib/utils.ts',
+        'src/lib/hooks.ts',
+        'src/lib/constants.ts',
+        
         # Hooks
-        "src/hooks/useData.ts",
-        "src/hooks/useActions.ts",
-        "src/hooks/useFilters.ts",
-        "src/hooks/usePagination.ts",
+        'src/hooks/useData.ts',
+        'src/hooks/useActions.ts',
+        'src/hooks/useFilters.ts',
+        'src/hooks/usePagination.ts',
     ]
-
+    
     @staticmethod
     def generate_complete_app(app_version: AppVersion) -> List[VersionFile]:
         """
         Generate a complete, production-ready internal app.
-
+        
         Args:
             app_version: AppVersion instance with spec_json
-
+            
         Returns:
             List of VersionFile instances
         """
         spec_json = app_version.spec_json
         files = []
-
+        
         # 1. Runtime client (API layer)
         files.append(EnhancedCodegenService._generate_runtime_client())
-
+        
         # 2. TypeScript types
         files.append(EnhancedCodegenService._generate_types(spec_json))
-
+        
         # 3. Utility functions
         files.append(EnhancedCodegenService._generate_utils())
-
+        
         # 4. Custom hooks
         files.append(EnhancedCodegenService._generate_hooks())
-
+        
         # 5. UI Components
         files.extend(EnhancedCodegenService._generate_ui_components())
-
+        
         # 6. Main components based on spec
         files.extend(EnhancedCodegenService._generate_app_components(spec_json))
-
+        
         # 7. Main page
         files.append(EnhancedCodegenService._generate_main_page(spec_json))
-
+        
         # 8. Layout
         files.append(EnhancedCodegenService._generate_layout(spec_json))
-
+        
         # 9. Global styles
         files.append(EnhancedCodegenService._generate_global_styles())
-
+        
         # Save all files
         version_files = []
         for gen_file in files:
@@ -130,13 +132,13 @@ class EnhancedCodegenService:
             )
             vf.save()
             version_files.append(vf)
-
+        
         return version_files
-
+    
     @staticmethod
     def _generate_runtime_client() -> GeneratedFile:
         """Generate the runtime API client."""
-        content = """/**
+        content = '''/**
  * Runtime Client for Internal Apps
  * 
  * All data operations go through this client, which proxies to the Vector backend.
@@ -258,47 +260,45 @@ export async function runtimeAction<T = any>(params: {
 export function createResourceFetcher(resourceId: string) {
   return async (querySpec: QuerySpec) => runtimeQuery({ resourceId, querySpec });
 }
-"""
+'''
         return GeneratedFile(
-            path="src/lib/runtimeClient.ts",
+            path='src/lib/runtimeClient.ts',
             content=content,
-            description="Runtime API client for data operations",
+            description='Runtime API client for data operations'
         )
-
+    
     @staticmethod
     def _generate_types(spec_json: Dict[str, Any]) -> GeneratedFile:
         """Generate TypeScript types from spec."""
-        app_name = spec_json.get("appName", "App")
-        pages = spec_json.get("pages", [])
-
+        app_name = spec_json.get('appName', 'App')
+        pages = spec_json.get('pages', [])
+        
         # Generate types for each resource
         type_defs = []
         for page in pages:
-            resource_id = page.get("primaryResource", "")
+            resource_id = page.get('primaryResource', '')
             if resource_id:
-                type_name = resource_id.split(".")[-1].title().replace("_", "")
-                columns = page.get("view", {}).get("table", {}).get("columns", [])
-
+                type_name = resource_id.split('.')[-1].title().replace('_', '')
+                columns = page.get('view', {}).get('table', {}).get('columns', [])
+                
                 fields = []
                 for col in columns:
-                    field = col.get("field", "")
-                    field_type = "string"  # Default to string
-                    if col.get("type") == "number":
-                        field_type = "number"
-                    elif col.get("type") == "boolean":
-                        field_type = "boolean"
-                    elif col.get("type") == "date":
-                        field_type = "string"  # ISO date string
-
-                    fields.append(f"  {field}: {field_type};")
-
-                type_defs.append(
-                    f"""export interface {type_name} {{
+                    field = col.get('field', '')
+                    field_type = 'string'  # Default to string
+                    if col.get('type') == 'number':
+                        field_type = 'number'
+                    elif col.get('type') == 'boolean':
+                        field_type = 'boolean'
+                    elif col.get('type') == 'date':
+                        field_type = 'string'  # ISO date string
+                    
+                    fields.append(f'  {field}: {field_type};')
+                
+                type_defs.append(f'''export interface {type_name} {{
 {chr(10).join(fields) if fields else '  id: string;'}
-}}"""
-                )
-
-        content = f"""/**
+}}''')
+        
+        content = f'''/**
  * Type definitions for {app_name}
  * 
  * Auto-generated from AppSpec. Do not edit directly.
@@ -392,15 +392,17 @@ export interface SortOrder {{
   field: string;
   dir: 'asc' | 'desc';
 }}
-"""
+'''
         return GeneratedFile(
-            path="src/lib/types.ts", content=content, description="TypeScript type definitions"
+            path='src/lib/types.ts',
+            content=content,
+            description='TypeScript type definitions'
         )
-
+    
     @staticmethod
     def _generate_utils() -> GeneratedFile:
         """Generate utility functions."""
-        content = """/**
+        content = '''/**
  * Utility functions for Internal Apps
  */
 
@@ -503,13 +505,17 @@ export function getStatusColor(status: string): string {
   
   return colors[statusLower] || 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-400';
 }
-"""
-        return GeneratedFile(path="src/lib/utils.ts", content=content, description="Utility functions")
-
+'''
+        return GeneratedFile(
+            path='src/lib/utils.ts',
+            content=content,
+            description='Utility functions'
+        )
+    
     @staticmethod
     def _generate_hooks() -> GeneratedFile:
         """Generate React hooks for data fetching."""
-        content = """/**
+        content = '''/**
  * Custom React hooks for data fetching
  */
 
@@ -660,19 +666,22 @@ export function usePagination(totalCount: number, pageSize = 20) {
     hasPrev: page > 1,
   };
 }
-"""
-        return GeneratedFile(path="src/lib/hooks.ts", content=content, description="Custom React hooks")
-
+'''
+        return GeneratedFile(
+            path='src/lib/hooks.ts',
+            content=content,
+            description='Custom React hooks'
+        )
+    
     @staticmethod
     def _generate_ui_components() -> List[GeneratedFile]:
         """Generate UI component library."""
         files = []
-
+        
         # StatusBadge component
-        files.append(
-            GeneratedFile(
-                path="src/components/StatusBadge.tsx",
-                content="""/**
+        files.append(GeneratedFile(
+            path='src/components/StatusBadge.tsx',
+            content='''/**
  * Status Badge Component
  */
 import { getStatusColor } from '../lib/utils';
@@ -689,16 +698,14 @@ export function StatusBadge({ status, className = '' }: StatusBadgeProps) {
     </span>
   );
 }
-""",
-                description="Status badge component",
-            )
-        )
-
+''',
+            description='Status badge component'
+        ))
+        
         # Loading state
-        files.append(
-            GeneratedFile(
-                path="src/components/LoadingState.tsx",
-                content="""/**
+        files.append(GeneratedFile(
+            path='src/components/LoadingState.tsx',
+            content='''/**
  * Loading State Component
  */
 interface LoadingStateProps {
@@ -713,16 +720,14 @@ export function LoadingState({ message = 'Loading...' }: LoadingStateProps) {
     </div>
   );
 }
-""",
-                description="Loading state component",
-            )
-        )
-
+''',
+            description='Loading state component'
+        ))
+        
         # Empty state
-        files.append(
-            GeneratedFile(
-                path="src/components/EmptyState.tsx",
-                content="""/**
+        files.append(GeneratedFile(
+            path='src/components/EmptyState.tsx',
+            content='''/**
  * Empty State Component
  */
 interface EmptyStateProps {
@@ -748,16 +753,14 @@ export function EmptyState({ title, description, icon, action }: EmptyStateProps
     </div>
   );
 }
-""",
-                description="Empty state component",
-            )
-        )
-
+''',
+            description='Empty state component'
+        ))
+        
         # Error boundary
-        files.append(
-            GeneratedFile(
-                path="src/components/ErrorBoundary.tsx",
-                content="""/**
+        files.append(GeneratedFile(
+            path='src/components/ErrorBoundary.tsx',
+            content='''/**
  * Error Boundary Component
  */
 import React from 'react';
@@ -818,52 +821,47 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     return this.props.children;
   }
 }
-""",
-                description="Error boundary component",
-            )
-        )
-
+''',
+            description='Error boundary component'
+        ))
+        
         return files
-
+    
     @staticmethod
     def _generate_app_components(spec_json: Dict[str, Any]) -> List[GeneratedFile]:
         """Generate main app components based on spec."""
         files = []
-        pages = spec_json.get("pages", [])
-
+        pages = spec_json.get('pages', [])
+        
         for page in pages:
-            layout = page.get("layout", "table_detail_drawer")
-
-            if layout == "table_detail_drawer":
+            layout = page.get('layout', 'table_detail_drawer')
+            
+            if layout == 'table_detail_drawer':
                 files.append(EnhancedCodegenService._generate_table_view(page))
                 files.append(EnhancedCodegenService._generate_detail_drawer(page))
-
+        
         return files
-
+    
     @staticmethod
     def _generate_table_view(page: Dict[str, Any]) -> GeneratedFile:
         """Generate enhanced TableView component."""
-        table_spec = page.get("view", {}).get("table", {})
-        columns = table_spec.get("columns", [])
-        resource_id = page.get("primaryResource", "")
-
-        column_headers = "\n".join(
-            [
-                f'            <th className="px-6 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">{col.get("label", col.get("field", ""))}</th>'
-                for col in columns
-            ]
-        )
-
-        column_cells = "\n".join(
-            [
-                f'              <td className="px-6 py-4 whitespace-nowrap text-sm text-zinc-900 dark:text-zinc-100">'
-                f'{{row["{col.get("field", "")}"]}}'
-                f"</td>"
-                for col in columns
-            ]
-        )
-
-        content = f"""/**
+        table_spec = page.get('view', {}).get('table', {})
+        columns = table_spec.get('columns', [])
+        resource_id = page.get('primaryResource', '')
+        
+        column_headers = '\n'.join([
+            f'            <th className="px-6 py-3 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">{col.get("label", col.get("field", ""))}</th>'
+            for col in columns
+        ])
+        
+        column_cells = '\n'.join([
+            f'              <td className="px-6 py-4 whitespace-nowrap text-sm text-zinc-900 dark:text-zinc-100">'
+            f'{{row["{col.get("field", "")}"]}}'
+            f'</td>'
+            for col in columns
+        ])
+        
+        content = f'''/**
  * Table View Component
  * 
  * Auto-generated for resource: {resource_id}
@@ -986,28 +984,28 @@ export function TableView({{ resourceId, onRowClick, pageSize = 20 }}: TableView
     </div>
   );
 }}
-"""
+'''
         return GeneratedFile(
-            path="src/components/TableView.tsx", content=content, description="Table view component"
+            path='src/components/TableView.tsx',
+            content=content,
+            description='Table view component'
         )
-
+    
     @staticmethod
     def _generate_detail_drawer(page: Dict[str, Any]) -> GeneratedFile:
         """Generate DetailDrawer component."""
-        drawer_spec = page.get("view", {}).get("detailDrawer", {})
-        fields = drawer_spec.get("fields", [])
-
-        field_renders = "\n".join(
-            [
-                f"""            <div>
+        drawer_spec = page.get('view', {}).get('detailDrawer', {})
+        fields = drawer_spec.get('fields', [])
+        
+        field_renders = '\n'.join([
+            f'''            <div>
               <label className="block text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-1">{field.get("label", field.get("field", ""))}</label>
               <div className="text-sm text-zinc-900 dark:text-zinc-100">{{data?.["{field.get("field", "")}"] ?? '-'}}</div>
-            </div>"""
-                for field in fields
-            ]
-        )
-
-        content = f"""/**
+            </div>'''
+            for field in fields
+        ])
+        
+        content = f'''/**
  * Detail Drawer Component
  */
 interface DetailDrawerProps {{
@@ -1063,25 +1061,27 @@ export function DetailDrawer({{ isOpen, onClose, data, title = 'Details' }}: Det
     </div>
   );
 }}
-"""
+'''
         return GeneratedFile(
-            path="src/components/DetailDrawer.tsx", content=content, description="Detail drawer component"
+            path='src/components/DetailDrawer.tsx',
+            content=content,
+            description='Detail drawer component'
         )
-
+    
     @staticmethod
     def _generate_main_page(spec_json: Dict[str, Any]) -> GeneratedFile:
         """Generate main page component."""
-        app_name = spec_json.get("appName", "App")
-        pages = spec_json.get("pages", [])
-
+        app_name = spec_json.get('appName', 'App')
+        pages = spec_json.get('pages', [])
+        
         # Generate page content based on first page
-        page_content = ""
+        page_content = ''
         if pages:
             page = pages[0]
-            resource_id = page.get("primaryResource", "")
-            title = page.get("title", "Data")
-
-            page_content = f"""
+            resource_id = page.get('primaryResource', '')
+            title = page.get('title', 'Data')
+            
+            page_content = f'''
         <main className="flex-1 p-6">
           <div className="max-w-7xl mx-auto">
             <div className="mb-6">
@@ -1099,9 +1099,9 @@ export function DetailDrawer({{ isOpen, onClose, data, title = 'Details' }}: Det
           onClose={{() => setDrawerOpen(false)}}
           data={{selectedRow}}
           title="Details"
-        />"""
-
-        content = f"""/**
+        />'''
+        
+        content = f'''/**
  * Main Page Component
  * 
  * Auto-generated from AppSpec: {app_name}
@@ -1134,15 +1134,19 @@ export default function Page() {{
     </ErrorBoundary>
   );
 }}
-"""
-        return GeneratedFile(path="src/app/page.tsx", content=content, description="Main page component")
-
+'''
+        return GeneratedFile(
+            path='src/app/page.tsx',
+            content=content,
+            description='Main page component'
+        )
+    
     @staticmethod
     def _generate_layout(spec_json: Dict[str, Any]) -> GeneratedFile:
         """Generate app layout."""
-        app_name = spec_json.get("appName", "App")
-
-        content = f"""/**
+        app_name = spec_json.get('appName', 'App')
+        
+        content = f'''/**
  * App Layout
  */
 import './globals.css';
@@ -1168,13 +1172,17 @@ export default function RootLayout({{
     </html>
   );
 }}
-"""
-        return GeneratedFile(path="src/app/layout.tsx", content=content, description="App layout")
-
+'''
+        return GeneratedFile(
+            path='src/app/layout.tsx',
+            content=content,
+            description='App layout'
+        )
+    
     @staticmethod
     def _generate_global_styles() -> GeneratedFile:
         """Generate global CSS."""
-        content = """/**
+        content = '''/**
  * Global Styles
  */
 @tailwind base;
@@ -1228,5 +1236,10 @@ export default function RootLayout({{
     }
   }
 }
-"""
-        return GeneratedFile(path="src/app/globals.css", content=content, description="Global CSS styles")
+'''
+        return GeneratedFile(
+            path='src/app/globals.css',
+            content=content,
+            description='Global CSS styles'
+        )
+

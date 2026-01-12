@@ -16,9 +16,10 @@ from .feature_handler import FeatureHandler
 from .schema_handler import SchemaHandler
 
 __all__ = [
-    "BaseHandler",
-    "GenerateHandler",
-    "EditHandler",
-    "FeatureHandler",
-    "SchemaHandler",
+    'BaseHandler',
+    'GenerateHandler',
+    'EditHandler',
+    'FeatureHandler',
+    'SchemaHandler',
 ]
+

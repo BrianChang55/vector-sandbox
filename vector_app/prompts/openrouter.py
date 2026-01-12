@@ -138,19 +138,21 @@ def build_system_prompt(registry_surface: Dict[str, Any], mode: str = "appspec")
 
     if mode == "appspec":
         return APP_SPEC_SYSTEM_PROMPT_TEMPLATE.format(
-            resources_text=(
-                resources_text if resources_text else "No resources connected yet - generate a placeholder UI"
-            )
+            resources_text=resources_text
+            if resources_text
+            else "No resources connected yet - generate a placeholder UI"
         )
 
     if mode == "code":
         return CODE_SYSTEM_PROMPT_TEMPLATE.format(
-            resources_text=(
-                resources_text if resources_text else "No resources connected - use placeholder data"
-            )
+            resources_text=resources_text
+            if resources_text
+            else "No resources connected - use placeholder data"
         )
 
     return "You are a helpful AI coding assistant."
+
+
 
 
 def build_user_prompt(intent_message: str, current_spec: Optional[Dict[str, Any]]) -> str:
@@ -162,3 +164,6 @@ def build_user_prompt(intent_message: str, current_spec: Optional[Dict[str, Any]
         )
 
     return USER_PROMPT_NEW_APP_TEMPLATE.format(intent_message=intent_message)
+
+
+

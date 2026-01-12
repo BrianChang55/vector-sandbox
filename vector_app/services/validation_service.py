@@ -4,7 +4,6 @@ Validation Service
 TypeScript validation service for generated code.
 Uses tsc to check for compilation errors.
 """
-
 import json
 import logging
 import os
@@ -29,145 +28,152 @@ logger = logging.getLogger(__name__)
 class ValidationService:
     """
     Service for validating TypeScript/TSX code using the TypeScript compiler.
-
+    
     Creates a temporary directory with type stubs for React, lucide-react,
     NodeJS, and the dataStore API, then runs tsc --noEmit to check for errors.
     """
-
+    
     def validate_typescript(self, files: List[FileChange]) -> ValidationResult:
         """
         Validate TypeScript files using tsc.
-
+        
         Args:
             files: List of FileChange objects to validate
-
+            
         Returns:
             ValidationResult with passed status, errors, and warnings
         """
-        ts_files = [f for f in files if f.language in ("tsx", "ts")]
-
+        ts_files = [f for f in files if f.language in ('tsx', 'ts')]
+        
         if not ts_files:
             return ValidationResult(passed=True)
-
+        
         # Check if tsc is available
-        tsc_path = shutil.which("tsc")
+        tsc_path = shutil.which('tsc')
         if not tsc_path:
-            npx_path = shutil.which("npx")
+            npx_path = shutil.which('npx')
             if not npx_path:
-                return ValidationResult(passed=True, warnings=["TypeScript compiler not available"])
-            tsc_cmd = ["npx", "tsc"]
+                return ValidationResult(
+                    passed=True,
+                    warnings=['TypeScript compiler not available']
+                )
+            tsc_cmd = ['npx', 'tsc']
         else:
             tsc_cmd = [tsc_path]
-
+        
         temp_dir = None
         try:
-            temp_dir = tempfile.mkdtemp(prefix="vector_tsc_")
-
+            temp_dir = tempfile.mkdtemp(prefix='vector_tsc_')
+            
             # Write files
             for file in ts_files:
                 file_path = file.path
-                if file_path.startswith("src/"):
+                if file_path.startswith('src/'):
                     file_path = file_path[4:]
-
+                
                 full_path = os.path.join(temp_dir, file_path)
                 os.makedirs(os.path.dirname(full_path), exist_ok=True)
-
-                with open(full_path, "w", encoding="utf-8") as f:
+                
+                with open(full_path, 'w', encoding='utf-8') as f:
                     f.write(file.content)
-
+            
             # Create tsconfig
             self._write_tsconfig(temp_dir)
-
+            
             # Create type stubs
             self._write_react_stub(temp_dir)
             self._write_lucide_stub(temp_dir)
             self._write_node_stub(temp_dir)
             self._write_datastore_stub(temp_dir)
-
+            
             # Run tsc
             result = subprocess.run(
-                tsc_cmd + ["--noEmit", "--pretty", "false"],
+                tsc_cmd + ['--noEmit', '--pretty', 'false'],
                 cwd=temp_dir,
                 capture_output=True,
                 text=True,
                 timeout=30,
             )
-
+            
             if result.returncode == 0:
                 return ValidationResult(passed=True)
-
+            
             # Parse errors
             errors = self._parse_tsc_errors(result.stdout + result.stderr, temp_dir)
-
+            
             return ValidationResult(
                 passed=len(errors) == 0,
                 errors=errors,
             )
-
+            
         except subprocess.TimeoutExpired:
-            return ValidationResult(passed=True, warnings=["Validation timed out"])
+            return ValidationResult(
+                passed=True,
+                warnings=['Validation timed out']
+            )
         except Exception as e:
             logger.error(f"TypeScript validation error: {e}")
-            return ValidationResult(passed=True, warnings=[f"Validation error: {str(e)}"])
+            return ValidationResult(
+                passed=True,
+                warnings=[f'Validation error: {str(e)}']
+            )
         finally:
             if temp_dir and os.path.exists(temp_dir):
                 try:
                     shutil.rmtree(temp_dir)
                 except Exception:
                     pass
-
+    
     def _parse_tsc_errors(self, output: str, temp_dir: str) -> List[CompilationError]:
         """
         Parse TypeScript compiler output into structured errors.
-
+        
         Args:
             output: Combined stdout and stderr from tsc
             temp_dir: Temp directory path to strip from file paths
-
+            
         Returns:
             List of CompilationError objects
         """
         errors = []
-        pattern = r"([^(]+)\((\d+),(\d+)\):\s*(error|warning)\s+(TS\d+):\s*(.+)"
-
-        for line in output.strip().split("\n"):
+        pattern = r'([^(]+)\((\d+),(\d+)\):\s*(error|warning)\s+(TS\d+):\s*(.+)'
+        
+        for line in output.strip().split('\n'):
             line = line.strip()
             if not line:
                 continue
-
+            
             match = re.match(pattern, line)
             if match:
                 file_path, line_num, col, severity, code, message = match.groups()
-
+                
                 file_path = file_path.strip()
                 if temp_dir in file_path:
-                    file_path = file_path.replace(temp_dir + os.sep, "")
-
-                if not file_path.startswith("src/"):
-                    file_path = f"src/{file_path}"
-
-                if severity == "error":
+                    file_path = file_path.replace(temp_dir + os.sep, '')
+                
+                if not file_path.startswith('src/'):
+                    file_path = f'src/{file_path}'
+                
+                if severity == 'error':
                     # Filter out 'key' prop false positives from our type stubs
                     # The key prop is handled by React internally and our stubs don't handle it
                     msg = message.strip()
                     if "Property 'key' does not exist" in msg:
                         continue
                     # Also filter TS2322 errors that mention key: string in the type mismatch
-                    if code == "TS2322" and "{ key: string;" in msg:
+                    if code == 'TS2322' and "{ key: string;" in msg:
                         continue
-
-                    errors.append(
-                        CompilationError(
-                            file=file_path,
-                            line=int(line_num),
-                            column=int(col),
-                            message=msg,
-                            code=code,
-                        )
-                    )
-
+                    
+                    errors.append(CompilationError(
+                        file=file_path,
+                        line=int(line_num),
+                        column=int(col),
+                        message=msg,
+                        code=code,
+                    ))
+        
         return errors
-
+    
     def _write_tsconfig(self, temp_dir: str) -> None:
         """Write tsconfig.json to temp directory."""
         tsconfig = {
@@ -188,17 +194,16 @@ class ValidationService:
             },
             "include": ["**/*.ts", "**/*.tsx"],
         }
-
-        with open(os.path.join(temp_dir, "tsconfig.json"), "w") as f:
+        
+        with open(os.path.join(temp_dir, 'tsconfig.json'), 'w') as f:
             json.dump(tsconfig, f)
-
+    
     def _write_react_stub(self, temp_dir: str) -> None:
         """Write React type stubs."""
-        stubs_dir = os.path.join(temp_dir, "node_modules", "@types", "react")
+        stubs_dir = os.path.join(temp_dir, 'node_modules', '@types', 'react')
         os.makedirs(stubs_dir, exist_ok=True)
-        with open(os.path.join(stubs_dir, "index.d.ts"), "w") as f:
-            f.write(
-                """
+        with open(os.path.join(stubs_dir, 'index.d.ts'), 'w') as f:
+            f.write('''
 // JSX namespace at global level
 declare namespace JSX {
     interface Element { }
@@ -369,16 +374,14 @@ declare module "react/jsx-dev-runtime" {
     export const Fragment: any;
 }
 
-"""
-            )
-
+''')
+    
     def _write_lucide_stub(self, temp_dir: str) -> None:
         """Write lucide-react type stubs."""
-        lucide_dir = os.path.join(temp_dir, "node_modules", "lucide-react")
+        lucide_dir = os.path.join(temp_dir, 'node_modules', 'lucide-react')
         os.makedirs(lucide_dir, exist_ok=True)
-        with open(os.path.join(lucide_dir, "index.d.ts"), "w") as f:
-            f.write(
-                """declare module "lucide-react" {
+        with open(os.path.join(lucide_dir, 'index.d.ts'), 'w') as f:
+            f.write('''declare module "lucide-react" {
     import { FC } from "react";
     
     // IconProps includes all common SVG and custom props
@@ -840,18 +843,16 @@ declare module "react/jsx-dev-runtime" {
     const icons: { [key: string]: Icon };
     export default icons;
 }
-"""
-            )
-        with open(os.path.join(lucide_dir, "package.json"), "w") as f:
+''')
+        with open(os.path.join(lucide_dir, 'package.json'), 'w') as f:
             f.write('{"name": "lucide-react", "types": "index.d.ts"}')
-
+    
     def _write_node_stub(self, temp_dir: str) -> None:
         """Write NodeJS type stubs."""
-        node_types_dir = os.path.join(temp_dir, "node_modules", "@types", "node")
+        node_types_dir = os.path.join(temp_dir, 'node_modules', '@types', 'node')
         os.makedirs(node_types_dir, exist_ok=True)
-        with open(os.path.join(node_types_dir, "index.d.ts"), "w") as f:
-            f.write(
-                """
+        with open(os.path.join(node_types_dir, 'index.d.ts'), 'w') as f:
+            f.write('''
 declare namespace NodeJS {
     interface Timeout {
         ref(): this;
@@ -885,18 +886,16 @@ declare function setInterval(callback: (...args: any[]) => void, ms?: number, ..
 declare function clearInterval(intervalId: NodeJS.Timeout | undefined): void;
 declare function setImmediate(callback: (...args: any[]) => void, ...args: any[]): NodeJS.Immediate;
 declare function clearImmediate(immediateId: NodeJS.Immediate | undefined): void;
-"""
-            )
-        with open(os.path.join(node_types_dir, "package.json"), "w") as f:
+''')
+        with open(os.path.join(node_types_dir, 'package.json'), 'w') as f:
             f.write('{"name": "@types/node", "types": "index.d.ts"}')
-
+    
     def _write_datastore_stub(self, temp_dir: str) -> None:
         """Write dataStore API stub."""
-        lib_dir = os.path.join(temp_dir, "lib")
+        lib_dir = os.path.join(temp_dir, 'lib')
         os.makedirs(lib_dir, exist_ok=True)
-        with open(os.path.join(lib_dir, "dataStore.ts"), "w") as f:
-            f.write(
-                """
+        with open(os.path.join(lib_dir, 'dataStore.ts'), 'w') as f:
+            f.write('''
 // DataStore API stub for TypeScript validation
 export interface QueryOptions {
     filters?: Array<{ field: string; op: string; value: any }>;
@@ -921,12 +920,11 @@ export interface DataStore {
 }
 
 export const dataStore: DataStore = {} as DataStore;
-"""
-            )
-
+''')
+    
     # ===== DataStore Field Validation Methods =====
-
-    def build_table_schemas(self, app: "InternalApp") -> Dict[str, Dict[str, Any]]:
+    
+    def build_table_schemas(self, app: 'InternalApp') -> Dict[str, Dict[str, Any]]:
         """Build a mapping of table slugs to their schema information."""
         from vector_app.models import AppDataTable
 
@@ -935,44 +933,46 @@ export const dataStore: DataStore = {} as DataStore;
 
         for table in tables:
             schema = table.schema_json or {}
-            columns = schema.get("columns", [])
-            column_names = {c.get("name") for c in columns if c.get("name")}
+            columns = schema.get('columns', [])
+            column_names = {c.get('name') for c in columns if c.get('name')}
 
             # Build required fields list (not nullable, no default, not auto-generated)
             required_fields = set()
             for col in columns:
-                col_name = col.get("name")
+                col_name = col.get('name')
                 if not col_name:
                     continue
 
                 # Skip if auto-generated (id, created_at, updated_at)
-                if col.get("auto_generate") or col.get("auto_now_add") or col.get("auto_now"):
+                if col.get('auto_generate') or col.get('auto_now_add') or col.get('auto_now'):
                     continue
 
                 # Required if: not nullable AND no default
-                is_nullable = col.get("nullable", True)
-                has_default = "default" in col
+                is_nullable = col.get('nullable', True)
+                has_default = 'default' in col
 
                 if not is_nullable and not has_default:
                     required_fields.add(col_name)
 
             table_schemas[table.slug] = {
-                "name": table.name,
-                "columns": column_names,
-                "required_fields": required_fields,
+                'name': table.name,
+                'columns': column_names,
+                'required_fields': required_fields,
             }
 
         return table_schemas
 
     def validate_table_references(
-        self, files: List[FileChange], table_schemas: Dict[str, Dict[str, Any]]
+        self,
+        files: List[FileChange],
+        table_schemas: Dict[str, Dict[str, Any]]
     ) -> List[str]:
         """Validate that all dataStore operations reference existing tables."""
         errors = []
         pattern = r'dataStore\.(query|insert|update|delete|updateRow|deleteRow|bulkInsert|bulkDelete)\s*\(\s*[\'"]([^\'\"]+)[\'"]'
 
         for file in files:
-            if file.language not in ("tsx", "ts"):
+            if file.language not in ('tsx', 'ts'):
                 continue
 
             for match in re.finditer(pattern, file.content):
@@ -991,31 +991,41 @@ export const dataStore: DataStore = {} as DataStore;
         return errors
 
     def validate_field_names_in_operations(
-        self, files: List[FileChange], table_schemas: Dict[str, Dict[str, Any]]
+        self,
+        files: List[FileChange],
+        table_schemas: Dict[str, Dict[str, Any]]
     ) -> List[str]:
         """Validate field names in insert/update/filter/orderBy operations."""
         errors = []
         patterns = {
-            "insert": r'dataStore\.(?:insert|bulkInsert)\s*\(\s*[\'"]([^\'\"]+)[\'"]\s*,\s*(?:\[)?\s*\{([^}]+)\}',
-            "update": r'dataStore\.update\s*\(\s*[\'"]([^\'\"]+)[\'"]\s*,\s*[^,]+,\s*\{([^}]+)\}',
-            "filter": r'field:\s*[\'"]([^\'\"]+)[\'"]',
-            "orderBy": r'field:\s*[\'"]([^\'\"]+)[\'"]',
+            'insert': r'dataStore\.(?:insert|bulkInsert)\s*\(\s*[\'"]([^\'\"]+)[\'"]\s*,\s*(?:\[)?\s*\{([^}]+)\}',
+            'update': r'dataStore\.update\s*\(\s*[\'"]([^\'\"]+)[\'"]\s*,\s*[^,]+,\s*\{([^}]+)\}',
+            'filter': r'field:\s*[\'"]([^\'\"]+)[\'"]',
+            'orderBy': r'field:\s*[\'"]([^\'\"]+)[\'"]',
         }
 
         for file in files:
-            if file.language not in ("tsx", "ts"):
+            if file.language not in ('tsx', 'ts'):
                 continue
 
             for op_type, pattern in patterns.items():
-                if op_type in ("insert", "update"):
-                    errors.extend(self._validate_insert_update_fields(file, op_type, pattern, table_schemas))
-                elif op_type in ("filter", "orderBy"):
-                    errors.extend(self._validate_filter_orderby_fields(file, op_type, pattern, table_schemas))
+                if op_type in ('insert', 'update'):
+                    errors.extend(self._validate_insert_update_fields(
+                        file, op_type, pattern, table_schemas
+                    ))
+                elif op_type in ('filter', 'orderBy'):
+                    errors.extend(self._validate_filter_orderby_fields(
+                        file, op_type, pattern, table_schemas
+                    ))
 
         return errors
 
     def _validate_insert_update_fields(
-        self, file: FileChange, op_type: str, pattern: str, table_schemas: Dict[str, Dict[str, Any]]
+        self,
+        file: FileChange,
+        op_type: str,
+        pattern: str,
+        table_schemas: Dict[str, Dict[str, Any]]
     ) -> List[str]:
         """Validate fields in insert/update operations."""
         errors = []
@@ -1027,16 +1037,16 @@ export const dataStore: DataStore = {} as DataStore;
             if table_slug not in table_schemas:
                 continue
 
-            valid_columns = table_schemas[table_slug]["columns"]
-            required_fields = table_schemas[table_slug]["required_fields"]
+            valid_columns = table_schemas[table_slug]['columns']
+            required_fields = table_schemas[table_slug]['required_fields']
 
             # Extract field names from the object
-            field_matches = re.findall(r"(\w+):\s*[^,}]+", fields_str)
+            field_matches = re.findall(r'(\w+):\s*[^,}]+', fields_str)
             provided_fields = set()
 
             for field_name in field_matches:
                 # Skip common non-field keys
-                if field_name in ("row", "data", "id", "const", "let", "var"):
+                if field_name in ('row', 'data', 'id', 'const', 'let', 'var'):
                     continue
 
                 provided_fields.add(field_name)
@@ -1050,7 +1060,7 @@ export const dataStore: DataStore = {} as DataStore;
                     logger.error(f"🚨 [FIELD VALIDATION] {error_msg}")
 
             # Check for missing required fields (only for INSERT operations)
-            if op_type == "insert":
+            if op_type == 'insert':
                 missing_required = required_fields - provided_fields
                 if missing_required:
                     error_msg = (
@@ -1063,7 +1073,11 @@ export const dataStore: DataStore = {} as DataStore;
         return errors
 
     def _validate_filter_orderby_fields(
-        self, file: FileChange, op_type: str, pattern: str, table_schemas: Dict[str, Dict[str, Any]]
+        self,
+        file: FileChange,
+        op_type: str,
+        pattern: str,
+        table_schemas: Dict[str, Dict[str, Any]]
     ) -> List[str]:
         """Validate fields in filter/orderBy operations."""
         errors = []
@@ -1073,13 +1087,13 @@ export const dataStore: DataStore = {} as DataStore;
 
             # Try to determine which table this refers to (look back for table slug)
             start_pos = max(0, match.start() - 200)
-            context_str = file.content[start_pos : match.start()]
+            context_str = file.content[start_pos:match.start()]
             table_match = re.search(r'dataStore\.query\s*\(\s*[\'"]([^\'\"]+)[\'"]', context_str)
 
             if table_match:
                 table_slug = table_match.group(1)
                 if table_slug in table_schemas:
-                    valid_columns = table_schemas[table_slug]["columns"]
+                    valid_columns = table_schemas[table_slug]['columns']
                     if field_name not in valid_columns:
                         error_msg = (
                             f"{file.path}: {op_type} references unknown field '{field_name}' "
@@ -1095,9 +1109,9 @@ export const dataStore: DataStore = {} as DataStore;
         errors = []
 
         # Check for row.data.id usage in update/delete (common mistake)
-        row_data_id_pattern = r"dataStore\.(update|delete)\s*\([^,]+,\s*row\.data\.id"
+        row_data_id_pattern = r'dataStore\.(update|delete)\s*\([^,]+,\s*row\.data\.id'
         for file in files:
-            if file.language not in ("tsx", "ts"):
+            if file.language not in ('tsx', 'ts'):
                 continue
 
             for match in re.finditer(row_data_id_pattern, file.content):
@@ -1112,9 +1126,9 @@ export const dataStore: DataStore = {} as DataStore;
                 logger.error(f"🚨 [ROW ID VALIDATION] {error_msg}")
 
         # Check for id overwriting pattern (spreading row.data after setting id)
-        id_overwrite_pattern = r"\{\s*id:\s*row\.id\s*,\s*\.\.\.row\.data\s*\}"
+        id_overwrite_pattern = r'\{\s*id:\s*row\.id\s*,\s*\.\.\.row\.data\s*\}'
         for file in files:
-            if file.language not in ("tsx", "ts"):
+            if file.language not in ('tsx', 'ts'):
                 continue
 
             for match in re.finditer(id_overwrite_pattern, file.content, re.MULTILINE | re.DOTALL):

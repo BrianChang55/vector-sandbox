@@ -4,7 +4,6 @@ React Code Generation Service
 Generates production-quality React/TypeScript code from AppSpec or direct instructions.
 Produces complete, runnable applications that work with the Sandpack runtime.
 """
-
 import logging
 import json
 from typing import Dict, Any, List, Optional
@@ -16,7 +15,6 @@ logger = logging.getLogger(__name__)
 @dataclass
 class GeneratedFile:
     """A generated file for the React app."""
-
     path: str
     content: str
     language: str
@@ -25,7 +23,7 @@ class GeneratedFile:
 class ReactCodegenService:
     """
     Generates complete React applications.
-
+    
     Produces:
     - App.tsx - Main application component
     - Components - Reusable UI components
@@ -33,7 +31,7 @@ class ReactCodegenService:
     - lib/types.ts - TypeScript type definitions
     - styles.css - Tailwind-based styling
     """
-
+    
     @staticmethod
     def generate_app(
         spec_json: Optional[Dict[str, Any]] = None,
@@ -43,36 +41,32 @@ class ReactCodegenService:
     ) -> List[GeneratedFile]:
         """
         Generate a complete React application.
-
+        
         Args:
             spec_json: AppSpec JSON (optional)
             generated_components: Custom component code from AI
             app_name: Name of the application
             registry_surface: Available backend resources
-
+            
         Returns:
             List of GeneratedFile objects
         """
         files = []
-
+        
         # 1. Generate runtime client
-        files.append(
-            GeneratedFile(
-                path="/src/lib/runtime.ts",
-                content=ReactCodegenService._generate_runtime_client(),
-                language="typescript",
-            )
-        )
-
+        files.append(GeneratedFile(
+            path="/src/lib/runtime.ts",
+            content=ReactCodegenService._generate_runtime_client(),
+            language="typescript",
+        ))
+        
         # 2. Generate types
-        files.append(
-            GeneratedFile(
-                path="/src/lib/types.ts",
-                content=ReactCodegenService._generate_types(registry_surface),
-                language="typescript",
-            )
-        )
-
+        files.append(GeneratedFile(
+            path="/src/lib/types.ts",
+            content=ReactCodegenService._generate_types(registry_surface),
+            language="typescript",
+        ))
+        
         # 3. Generate main App component
         if generated_components and "App.tsx" in generated_components:
             app_content = generated_components["App.tsx"]
@@ -80,53 +74,45 @@ class ReactCodegenService:
             app_content = ReactCodegenService._generate_app_from_spec(spec_json, app_name)
         else:
             app_content = ReactCodegenService._generate_default_app(app_name)
-
-        files.append(
-            GeneratedFile(
-                path="/src/App.tsx",
-                content=app_content,
-                language="typescript",
-            )
-        )
-
+        
+        files.append(GeneratedFile(
+            path="/src/App.tsx",
+            content=app_content,
+            language="typescript",
+        ))
+        
         # 4. Generate additional components from AI if provided
         if generated_components:
             for path, content in generated_components.items():
                 if path != "App.tsx" and content.strip():
                     # Normalize path
                     file_path = path if path.startswith("/") else f"/src/{path}"
-                    files.append(
-                        GeneratedFile(
-                            path=file_path,
-                            content=content,
-                            language="typescript" if path.endswith((".ts", ".tsx")) else "css",
-                        )
-                    )
-
+                    files.append(GeneratedFile(
+                        path=file_path,
+                        content=content,
+                        language="typescript" if path.endswith(('.ts', '.tsx')) else "css",
+                    ))
+        
         # 5. Generate index file
-        files.append(
-            GeneratedFile(
-                path="/src/index.tsx",
-                content=ReactCodegenService._generate_index(),
-                language="typescript",
-            )
-        )
-
+        files.append(GeneratedFile(
+            path="/src/index.tsx",
+            content=ReactCodegenService._generate_index(),
+            language="typescript",
+        ))
+        
         # 6. Generate styles
-        files.append(
-            GeneratedFile(
-                path="/src/styles.css",
-                content=ReactCodegenService._generate_styles(),
-                language="css",
-            )
-        )
-
+        files.append(GeneratedFile(
+            path="/src/styles.css",
+            content=ReactCodegenService._generate_styles(),
+            language="css",
+        ))
+        
         return files
-
+    
     @staticmethod
     def _generate_runtime_client() -> str:
         """Generate the runtime API client."""
-        return """/**
+        return '''/**
  * Runtime API Client
  * 
  * Handles all data operations through the Vector proxy.
@@ -290,12 +276,12 @@ export function useAction(actionId: string) {
   
   return { execute, loading, error };
 }
-"""
-
+'''
+    
     @staticmethod
     def _generate_types(registry_surface: Optional[Dict[str, Any]]) -> str:
         """Generate TypeScript type definitions."""
-        types = """/**
+        types = '''/**
  * TypeScript Type Definitions
  */
 
@@ -304,8 +290,8 @@ export interface Resource {
   [key: string]: any;
 }
 
-"""
-
+'''
+        
         # Generate types for each resource if available
         if registry_surface and registry_surface.get("resources"):
             for resource in registry_surface["resources"]:
@@ -313,36 +299,34 @@ export interface Resource {
                 # Convert to PascalCase
                 type_name = "".join(word.capitalize() for word in resource_id.replace("_", " ").split())
                 fields = resource.get("exposed_fields", [])
-
+                
                 types += f"export interface {type_name} {{\n"
                 types += "  id: string;\n"
                 for field in fields:
                     types += f"  {field}?: any;\n"
                 types += "}\n\n"
-
+        
         return types
-
+    
     @staticmethod
     def _generate_app_from_spec(spec_json: Dict[str, Any], app_name: str) -> str:
         """Generate App.tsx from AppSpec JSON."""
         pages = spec_json.get("pages", [])
-
+        
         if not pages:
             return ReactCodegenService._generate_default_app(app_name)
-
+        
         page = pages[0]  # Take first page for now
         resource_id = page.get("primaryResource", "data")
         table_spec = page.get("view", {}).get("table", {})
         columns = table_spec.get("columns", [])
-
-        columns_jsx = ",\n      ".join(
-            [
-                f'{{ field: "{c.get("field", "id")}", label: "{c.get("label", c.get("field", "Field"))}" }}'
-                for c in columns[:6]  # Limit to 6 columns
-            ]
-        )
-
-        return f"""import React, {{ useState }} from 'react';
+        
+        columns_jsx = ",\n      ".join([
+            f'{{ field: "{c.get("field", "id")}", label: "{c.get("label", c.get("field", "Field"))}" }}'
+            for c in columns[:6]  # Limit to 6 columns
+        ])
+        
+        return f'''import React, {{ useState }} from 'react';
 import {{ useQuery }} from './lib/runtime';
 import {{ Search, Filter, RefreshCw, ChevronLeft, ChevronRight }} from 'lucide-react';
 
@@ -490,12 +474,12 @@ function formatCellValue(value: any): React.ReactNode {{
   if (typeof value === 'object') return JSON.stringify(value);
   return String(value);
 }}
-"""
-
+'''
+    
     @staticmethod
     def _generate_default_app(app_name: str) -> str:
         """Generate a default App component."""
-        return f"""import React from 'react';
+        return f'''import React from 'react';
 import {{ Sparkles, Database, ArrowRight }} from 'lucide-react';
 
 export default function App() {{
@@ -538,12 +522,12 @@ export default function App() {{
     </div>
   );
 }}
-"""
-
+'''
+    
     @staticmethod
     def _generate_index() -> str:
         """Generate the index.tsx entry point."""
-        return """import React from 'react';
+        return '''import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import './styles.css';
@@ -557,12 +541,12 @@ if (container) {
     </React.StrictMode>
   );
 }
-"""
-
+'''
+    
     @staticmethod
     def _generate_styles() -> str:
         """Generate base styles."""
-        return """@tailwind base;
+        return '''@tailwind base;
 @tailwind components;
 @tailwind utilities;
 
@@ -602,11 +586,11 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #9ca3af;
 }
-"""
+'''
 
 
 # Singleton
-_react_codegen_service: Optional["ReactCodegenService"] = None
+_react_codegen_service: Optional['ReactCodegenService'] = None
 
 
 def get_react_codegen_service() -> ReactCodegenService:
@@ -615,3 +599,4 @@ def get_react_codegen_service() -> ReactCodegenService:
     if _react_codegen_service is None:
         _react_codegen_service = ReactCodegenService()
     return _react_codegen_service
+
