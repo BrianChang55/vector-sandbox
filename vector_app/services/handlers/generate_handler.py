@@ -162,6 +162,29 @@ class GenerateHandler(BaseHandler):
                     file_paths = [f.path for f in data_phase_files]
                     logger.info(f"📁 [DATA PHASE] Generated {len(data_phase_files)} file(s) for code phase: {', '.join(file_paths)}")
 
+        # Generate types.ts from existing tables if no data phase but tables exist
+        if not data_steps and app and code_steps:
+            from vector_app.models import AppDataTable
+            from vector_app.services import generate_typescript_types
+            from vector_app.services.types import FileChange
+
+            tables = AppDataTable.objects.filter(internal_app=app).order_by('name')
+            if tables.exists():
+                logger.info(f"📝 [PRE-CODE] No data steps but {tables.count()} table(s) exist - generating types.ts")
+
+                ts_types_content = generate_typescript_types(list(tables))
+                types_file = FileChange(
+                    path='src/lib/types.ts',
+                    action='create',
+                    language='typescript',
+                    content=ts_types_content,
+                    lines_added=ts_types_content.count('\n') + 1,
+                )
+
+                data_phase_files.append(types_file)
+                yield self.emit_file_generated(types_file)
+                logger.info(f"✅ [PRE-CODE] Generated src/lib/types.ts from existing tables")
+
         # PHASE 2b: Execute code steps in parallel (NO DB changes allowed)
         if code_steps:
             logger.info(f"💻 [CODE PHASE] Executing {len(code_steps)} code step(s) in parallel with {len(data_phase_files)} existing file(s)")
