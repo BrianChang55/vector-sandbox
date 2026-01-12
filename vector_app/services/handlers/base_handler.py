@@ -50,14 +50,17 @@ def exclude_protected_files(
     Returns:
         Filtered list with protected files removed
     """
-    filtered = []
-    for f in files:
-        if f.path in protected:
-            logger.warning(
-                f"[PROTECTED] Blocked LLM from overwriting protected file: {f.path}"
-            )
-        else:
-            filtered.append(f)
+    filtered = [
+        f for f in files if f.path not in protected
+    ]
+    skipped_protected = [
+        f for f in files if f.path in protected
+    ]
+    if skipped_protected:
+        logger.warning(
+            f"[PROTECTED] Blocked LLM from overwriting protected file: {', '.join(skipped_protected)}"
+        )
+
     return filtered
 
 
