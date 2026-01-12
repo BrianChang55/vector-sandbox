@@ -12,7 +12,7 @@ import time
 import uuid
 from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
-from .base_handler import BaseHandler, AgentEvent, FileChange, PlanStep
+from .base_handler import BaseHandler, AgentEvent, FileChange, PlanStep, exclude_protected_files
 from .parallel_executor import create_parallel_executor, ParallelStepExecutor
 from ..datastore import TableDefinitionParser, get_system_columns
 from vector_app.models import AppDataTable
@@ -24,6 +24,11 @@ if TYPE_CHECKING:
     from vector_app.services.context_analyzer import AppContext
 
 logger = logging.getLogger(__name__)
+
+
+PROTECTED_FILES = {
+    'src/lib/types.ts',      # Auto-generated TypeScript types from table schemas
+}
 
 
 class GenerateHandler(BaseHandler):
@@ -558,6 +563,9 @@ class GenerateHandler(BaseHandler):
 
         # Re-parse fixed content
         files = self.parse_code_blocks(fixed_content)
+        
+        # Filter out protected files (e.g., auto-generated types.ts)
+        files = exclude_protected_files(files, PROTECTED_FILES)
 
         # Check if Claude created new tables in the fix response
         fix_tables = self._parse_table_definitions(fixed_content)
@@ -631,6 +639,9 @@ class GenerateHandler(BaseHandler):
 
             # Parse files
             files = self.parse_code_blocks(full_content)
+            
+            # Filter out protected files (e.g., auto-generated types.ts)
+            files = exclude_protected_files(files, PROTECTED_FILES)
 
             # Validate and fix field names
             for event in self._validate_and_fix_fields(files, full_content, app, version, model):
