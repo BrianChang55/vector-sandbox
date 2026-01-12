@@ -39,6 +39,10 @@ class User(AbstractUser, BaseModel):
         blank=True,
         help_text='Google user ID for OAuth'
     )
+    
+    # Profile image - supports multiple sources:
+    # 1. OAuth provider URL (stored in profile_image_url)
+    # 2. Uploaded image (stored in profile_image_storage_key)
     profile_image_url = models.URLField(
         max_length=500,
         blank=True,
@@ -46,11 +50,52 @@ class User(AbstractUser, BaseModel):
         help_text='Profile image URL from OAuth provider'
     )
     
+    # New storage key field for uploaded profile images (cloud/local unified storage)
+    # Format: 'r2://folder/filename.png' or 'local://folder/filename.png'
+    profile_image_storage_key = models.CharField(
+        max_length=500,
+        null=True,
+        blank=True,
+        help_text='Storage key for uploaded profile image (supports cloud and local storage)'
+    )
+    
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = []
     
     def __str__(self):
         return self.email
+    
+    def get_profile_image_url(self):
+        """
+        Get the profile image URL, preferring uploaded image over OAuth provider URL.
+        
+        Priority:
+        1. Uploaded image (profile_image_storage_key) - if set
+        2. OAuth provider URL (profile_image_url) - fallback
+        
+        Returns:
+            str or None: URL to the profile image
+        """
+        from .services.image_upload_service import ImageUploadService
+        
+        # Prefer uploaded image if set
+        if self.profile_image_storage_key:
+            return ImageUploadService.get_image_url(self.profile_image_storage_key)
+        
+        # Fall back to OAuth provider URL
+        if self.profile_image_url:
+            return self.profile_image_url
+        
+        return None
+    
+    def delete_profile_image(self):
+        """Delete the uploaded profile image and clear the storage key."""
+        from .services.image_upload_service import ImageUploadService
+        
+        if self.profile_image_storage_key:
+            ImageUploadService.delete_image(self.profile_image_storage_key)
+            self.profile_image_storage_key = None
+            self.save(update_fields=['profile_image_storage_key', 'updated_at'])
 
 
 class Organization(BaseModel):
@@ -60,15 +105,60 @@ class Organization(BaseModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255)
     slug = models.SlugField(max_length=255, unique=True)
+    
+    # Legacy logo field (Django ImageField for local storage)
     logo = models.ImageField(
         upload_to='org_logos/',
         null=True,
         blank=True,
-        help_text='Organization logo image'
+        help_text='Organization logo image (legacy - use logo_storage_key for new uploads)'
+    )
+    
+    # New storage key field for cloud/local unified storage
+    # Format: 'r2://folder/filename.png' or 'local://folder/filename.png'
+    logo_storage_key = models.CharField(
+        max_length=500,
+        null=True,
+        blank=True,
+        help_text='Storage key for logo image (supports cloud and local storage)'
     )
     
     def __str__(self):
         return self.name
+    
+    def get_logo_url(self):
+        """
+        Get the logo URL, preferring the new storage key over legacy ImageField.
+        
+        Returns:
+            str or None: URL to the logo image
+        """
+        from .services.image_upload_service import ImageUploadService
+        
+        # Prefer new storage key if set
+        if self.logo_storage_key:
+            return ImageUploadService.get_image_url(self.logo_storage_key)
+        
+        # Fall back to legacy logo field
+        if self.logo:
+            return self.logo.url
+        
+        return None
+    
+    def delete_logo(self):
+        """Delete the logo from storage and clear both fields."""
+        from .services.image_upload_service import ImageUploadService
+        
+        # Delete from new storage if set
+        if self.logo_storage_key:
+            ImageUploadService.delete_image(self.logo_storage_key)
+            self.logo_storage_key = None
+        
+        # Delete legacy logo if set
+        if self.logo:
+            self.logo.delete(save=False)
+        
+        self.save(update_fields=['logo', 'logo_storage_key', 'updated_at'])
 
 
 class UserOrganization(BaseModel):

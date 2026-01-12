@@ -241,6 +241,19 @@ if API_DOMAIN:
 OPENAI_API_KEY = env('OPENAI_API_KEY', default='')
 MIXPANEL_TOKEN = env('MIXPANEL_TOKEN', default='')
 
+# Cloudflare R2 Storage Configuration
+R2_ACCESS_KEY_ID = env('R2_ACCESS_KEY_ID', default='')
+R2_SECRET_ACCESS_KEY = env('R2_SECRET_ACCESS_KEY', default='')
+R2_BUCKET_NAME = env('R2_BUCKET_NAME', default='')
+R2_ENDPOINT_URL = env('R2_ENDPOINT_URL', default='')  # e.g., https://<account_id>.r2.cloudflarestorage.com
+
+# Presigned URL expiration times (in seconds)
+R2_PRESIGNED_URL_EXPIRY = env.int('R2_PRESIGNED_URL_EXPIRY', default=3600)  # 1 hour
+R2_PRESIGNED_URL_EXPIRY_API = env.int('R2_PRESIGNED_URL_EXPIRY_API', default=86400)  # 24 hours
+
+# Legacy: R2_PUBLIC_URL is no longer needed (using presigned URLs instead)
+R2_PUBLIC_URL = env('R2_PUBLIC_URL', default='')
+
 # OpenRouter Configuration for AI Code Generation
 OPENROUTER_API_KEY = env('OPENROUTER_API_KEY', default='')
 OPENROUTER_APP_NAME = env('OPENROUTER_APP_NAME', default='Internal Apps Builder')
