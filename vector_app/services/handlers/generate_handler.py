@@ -10,12 +10,12 @@ import json
 import logging
 import time
 import uuid
-from typing import Any, Dict, Generator, List, Optional, Union, TYPE_CHECKING
+from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
 from .base_handler import BaseHandler, AgentEvent, FileChange, PlanStep
 from .parallel_executor import create_parallel_executor, ParallelStepExecutor
+from ..datastore import TableDefinitionParser, get_system_columns
 from vector_app.models import AppDataTable
-from vector_app.services.app_data_service import AppDataService
 from vector_app.services.typescript_types_generator import generate_typescript_types
 
 if TYPE_CHECKING:
@@ -75,14 +75,6 @@ class GenerateHandler(BaseHandler):
         data_store_context = kwargs.get('data_store_context')
         mcp_tools_context = kwargs.get('mcp_tools_context')
         
-        # Debug log the context being passed to LLM
-        self.log_llm_context(
-            intent_name=intent.intent.value if intent else "GENERATE_NEW",
-            handler_name="GenerateHandler",
-            data_store_context=data_store_context,
-            mcp_tools_context=mcp_tools_context,
-        )
-        
         # Import prompts
         from vector_app.prompts.agentic import (
             build_plan_prompt,
@@ -121,21 +113,68 @@ class GenerateHandler(BaseHandler):
             searches=1,
         )
         
-        # ===== PHASE 2: EXECUTE =====
+        # ===== PHASE 2: EXECUTE (Two-Phase) =====
         yield self.emit_phase_change("executing", "Building your app...")
-        
-        # Use parallel execution for independent steps
-        generated_files = yield from self._execute_steps_parallel(
-            plan_steps=plan_steps,
-            user_message=styled_user_message,
-            context=plan_context,
-            registry_surface=registry_surface,
-            model=model,
-            app=app,
-            version=version,
-            data_store_context=data_store_context,
-            mcp_tools_context=mcp_tools_context,
-        )
+
+        # Separate data and code steps
+        data_steps = [s for s in plan_steps if s.type == "data"]
+        code_steps = [s for s in plan_steps if s.type != "data"]
+
+        # Track files generated in data phase (including TypeScript types)
+        data_phase_files = []
+
+        # PHASE 2a: Execute data steps sequentially (create DB + TypeScript types)
+        if data_steps:
+            logger.info(f"📊 [DATA PHASE] Executing {len(data_steps)} data step(s) sequentially")
+            for event in self._execute_data_steps_sequential(
+                data_steps=data_steps,
+                user_message=styled_user_message,
+                context=plan_context,
+                registry_surface=registry_surface,
+                model=model,
+                app=app,
+                version=version,
+                data_store_context=data_store_context,
+                mcp_tools_context=mcp_tools_context,
+            ):
+                # Collect files generated during data phase (especially database.ts)
+                if hasattr(event, 'type') and event.type == 'file_generated':
+                    file_data = event.data.get('file')
+                    if file_data:
+                        from ..types import FileChange
+                        data_phase_files.append(FileChange(**file_data))
+                        logger.info(f"📁 [DATA PHASE] Captured file: {file_data.get('path', 'unknown')}")
+                yield event
+
+            # Refresh data store context after data phase
+            if app:
+                from ..datastore import build_data_store_context
+                data_store_context = build_data_store_context(app)
+                logger.info(f"🔄 [DATA PHASE COMPLETE] Schema frozen, TypeScript types generated")
+
+                # Log which files will be available to code phase
+                if data_phase_files:
+                    file_paths = [f.path for f in data_phase_files]
+                    logger.info(f"📁 [DATA PHASE] Generated {len(data_phase_files)} file(s) for code phase: {', '.join(file_paths)}")
+
+        # PHASE 2b: Execute code steps in parallel (NO DB changes allowed)
+        if code_steps:
+            logger.info(f"💻 [CODE PHASE] Executing {len(code_steps)} code step(s) in parallel with {len(data_phase_files)} existing file(s)")
+            generated_files = yield from self._execute_steps_parallel(
+                plan_steps=code_steps,
+                user_message=styled_user_message,
+                context=plan_context,
+                registry_surface=registry_surface,
+                model=model,
+                app=app,
+                version=version,
+                data_store_context=data_store_context,  # Frozen schema
+                mcp_tools_context=mcp_tools_context,
+                allow_table_creation=False,  # Block DB changes in code phase
+                initial_files=data_phase_files,  # Pass TypeScript types file to code phase
+            )
+        else:
+            generated_files = data_phase_files if data_phase_files else []
         
         # ===== PHASE 3: VALIDATE =====
         yield self.emit_phase_change("validating", "Validating generated code...")
@@ -185,6 +224,61 @@ class GenerateHandler(BaseHandler):
             "has_mcp_tools": bool(mcp_tools_context),
         }
     
+    def _execute_data_steps_sequential(
+        self,
+        data_steps: List[PlanStep],
+        user_message: str,
+        context: Dict[str, Any],
+        registry_surface: Dict[str, Any],
+        model: str,
+        app: Optional['InternalApp'] = None,
+        version: Optional['AppVersion'] = None,
+        data_store_context: Optional[str] = None,
+        mcp_tools_context: Optional[str] = None,
+    ) -> Generator[AgentEvent, None, None]:
+        """
+        Execute data steps sequentially to create all tables before code generation.
+
+        This ensures all DB schema is defined before any code generation starts.
+        """
+        for step_index, step in enumerate(data_steps):
+            step_start = time.time()
+
+            yield self.emit_step_started(step, step_index)
+            yield self.emit_step_start(step, step_index)
+            yield self.emit_thinking(step.title, "decision")
+
+            try:
+                # Execute data step (tables will be created, TypeScript types generated)
+                for event in self._execute_step(
+                    step=step,
+                    step_index=step_index,
+                    user_message=user_message,
+                    context=context,
+                    existing_files=[],
+                    registry_surface=registry_surface,
+                    model=model,
+                    app=app,
+                    version=version,
+                    data_store_context=data_store_context,
+                    mcp_tools_context=mcp_tools_context,
+                    allow_table_creation=True,  # Allow in data phase
+                ):
+                    yield event
+
+                step.status = "complete"
+                step.duration = int((time.time() - step_start) * 1000)
+
+                yield self.emit_step_completed(step, step_index, step.duration)
+                yield self.emit_step_complete(step_index, "complete", step.duration)
+
+            except Exception as e:
+                logger.error(f"Data step execution error: {e}")
+                step.status = "error"
+                step.duration = int((time.time() - step_start) * 1000)
+                yield self.emit_step_complete(step_index, "error", step.duration)
+                raise
+
     def _execute_steps_parallel(
         self,
         plan_steps: List[PlanStep],
@@ -196,31 +290,17 @@ class GenerateHandler(BaseHandler):
         version: Optional['AppVersion'] = None,
         data_store_context: Optional[str] = None,
         mcp_tools_context: Optional[str] = None,
+        allow_table_creation: bool = True,
+        initial_files: Optional[List[FileChange]] = None,
     ) -> Generator[AgentEvent, None, List[FileChange]]:
         """
         Execute plan steps with parallel execution for independent steps.
-        
-        Uses the ParallelStepExecutor to analyze dependencies and execute
-        independent steps concurrently while maintaining event ordering.
-        
+
         Args:
-            plan_steps: List of steps to execute
-            user_message: The styled user message
-            context: Plan context dictionary
-            registry_surface: Available resources
-            model: LLM model to use
-            app: Optional InternalApp for data store
-            version: Optional AppVersion for versioned operations
-            data_store_context: Data store context string
-            mcp_tools_context: MCP tools context string
-            
-        Yields:
-            AgentEvent objects in proper order
-            
-        Returns:
-            List of all generated files
+            allow_table_creation: If False, blocks table creation (for code phase)
+            initial_files: Files to pass as existing context (e.g., database.ts from data phase)
         """
-        # Create a step executor closure that captures the context
+        # Create step executor closure
         def step_executor(
             step: PlanStep,
             step_index: int,
@@ -228,14 +308,12 @@ class GenerateHandler(BaseHandler):
         ) -> Generator[AgentEvent, None, None]:
             """Execute a single step with full context."""
             step_start = time.time()
-            
-            # Emit step start events
+
             yield self.emit_step_started(step, step_index)
             yield self.emit_step_start(step, step_index)
             yield self.emit_thinking(step.title, "decision")
-            
+
             try:
-                # Execute the step
                 for event in self._execute_step(
                     step=step,
                     step_index=step_index,
@@ -248,29 +326,30 @@ class GenerateHandler(BaseHandler):
                     version=version,
                     data_store_context=data_store_context,
                     mcp_tools_context=mcp_tools_context,
+                    allow_table_creation=allow_table_creation,
                 ):
                     yield event
-                
+
                 step.status = "complete"
                 step.duration = int((time.time() - step_start) * 1000)
-                
+
                 yield self.emit_step_completed(step, step_index, step.duration)
                 yield self.emit_step_complete(step_index, "complete", step.duration)
-                
+
             except Exception as e:
                 logger.error(f"Step execution error: {e}")
                 step.status = "error"
                 step.duration = int((time.time() - step_start) * 1000)
                 yield self.emit_step_complete(step_index, "error", step.duration)
                 raise
-        
+
         # Use the parallel executor to run steps
         generated_files = yield from self.parallel_executor.execute_steps(
             steps=plan_steps,
             step_executor=step_executor,
-            initial_files=[],
+            initial_files=initial_files or [],
         )
-        
+
         return generated_files
     
     def _create_plan(
@@ -375,11 +454,14 @@ class GenerateHandler(BaseHandler):
         self,
         full_content: str,
         app: Optional['InternalApp'],
-        version: Optional['AppVersion']
-    ) -> Generator[Union[AgentEvent, bool], None, None]:
+        version: Optional['AppVersion'],
+        allow_creation: bool = True,
+    ) -> Generator[AgentEvent, None, None]:
         """
         Handle table creation from generated content.
-        Yields events, and yields True as final item if tables were created (signals early return).
+
+        Args:
+            allow_creation: If False, blocks table creation (for code phase)
         """
         if not (app and version):
             return
@@ -388,6 +470,19 @@ class GenerateHandler(BaseHandler):
         if not table_defs:
             return
 
+        # Block table creation in code phase
+        if not allow_creation:
+            logger.warning(
+                f"🚫 [CODE PHASE] Blocked {len(table_defs)} table definition(s) - "
+                f"tables can only be created in data phase"
+            )
+            yield self.emit_thinking(
+                "⚠️ Table definitions detected in code phase. All tables must be defined in the data step.",
+                "reflection"
+            )
+            return
+
+        # Create tables
         yield self.emit_thinking(
             f"Creating {len(table_defs)} data table(s)...",
             "decision",
@@ -395,19 +490,28 @@ class GenerateHandler(BaseHandler):
         for event in self._apply_table_definitions(table_defs, app, version):
             yield event
 
-        # Generate TypeScript types file for new app
-        types_file = self._generate_types_file(app)
-        if types_file:
-            yield self.emit_file_generated(types_file)
+        # Generate TypeScript types file after tables are created
+        if app:
+            from vector_app.models import AppDataTable
+            from vector_app.services import generate_typescript_types
+            from vector_app.services.types import FileChange
 
-        # Early return after table creation (table/code separation)
-        logger.info(f"🚫 [TABLE/CODE SEPARATION] Tables created - returning early")
-        yield self.emit_thinking(
-            "Data tables created successfully. Code generation will happen in next step with complete schema.",
-            "observation"
-        )
-        # Yield True as signal to exit early
-        yield True
+            tables = AppDataTable.objects.filter(internal_app=app).order_by('name')
+            if tables.exists():
+                logger.info(f"📝 [TYPESCRIPT] Generating types file for {tables.count()} table(s)")
+
+                ts_types_content = generate_typescript_types(list(tables))
+
+                types_file = FileChange(
+                    path='src/lib/types.ts',
+                    action='create',
+                    language='typescript',
+                    content=ts_types_content,
+                    lines_added=ts_types_content.count('\n') + 1,
+                )
+
+                yield self.emit_file_generated(types_file)
+                logger.info(f"✅ [TYPESCRIPT] Generated src/lib/types.ts ({len(ts_types_content)} chars)")
 
     def _validate_and_fix_fields(
         self,
@@ -488,6 +592,7 @@ class GenerateHandler(BaseHandler):
         version: Optional['AppVersion'] = None,
         data_store_context: Optional[str] = None,
         mcp_tools_context: Optional[str] = None,
+        allow_table_creation: bool = True,
     ) -> Generator[AgentEvent, None, None]:
         """Execute a single plan step and yield progress events."""
         from vector_app.prompts.agentic import build_step_prompt, build_codegen_system_prompt
@@ -520,10 +625,8 @@ class GenerateHandler(BaseHandler):
                 # Capture the return value from the generator
                 full_content = e.value if e.value is not None else full_content
 
-            # Handle table creation (with early return if tables created)
-            for event in self._handle_table_creation(full_content, app, version):
-                if event is True:  # Tables were created
-                    return  # Early exit
+            # Handle table creation (blocked in code phase)
+            for event in self._handle_table_creation(full_content, app, version, allow_table_creation):
                 yield event
 
             # Parse files
@@ -547,103 +650,7 @@ class GenerateHandler(BaseHandler):
     
     def _parse_table_definitions(self, content: str) -> List[Dict[str, Any]]:
         """Parse TABLE_DEFINITION blocks from agent output."""
-        import re
-        
-        tables = []
-        pattern = r'```table:([a-z0-9-]+)\n(.*?)```'
-        matches = re.findall(pattern, content, re.DOTALL | re.IGNORECASE)
-        
-        for slug, table_content in matches:
-            try:
-                table_def = self._parse_single_table(slug.strip(), table_content.strip())
-                if table_def:
-                    tables.append(table_def)
-            except Exception as e:
-                logger.warning(f"Failed to parse table definition for {slug}: {e}")
-        
-        return tables
-    
-    def _parse_single_table(self, slug: str, content: str) -> Optional[Dict[str, Any]]:
-        """Parse a single table definition."""
-        RESERVED_FIELDS = {'id', 'created_at', 'updated_at'}
-
-        lines = content.strip().split('\n')
-
-        name = slug.replace('-', ' ').title()
-        description = ''
-        columns = []
-        in_columns = False
-
-        for line in lines:
-            line = line.strip()
-
-            if line.startswith('name:'):
-                name = line[5:].strip()
-            elif line.startswith('description:'):
-                description = line[12:].strip()
-            elif line.startswith('columns:'):
-                in_columns = True
-            elif in_columns and line.startswith('- '):
-                col = self._parse_column(line[2:].strip())
-                if col:
-                    # Filter out reserved fields - they're auto-generated
-                    col_name = col.get('name', '').lower()
-                    if col_name not in RESERVED_FIELDS:
-                        columns.append(col)
-                    else:
-                        logger.info(f"Filtered out reserved field '{col_name}' from table '{slug}'")
-
-        # Reject tables that only have reserved fields (no user-defined columns)
-        if not columns:
-            logger.warning(f"Table '{slug}' has no user-defined columns after filtering reserved fields")
-            return None
-
-        return {
-            'slug': slug,
-            'name': name,
-            'description': description,
-            'columns': columns,
-        }
-    
-    def _parse_column(self, line: str) -> Optional[Dict[str, Any]]:
-        """Parse a column definition line."""
-        import re
-        
-        col = {}
-        
-        # Extract list values first
-        list_pattern = r'(\w+):\s*\[([^\]]+)\]'
-        list_matches = re.findall(list_pattern, line)
-        for key, value_str in list_matches:
-            values = [v.strip().strip('"').strip("'") for v in value_str.split(',')]
-            col[key] = values
-            line = re.sub(rf'{key}:\s*\[[^\]]+\]', '', line)
-        
-        # Parse remaining key-value pairs
-        parts = [p.strip() for p in line.split(',') if p.strip()]
-        
-        for part in parts:
-            if ':' in part:
-                key, value = part.split(':', 1)
-                key = key.strip()
-                value = value.strip()
-                
-                if key in col:
-                    continue
-                
-                if value.lower() == 'true':
-                    value = True
-                elif value.lower() == 'false':
-                    value = False
-                elif value.isdigit():
-                    value = int(value)
-                
-                col[key] = value
-        
-        if 'name' not in col or 'type' not in col:
-            return None
-        
-        return col
+        return TableDefinitionParser.parse_table_definitions(content)
     
     def _apply_table_definitions(
         self,
@@ -652,7 +659,9 @@ class GenerateHandler(BaseHandler):
         version: 'AppVersion',
     ) -> Generator[AgentEvent, None, None]:
         """Apply table definitions to the app's data store."""
-
+        from vector_app.models import AppDataTable
+        from vector_app.services.app_data_service import AppDataService
+        
         for table_def in table_defs:
             slug = table_def['slug']
             
@@ -666,44 +675,23 @@ class GenerateHandler(BaseHandler):
                 logger.info(f"Table {slug} already exists, skipping")
                 continue
 
-            # 🚨 CRITICAL: Auto-generate system columns (id, created_at, updated_at)
-            # These should be filtered out by _parse_single_table, but be defensive
+            # 🚨 CRITICAL: Add system columns (id, created_at, updated_at)
+            # The parser filters these out if LLM defines them
+            # We add them here before validation so they're part of the schema
+            from ..datastore import get_system_columns
+
+            # Start with user-defined columns
             columns = table_def['columns'].copy()
 
-            # Check if 'id' column already exists (shouldn't, but be defensive)
-            has_id = any(col.get('name', '').lower() == 'id' for col in columns)
+            # Prepend system columns (id first, then user columns, then timestamps)
+            system_cols = get_system_columns()
+            id_col = [col for col in system_cols if col['name'] == 'id'][0]
+            timestamp_cols = [col for col in system_cols if col['name'] in ('created_at', 'updated_at')]
 
-            if not has_id:
-                # Prepend the auto-generated id column
-                columns.insert(0, {
-                    'name': 'id',
-                    'type': 'uuid',
-                    'primary_key': True,
-                    'auto_generate': True,
-                    'nullable': False,
-                })
+            # Build final column list: id, user columns, timestamps
+            final_columns = [id_col] + columns + timestamp_cols
 
-            # Check for created_at
-            has_created_at = any(col.get('name', '').lower() == 'created_at' for col in columns)
-            if not has_created_at:
-                columns.append({
-                    'name': 'created_at',
-                    'type': 'datetime',
-                    'auto_now_add': True,
-                    'nullable': False,
-                })
-
-            # Check for updated_at
-            has_updated_at = any(col.get('name', '').lower() == 'updated_at' for col in columns)
-            if not has_updated_at:
-                columns.append({
-                    'name': 'updated_at',
-                    'type': 'datetime',
-                    'auto_now': True,
-                    'nullable': False,
-                })
-
-            schema = {'columns': columns}
+            schema = {'columns': final_columns}
 
             table, errors = AppDataService.create_table_versioned(
                 app=app,
@@ -721,29 +709,6 @@ class GenerateHandler(BaseHandler):
                 )
             else:
                 logger.warning(f"Failed to create table {slug}: {errors}")
-    
-    def _generate_types_file(
-        self,
-        app: 'InternalApp',
-    ) -> Optional[FileChange]:
-        """Generate TypeScript types file for all app tables."""
-        tables = AppDataTable.objects.filter(internal_app=app)
-        if not tables.exists():
-            return None
-        
-        types_content = generate_typescript_types(list(tables))
-        if not types_content:
-            return None
-        
-        logger.debug(f"Generated types file content: {types_content}")
-        return FileChange(
-            path="src/lib/types.ts",
-            action="create",
-            language="ts",
-            content=types_content,
-            lines_added=types_content.count('\n') + 1,
-            lines_removed=0,
-        )
     
     def _validate_and_fix(
         self,
@@ -860,11 +825,9 @@ class GenerateHandler(BaseHandler):
 
     def _validate_typescript(self, files: List[FileChange]) -> Dict[str, Any]:
         """
-        Validate TypeScript code.
-        
-        Returns:
-            Dictionary with 'passed' (bool), 'errors' (list), 'warnings' (list)
+        Validate TypeScript files using ValidationService.
         """
-        from vector_app.services.validation_service import get_validation_service
-        validation_service = get_validation_service()
-        return validation_service.validate_typescript(files)
+        from vector_app.services.validation_service import ValidationService
+        service = ValidationService()
+        result = service.validate_typescript(files)
+        return result.to_dict()
