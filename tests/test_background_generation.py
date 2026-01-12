@@ -498,7 +498,7 @@ class CeleryTaskTestCase(TransactionTestCase):
     def test_task_runs_generation(self, mock_get_service):
         """Task runs agentic generation and stores events."""
         from vector_app.tasks import run_agentic_generation
-        from vector_app.services.handlers.base_handler import AgentEvent
+        from vector_app.services.types import AgentEvent
         
         # Mock the agentic service to yield events
         mock_service = MagicMock()
@@ -536,7 +536,7 @@ class CeleryTaskTestCase(TransactionTestCase):
     def test_task_handles_cancellation(self, mock_get_service):
         """Task checks for cancellation and stops."""
         from vector_app.tasks import run_agentic_generation
-        from vector_app.services.handlers.base_handler import AgentEvent
+        from vector_app.services.types import AgentEvent
         
         call_count = 0
         

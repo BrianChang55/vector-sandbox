@@ -1,5 +1,3 @@
-from vector_app.services.handlers.diff_utils import format_with_line_numbers
-
 """
 Error Fix Prompts
 
@@ -190,6 +188,9 @@ def build_error_fix_prompt(
     errors_section = '\n'.join(error_lines)
     
     # Build files section with line numbers for accurate diff generation
+    # Lazy import to avoid circular dependency
+    from vector_app.services.diff import format_with_line_numbers
+    
     files_section_parts = []
     for file in files:
         file_path = file.path if hasattr(file, 'path') else file.get('path', '')
@@ -265,6 +266,9 @@ def build_bundler_error_fix_prompt(
     errors_section = '\n'.join(error_lines)
     
     # Build files section with line numbers
+    # Lazy import to avoid circular dependency
+    from vector_app.services.diff import format_with_line_numbers
+    
     files_section_parts = []
     for file in files:
         file_path = file.path if hasattr(file, 'path') else file.get('path', '')

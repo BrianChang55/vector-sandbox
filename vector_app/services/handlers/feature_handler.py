@@ -8,8 +8,9 @@ import logging
 import time
 from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
-from .base_handler import BaseHandler, AgentEvent, FileChange, PlanStep
-from .diff_utils import parse_diffs, apply_diff, format_with_line_numbers
+from .base_handler import BaseHandler, AgentEvent, FileChange
+from vector_app.services.diff import parse_diffs, apply_diff, format_with_line_numbers
+from vector_app.services.planning_service import PlanStepStatus
 
 if TYPE_CHECKING:
     from vector_app.models import InternalApp, AppVersion
@@ -430,16 +431,17 @@ class FeatureHandler(BaseHandler):
                         )
                         generated_files.extend(new_files)
                 
-                step.status = "complete"
+                step.status = PlanStepStatus.COMPLETE
                 step.duration = int((time.time() - step_start) * 1000)
                 
-                yield self.emit_step_completed(step, step_idx, step.duration)
-                yield self.emit_step_complete(step_idx, "complete", step.duration)
+                yield self.emit_step_completed(step, step_idx)
+                yield self.emit_step_complete(step_idx, PlanStepStatus.COMPLETE.value, step.duration)
                 
             except Exception as e:
                 logger.error(f"Feature step error: {e}")
-                step.status = "error"
-                yield self.emit_step_complete(step_idx, "error", int((time.time() - step_start) * 1000))
+                step.status = PlanStepStatus.ERROR
+                yield self.emit_step_completed(step, step_idx)
+                yield self.emit_step_complete(step_idx, PlanStepStatus.ERROR.value, int((time.time() - step_start) * 1000))
             
             step_idx += 1
         
@@ -468,8 +470,8 @@ class FeatureHandler(BaseHandler):
                         break
         
         validation_step.duration = int((time.time() - step_start) * 1000)
-        yield self.emit_step_completed(validation_step, step_idx, validation_step.duration)
-        yield self.emit_step_complete(step_idx, "complete", validation_step.duration)
+        yield self.emit_step_completed(validation_step, step_idx)
+        yield self.emit_step_complete(step_idx, PlanStepStatus.COMPLETE.value, validation_step.duration)
         
         yield self.emit_validation_result(
             passed=validation_passed,

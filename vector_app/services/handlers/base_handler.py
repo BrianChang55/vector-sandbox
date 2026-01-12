@@ -7,10 +7,9 @@ Provides common utilities for AgentEvent generation and LLM interactions.
 import json
 import logging
 import re
-import time
 import uuid
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, asdict
+from dataclasses import asdict
 from typing import Any, Dict, Generator, List, Optional, Set, TYPE_CHECKING
 
 from django.conf import settings
@@ -18,10 +17,9 @@ import httpx
 
 from vector_app.services.types import (
     FileChange,
-    CompilationError,
-    ValidationResult,
     AgentEvent,
 )
+from vector_app.services.planning_service import PlanStep
 from vector_app.services.validation_service import get_validation_service
 
 if TYPE_CHECKING:
@@ -30,7 +28,6 @@ if TYPE_CHECKING:
     from vector_app.services.context_analyzer import AppContext
 
 logger = logging.getLogger(__name__)
-
 
 
 def exclude_protected_files(
@@ -62,19 +59,6 @@ def exclude_protected_files(
         )
 
     return filtered
-
-
-@dataclass
-class PlanStep:
-    """A single step in the execution plan."""
-    id: str
-    type: str
-    title: str
-    description: str
-    step_order: int = 0  # Wave number for parallel execution (0 = first)
-    status: str = "pending"
-    duration: Optional[int] = None
-    output: Optional[str] = None
 
 
 class StreamingValidator:
@@ -287,12 +271,12 @@ class BaseHandler(ABC):
             "step": asdict(step),
         })
     
-    def emit_step_completed(self, step: PlanStep, step_index: int, duration: int) -> AgentEvent:
+    def emit_step_completed(self, step: PlanStep, step_index: int) -> AgentEvent:
         """Emit step completed event."""
         return AgentEvent("step_completed", {
             "stepId": step.id,
             "stepIndex": step_index,
-            "duration": duration,
+            "duration": step.duration or 0,
         })
     
     def emit_step_complete(self, step_index: int, status: str, duration: int) -> AgentEvent:
