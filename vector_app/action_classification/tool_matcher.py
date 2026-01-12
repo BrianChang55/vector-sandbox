@@ -13,7 +13,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from vector_app.action_classification.types import ActionResult, MatchedTool
+from vector_app.action_classification.types import ActionResult, ActionItem, MatchedTool
 from vector_app.models import (
     ConnectorToolAction,
     OrganizationConnectorLink,
@@ -50,30 +50,7 @@ class ToolMatcher:
     Queries the ConnectorToolAction table filtered by:
     - Action type from classification
     - Connected connectors for the organization
-    - Optional: target service name
     """
-
-    # Map common service names to connector IDs
-    SERVICE_TO_CONNECTOR = {
-        "github": ["github"],
-        "jira": ["jira"],
-        "slack": ["slack"],
-        "notion": ["notion"],
-        "linear": ["linear"],
-        "asana": ["asana"],
-        "trello": ["trello"],
-        "salesforce": ["salesforce"],
-        "hubspot": ["hubspot"],
-        "zendesk": ["zendesk"],
-        "intercom": ["intercom"],
-        "stripe": ["stripe"],
-        "google": ["google_calendar", "google_drive", "gmail"],
-        "gmail": ["gmail"],
-        "calendar": ["google_calendar"],
-        "drive": ["google_drive"],
-        "dropbox": ["dropbox"],
-        "airtable": ["airtable"],
-    }
 
     def match_tools(
         self,
@@ -83,29 +60,21 @@ class ToolMatcher:
     ) -> ToolMatchResult:
         """
         Find available tools matching the action classification.
+        
+        Queries ConnectorToolAction filtered by:
+        - Action types from the classified actions
+        - Connected connectors for this organization
 
         Args:
-            action: The classified action result
+            action: The classified action result with multiple actions
             provider: The integration provider for the organization
-            limit: Maximum number of tools to return
+            limit: Maximum number of tools to return per action type
 
         Returns:
-            ToolMatchResult with matched tools
+            ToolMatchResult with matched tools from all action types
         """
-        logger.info("=" * 60)
-        logger.info("TOOL MATCHING - START")
-        logger.info("=" * 60)
-        logger.info("Action type: %s", action.action.value)
-        logger.info("Target: %s", action.target)
-        logger.info("Provider: %s", provider.id)
-
-        # Step 1: Get connected connectors for this organization
-        connected_connector_ids = self._get_connected_connectors(provider)
-
-        logger.info("Connected connectors: %s", connected_connector_ids)
-
-        if not connected_connector_ids:
-            logger.info("No connected connectors - returning empty result")
+        # Return early if no actions
+        if not action.actions:
             return ToolMatchResult(
                 action=action,
                 matched_tools=[],
@@ -113,65 +82,54 @@ class ToolMatcher:
                 total_available_tools=0,
             )
 
-        # Step 2: Query tools by action type from connected connectors
+        # Get connected connectors for this organization
+        connected_connector_ids = self._get_connected_connectors(provider)
+        if not connected_connector_ids:
+            return ToolMatchResult(
+                action=action,
+                matched_tools=[],
+                connected_connectors=[],
+                total_available_tools=0,
+            )
+
+        # Build query filters
+        action_types = [action_item.action.value for action_item in action.actions]
         tools_query = ConnectorToolAction.objects.filter(
             connector_cache__provider=provider,
             connector_cache__connector_id__in=connected_connector_ids,
-            action_type=action.action.value,
+            action_type__in=action_types,
         ).select_related("connector_cache")
-
-        # Step 3: If we have a specific target service, prioritize those connectors
-        target_connector_ids = self._get_target_connectors(action.target)
-
-        if target_connector_ids:
-            logger.info("Target service connectors: %s", target_connector_ids)
-            # Filter to target connectors that are connected
-            matching_target_connectors = set(target_connector_ids) & set(connected_connector_ids)
-
-            if matching_target_connectors:
-                logger.info("Filtering to matching target connectors: %s", matching_target_connectors)
-                tools_query = tools_query.filter(connector_cache__connector_id__in=matching_target_connectors)
-
-        # Step 4: Execute query and build results
-        tools = tools_query[:limit]
+        
         total_count = tools_query.count()
-
-        logger.info("Found %d matching tools (returning %d)", total_count, len(tools))
-
+        tools = tools_query[:limit * len(action_types)]
+        
+        # Build matched tools with relevance scoring
+        action_lookup = {action_item.action.value: action_item for action_item in action.actions}
         matched_tools = []
+        
         for tool in tools:
-            matched_tool = MatchedTool(
-                tool_id=tool.tool_id,
-                tool_name=tool.tool_name,
-                description=tool.description,
-                action_type=tool.action_type,
-                connector_id=tool.connector_cache.connector_id,
-                connector_name=tool.connector_cache.connector_name,
-                input_schema=tool.input_schema,
-                relevance_score=self._calculate_relevance(tool, action),
-            )
-            matched_tools.append(matched_tool)
-
-            logger.info("  - %s:%s (%s)", tool.connector_cache.connector_id, tool.tool_id, tool.action_type)
-
-        # Sort by relevance
+            action_item = action_lookup.get(tool.action_type)
+            if action_item:
+                matched_tools.append(MatchedTool(
+                    tool_id=tool.tool_id,
+                    tool_name=tool.tool_name,
+                    description=tool.description,
+                    action_type=tool.action_type,
+                    connector_id=tool.connector_cache.connector_id,
+                    connector_name=tool.connector_cache.connector_name,
+                    input_schema=tool.input_schema,
+                    relevance_score=self._calculate_relevance(tool, action_item),
+                ))
+        
+        # Sort by relevance (highest first)
         matched_tools.sort(key=lambda t: t.relevance_score, reverse=True)
 
-        result = ToolMatchResult(
+        return ToolMatchResult(
             action=action,
             matched_tools=matched_tools,
             connected_connectors=connected_connector_ids,
             total_available_tools=total_count,
         )
-
-        logger.info("-" * 40)
-        logger.info("TOOL MATCHING - RESULT:")
-        logger.info("  Matched tools: %d", len(matched_tools))
-        logger.info("  Connected connectors: %d", len(connected_connector_ids))
-        logger.info("  Total available: %d", total_count)
-        logger.info("=" * 60)
-
-        return result
 
     def _get_connected_connectors(
         self,
@@ -193,30 +151,23 @@ class ToolMatcher:
 
         return [link.connector.connector_id for link in links]
 
-    def _get_target_connectors(self, target: str) -> List[str]:
-        """Map target service name to connector IDs."""
-        target_lower = target.lower()
-
-        for service_name, connector_ids in self.SERVICE_TO_CONNECTOR.items():
-            if service_name in target_lower:
-                return connector_ids
-
-        return []
-
     def _calculate_relevance(
         self,
         tool: ConnectorToolAction,
-        action: ActionResult,
+        action_item: ActionItem,
     ) -> float:
         """
-        Calculate relevance score for a tool based on the action.
+        Calculate relevance score for a tool based on the action item.
 
         Higher score = more relevant.
         """
         score = 1.0
 
+        # Boost based on action confidence
+        score += action_item.confidence * 0.5
+
         # Boost if tool name contains relevant keywords from target
-        target_lower = action.target.lower()
+        target_lower = action_item.target.lower()
         tool_id_lower = tool.tool_id.lower()
         tool_desc_lower = tool.description.lower()
 

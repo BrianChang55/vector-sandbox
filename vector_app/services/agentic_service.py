@@ -52,13 +52,11 @@ from vector_app.services.intent_classifier import (
 )
 from vector_app.services.context_analyzer import get_context_analyzer
 from vector_app.services.intent_router import get_intent_router
-from vector_app.action_classification.action_classifier import (
-    get_action_classifier,
+from vector_app.services.filter_mcp_tools import (
+    filter_mcp_tools,
+    FilterMCPToolsEvent,
+    FilterMCPToolsResult,
 )
-from vector_app.action_classification.tool_matcher import (
-    get_tool_matcher,
-)
-from vector_app.action_classification.build_mcp_context import build_context_from_matched_tools
 
 # Import shared types from types.py and re-export for backwards compatibility
 from vector_app.services.types import (
@@ -751,7 +749,7 @@ class AgenticService:
             },
         )
 
-        # Classify intent
+        # Classify intent 
         intent_classifier = get_intent_classifier()
         intent = intent_classifier.classify(user_message, app_context, model)
 
@@ -768,69 +766,13 @@ class AgenticService:
             },
         )
 
-        # ===== ACTION CLASSIFICATION =====
-        action_classifier = get_action_classifier()
-        action = action_classifier.classify(user_message, app_context, intent)
-
-        logger.info(
-            f"Action classified: {action.action.value} "
-            f"(confidence: {action.confidence:.0%}, target: {action.target})"
-        )
-
-        yield AgentEvent(
-            "thinking",
-            {
-                "content": f"Action: {action.description} ({action.confidence:.0%} confidence)",
-                "type": "decision",
-            },
-        )
-
-        yield AgentEvent(
-            "action_classified",
-            {
-                "action": action.action.value,
-                "confidence": action.confidence,
-                "target": action.target,
-                "description": action.description,
-            },
-        )
-
-        # ===== TOOL MATCHING =====
-        # Find available MCP tools that match the classified action
+        # ===== ACTION CLASSIFICATION & TOOL MATCHING =====
         matched_tools_context = None
-        if app and app.organization:
-            provider = app.organization.integration_providers.first()
-            if provider:
-                tool_matcher = get_tool_matcher()
-                tool_match_result = tool_matcher.match_tools(action, provider)
-
-                if tool_match_result.matched_tools:
-                    yield AgentEvent(
-                        "thinking",
-                        {
-                            "content": f"Found {len(tool_match_result.matched_tools)} available MCP tools for {action.action.value} operations",
-                            "type": "observation",
-                        },
-                    )
-
-                    # Build context string from matched tools
-                    mcp_context = build_context_from_matched_tools(app, tool_match_result)
-                    if mcp_context.has_tools:
-                        matched_tools_context = mcp_context.full_context
-
-                    yield AgentEvent(
-                        "tools_matched",
-                        {
-                            "action_type": action.action.value,
-                            "matched_count": len(tool_match_result.matched_tools),
-                            "connected_connectors": tool_match_result.connected_connectors,
-                            "tools": [
-                                t.to_dict() for t in tool_match_result.matched_tools[:10]
-                            ],  # Limit for UI
-                        },
-                    )
-                else:
-                    logger.info("No matching MCP tools found for action")
+        for item in filter_mcp_tools(user_message, app_context, intent, app):
+            if isinstance(item, FilterMCPToolsEvent):
+                yield AgentEvent(item.event_type, item.data)
+            elif isinstance(item, FilterMCPToolsResult):
+                matched_tools_context = item.matched_tools_context
 
         # ===== ROUTE TO APPROPRIATE HANDLER =====
         router = get_intent_router()

@@ -1,6 +1,6 @@
 from enum import StrEnum
 from dataclasses import dataclass, field
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 
 class ActionType(StrEnum):
@@ -15,24 +15,57 @@ class ActionType(StrEnum):
 
 
 @dataclass
-class ActionResult:
-    """Result of action classification."""
+class ActionItem:
+    """Single action with its details."""
 
     action: ActionType
     confidence: float
-    target: str  # What MCP the action applies to (e.g., "github", "jira", "slack", "notion", "linear", "asana", "trello", "salesforce", "hubspot", "zendesk", "intercom", "stripe", "google", "gmail", "calendar", "drive", "dropbox", "airtable", "database", "api")
-    description: str  # Human-readable description
+    target: str
+    description: str
+
+
+@dataclass
+class ActionResult:
+    """Result of action classification (can include multiple actions).
+    
+    The primary data is in the 'actions' list. The single fields (action, confidence, target)
+    are kept for backward compatibility but should not be used - use the actions list instead.
+    """
+
+    actions: List[ActionItem] = field(default_factory=list)  # All identified actions (filtered, ranked by confidence)
+    description: str = ""  # Overall description
     metadata: Dict[str, Any] = field(default_factory=dict)
+    
+    # Deprecated fields for backward compatibility - do not use, use actions list instead
+    action: Optional[ActionType] = None
+    confidence: Optional[float] = None
+    target: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
-        return {
-            "action": self.action.value,
-            "confidence": self.confidence,
-            "target": self.target,
+        result = {
+            "actions": [
+                {
+                    "action": item.action.value,
+                    "confidence": item.confidence,
+                    "target": item.target,
+                    "description": item.description,
+                }
+                for item in self.actions
+            ],
             "description": self.description,
             "metadata": self.metadata,
         }
+        
+        # Include deprecated fields if set
+        if self.action is not None:
+            result["action"] = self.action.value
+        if self.confidence is not None:
+            result["confidence"] = self.confidence
+        if self.target is not None:
+            result["target"] = self.target
+            
+        return result
 
 
 @dataclass

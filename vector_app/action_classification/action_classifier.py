@@ -15,7 +15,10 @@ For example:
 """
 
 import logging
+import json
 from typing import List, Optional, TYPE_CHECKING
+
+import httpx
 
 if TYPE_CHECKING:
     from vector_app.action_classification.types import ActionType, ActionResult
@@ -134,7 +137,7 @@ class ActionClassifier:
         intent: Optional["IntentResult"] = None,
     ) -> "ActionResult":
         """
-        Classify the user's action based on their message.
+        Classify the user's action based on their message using LLM.
 
         Args:
             user_message: The user's request
@@ -145,7 +148,7 @@ class ActionClassifier:
             ActionResult with classified action and metadata
         """
         # Import at runtime to avoid circular imports
-        from vector_app.action_classification.types import ActionType, ActionResult
+        from vector_app.action_classification.types import ActionType, ActionResult, ActionItem
 
         logger.info("=" * 60)
         logger.info("ACTION CLASSIFICATION - Determining MCP tool operations needed")
@@ -157,11 +160,202 @@ class ActionClassifier:
             logger.info("  Intent type: %s", intent.intent.value)
             logger.info("  Intent confidence: %.0f%%", intent.confidence * 100)
 
-        message_lower = user_message.lower()
+        # Build prompt for LLM classification
+        system_prompt = """You are an expert at classifying user requests for internal app building.
 
-        # Score each action type (aligned with ActionType enum)
+Your task is to determine what type of MCP (Model Context Protocol) tool operations the user's app will need to perform on external systems.
+
+IMPORTANT: A single request can require MULTIPLE action types. For example:
+- "Fetch GitHub issues and send Slack notifications" = [QUERY, SEND]
+- "Create a Jira ticket and update the status" = [CREATE, UPDATE]
+- "Show all users" = [QUERY]
+
+Action Types:
+- QUERY: The app needs to READ/FETCH data (e.g., "show GitHub PRs", "display Jira issues", "list users")
+- CREATE: The app needs to CREATE new records (e.g., "create Jira tickets", "add calendar events", "submit forms")
+- UPDATE: The app needs to MODIFY existing records (e.g., "update issue status", "edit documents", "modify settings")
+- DELETE: The app needs to REMOVE records (e.g., "delete old files", "archive tickets", "remove users")
+- SEND: The app needs to SEND messages/notifications (e.g., "send Slack messages", "email notifications", "SMS alerts")
+- OTHER: Fallback for operations that don't fit the above categories
+
+Also identify the target service/system for each action (e.g., "github", "jira", "slack", "database", "api", "email").
+
+Return a JSON object with:
+{
+  "actions": [
+    {
+      "action": "QUERY|CREATE|UPDATE|DELETE|SEND|OTHER",
+      "confidence": 0.0-1.0,
+      "target": "service name or 'unknown'",
+      "description": "brief description of this specific operation"
+    }
+    // ... more actions if the request requires multiple operations
+  ],
+  "reasoning": "why you chose these classifications"
+}
+
+Always return at least 1 action. Return multiple actions only when the request clearly requires different operation types."""
+
+        user_prompt = f"""User's request: {user_message}"""
+        
+        if intent:
+            user_prompt += f"\n\nIntent context: The user wants to {intent.intent.value} the app (confidence: {intent.confidence:.0%})"
+
         logger.info("-" * 40)
-        logger.info("KEYWORD SCORING:")
+        logger.info("LLM CLASSIFICATION:")
+        
+        try:
+            action_items, description, reasoning = self._classify_with_llm(
+                system_prompt, user_prompt, ActionType, ActionItem
+            )
+        except Exception as e:
+            logger.error("LLM classification failed: %s", e)
+            logger.info("Falling back to keyword-based classification")
+            action_items, description, reasoning = self._classify_with_keywords(
+                user_message, ActionType, ActionItem
+            )
+
+        result = ActionResult(
+            actions=action_items,
+            description=description,
+            metadata={
+                "reasoning": reasoning,
+                "intent": intent.intent.value if intent else None,
+                "classification_method": "llm" if reasoning != "Fallback keyword matching" else "keyword_fallback",
+            },
+        )
+
+        logger.info("-" * 40)
+        logger.info("MCP OPERATIONS NEEDED:")
+        logger.info("  Total Actions: %d (filtered, confidence >= 0.4)", len(result.actions))
+        logger.info("  Description: %s", result.description)
+        if result.actions:
+            logger.info("  All Actions (ranked by confidence):")
+            for i, action in enumerate(result.actions, 1):
+                logger.info("    %d. %s (%.0f%%, target: %s) - %s", 
+                           i, action.action.value, action.confidence * 100, 
+                           action.target, action.description)
+        else:
+            logger.warning("  No actions classified!")
+        logger.info("=" * 60)
+
+        return result
+
+    def _classify_with_llm(self, system_prompt: str, user_prompt: str, ActionType, ActionItem):
+        """
+        Classify actions using LLM.
+
+        Args:
+            system_prompt: System prompt for the LLM
+            user_prompt: User prompt for the LLM
+            ActionType: ActionType enum class
+            ActionItem: ActionItem class
+
+        Returns:
+            Tuple of (action_items, description, reasoning)
+        """
+        from vector_app.services.openrouter_service import get_openrouter_service
+
+        # Use OpenRouter service for classification
+        openrouter = get_openrouter_service()
+        
+        response = httpx.post(
+            openrouter.OPENROUTER_API_URL,
+            headers=openrouter._build_headers(),
+            json={
+                "model": "openai/gpt-5-mini",  # Fast and accurate
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "response_format": {"type": "json_object"},
+                "temperature": 0.2,  # Low temperature for consistent classification
+            },
+            timeout=30.0,
+        )
+        response.raise_for_status()
+        
+        result_data = response.json()
+        content = result_data["choices"][0]["message"]["content"]
+        classification = json.loads(content)
+        
+        logger.info("LLM Response: %s", json.dumps(classification, indent=2))
+        
+        # Parse LLM response - now supports multiple actions
+        actions_data = classification.get("actions", [])
+        reasoning = classification.get("reasoning", "")
+        
+        if not actions_data:
+            # Fallback for old format or empty response
+            logger.warning("No actions array in response, using fallback")
+            actions_data = [{
+                "action": "QUERY",
+                "confidence": 0.5,
+                "target": "unknown",
+                "description": "Read data"
+            }]
+        
+        # Parse all actions
+        action_items = []
+        for action_data in actions_data:
+            action_str = action_data.get("action", "QUERY").upper()
+            try:
+                action_type = ActionType[action_str]
+            except KeyError:
+                logger.warning("Invalid action type from LLM: %s, defaulting to QUERY", action_str)
+                action_type = ActionType.QUERY
+            
+            action_items.append(ActionItem(
+                action=action_type,
+                confidence=float(action_data.get("confidence", 0.7)),
+                target=action_data.get("target", "unknown"),
+                description=action_data.get("description", f"{action_type.value} operation")
+            ))
+        
+        # Sort by confidence (highest first) and filter out low-confidence actions
+        action_items.sort(key=lambda x: x.confidence, reverse=True)
+        action_items = [item for item in action_items if item.confidence >= 0.4]
+        
+        # Ensure we have at least one action
+        if not action_items:
+            logger.warning("All actions filtered out due to low confidence, using default QUERY")
+            action_items = [ActionItem(
+                action=ActionType.QUERY,
+                confidence=0.5,
+                target="unknown",
+                description="Read data"
+            )]
+        
+        # Build overall description
+        if len(action_items) == 1:
+            description = action_items[0].description
+        else:
+            description = f"Multiple operations: {', '.join(item.action.value for item in action_items)}"
+        
+        logger.info("-" * 40)
+        logger.info("Classification result:")
+        logger.info("  Number of actions (after filtering <0.4): %d", len(action_items))
+        for i, item in enumerate(action_items, 1):
+            logger.info("  Action %d: %s (%.0f%%, target: %s) - %s", 
+                       i, item.action.value, item.confidence * 100, item.target, item.description)
+        logger.info("  Reasoning: %s", reasoning)
+
+        return action_items, description, reasoning
+
+    def _classify_with_keywords(self, user_message: str, ActionType, ActionItem):
+        """
+        Classify actions using keyword matching (fallback method).
+
+        Args:
+            user_message: The user's message
+            ActionType: ActionType enum class
+            ActionItem: ActionItem class
+
+        Returns:
+            Tuple of (action_items, description, reasoning)
+        """
+        # Fallback to simple keyword matching if LLM fails
+        message_lower = user_message.lower()
         scores = {
             ActionType.QUERY: self._count_matches(message_lower, self.QUERY_KEYWORDS),
             ActionType.CREATE: self._count_matches(message_lower, self.CREATE_KEYWORDS),
@@ -169,56 +363,44 @@ class ActionClassifier:
             ActionType.DELETE: self._count_matches(message_lower, self.DELETE_KEYWORDS),
             ActionType.SEND: self._count_matches(message_lower, self.SEND_KEYWORDS),
         }
-
-        # Log all scores
-        for action_type, score in sorted(scores.items(), key=lambda x: x[1], reverse=True):
-            logger.info("  %s: %d matches", action_type.value, score)
-
-        # Find best action
-        best_action = max(scores, key=scores.get)
-        best_score = scores[best_action]
-
-        logger.info("-" * 40)
-        logger.info("Best match: %s (score: %d)", best_action.value, best_score)
-
-        # Handle no matches - default to QUERY since most apps need to read data
-        if best_score == 0:
-            best_action = ActionType.QUERY
-            confidence = 0.5
-            logger.info("No keyword matches - defaulting to QUERY (most apps need to read data)")
-        else:
-            # Calculate confidence
-            total = sum(scores.values())
-            confidence = min(0.95, (best_score / total) * 0.7 + 0.3) if total > 0 else 0.5
-            logger.info("Confidence calculation: %d/%d = %.0f%%", best_score, total, confidence * 100)
-
-        # Extract target from message
+        
+        total = sum(scores.values())
         target = self._extract_target(user_message)
-        logger.info("Extracted target: %s", target)
+        
+        # Create action items for all actions with scores, calculate confidence for each
+        action_items = []
+        for action_type, score in scores.items():
+            if score > 0 and total > 0:
+                confidence = min(0.95, (score / total) * 0.7 + 0.3)
+                action_items.append(ActionItem(
+                    action=action_type,
+                    confidence=confidence,
+                    target=target,
+                    description=self._generate_description(action_type, target)
+                ))
+        
+        # Sort by confidence and filter
+        action_items.sort(key=lambda x: x.confidence, reverse=True)
+        action_items = [item for item in action_items if item.confidence >= 0.4]
+        
+        # Fallback if no actions meet threshold
+        if not action_items:
+            action_items = [ActionItem(
+                action=ActionType.QUERY,
+                confidence=0.5,
+                target=target,
+                description=self._generate_description(ActionType.QUERY, target)
+            )]
+        
+        # Build overall description
+        if len(action_items) == 1:
+            description = action_items[0].description
+        else:
+            description = f"Multiple operations: {', '.join(item.action.value for item in action_items)}"
+        
+        reasoning = "Fallback keyword matching"
 
-        # Generate description
-        description = self._generate_description(best_action, target)
-
-        result = ActionResult(
-            action=best_action,
-            confidence=confidence,
-            target=target,
-            description=description,
-            metadata={
-                "scores": {k.value: v for k, v in scores.items()},
-                "intent": intent.intent.value if intent else None,
-            },
-        )
-
-        logger.info("-" * 40)
-        logger.info("MCP OPERATION NEEDED:")
-        logger.info("  Action Type: %s", result.action.value)
-        logger.info("  Confidence: %.0f%%", result.confidence * 100)
-        logger.info("  Target Service/Data: %s", result.target)
-        logger.info("  Description: %s", result.description)
-        logger.info("=" * 60)
-
-        return result
+        return action_items, description, reasoning
 
     def _count_matches(self, message: str, keywords: List[str]) -> int:
         """Count keyword matches in message."""
