@@ -14,7 +14,7 @@ from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
 from vector_app.services.intent_classifier import UserIntent, IntentResult
 from vector_app.services.context_analyzer import AppContext
-from vector_app.services.handlers.base_handler import AgentEvent, FileChange
+from vector_app.services.types import AgentEvent, FileChange
 from vector_app.services.handlers.generate_handler import GenerateHandler
 from vector_app.services.handlers.edit_handler import EditHandler
 from vector_app.services.handlers.feature_handler import FeatureHandler

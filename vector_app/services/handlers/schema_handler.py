@@ -9,8 +9,9 @@ import re
 import time
 from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
-from .base_handler import BaseHandler, AgentEvent, FileChange, PlanStep
+from .base_handler import BaseHandler, AgentEvent, FileChange
 from ..datastore import TableDefinitionParser
+from vector_app.services.planning_service import PlanStepStatus
 
 if TYPE_CHECKING:
     from vector_app.models import InternalApp, AppVersion
@@ -225,16 +226,16 @@ class SchemaHandler(BaseHandler):
                 version=version,
             )
             
-            step.status = "complete"
+            step.status = PlanStepStatus.COMPLETE
             step.duration = int((time.time() - step_start) * 1000)
             
-            yield self.emit_step_completed(step, 0, step.duration)
-            yield self.emit_step_complete(0, "complete", step.duration)
+            yield self.emit_step_completed(step, 0)
+            yield self.emit_step_complete(0, PlanStepStatus.COMPLETE.value, step.duration)
             
         except Exception as e:
             logger.error(f"Schema change error: {e}")
-            step.status = "error"
-            yield self.emit_step_complete(0, "error", int((time.time() - step_start) * 1000))
+            step.status = PlanStepStatus.ERROR
+            yield self.emit_step_complete(0, PlanStepStatus.ERROR.value, int((time.time() - step_start) * 1000))
             yield self.emit_thinking(f"Error during schema change: {str(e)}", "reflection")
             return generated_files
         
@@ -259,16 +260,16 @@ class SchemaHandler(BaseHandler):
                 
                 generated_files.extend(code_files)
                 
-                step.status = "complete"
+                step.status = PlanStepStatus.COMPLETE
                 step.duration = int((time.time() - step_start) * 1000)
                 
-                yield self.emit_step_completed(step, 1, step.duration)
-                yield self.emit_step_complete(1, "complete", step.duration)
+                yield self.emit_step_completed(step, 1)
+                yield self.emit_step_complete(1, PlanStepStatus.COMPLETE.value, step.duration)
                 
             except Exception as e:
                 logger.error(f"Code update error: {e}")
-                step.status = "error"
-                yield self.emit_step_complete(1, "error", int((time.time() - step_start) * 1000))
+                step.status = PlanStepStatus.ERROR
+                yield self.emit_step_complete(1, PlanStepStatus.ERROR.value, int((time.time() - step_start) * 1000))
         
         # ===== PHASE 5: VALIDATE & FIX =====
         validation_step_idx = len(plan_steps) - 1
@@ -303,14 +304,14 @@ class SchemaHandler(BaseHandler):
             validation_passed = len(schema_changes) > 0
         
         step.duration = int((time.time() - step_start) * 1000)
-        yield self.emit_step_completed(step, validation_step_idx, step.duration)
-        yield self.emit_step_complete(validation_step_idx, "complete", step.duration)
+        yield self.emit_step_completed(step, validation_step_idx)
+        yield self.emit_step_complete(validation_step_idx, PlanStepStatus.COMPLETE.value, step.duration)
         
         yield self.emit_validation_result(
             passed=validation_passed,
             fix_attempts=fix_attempts,
         )
-        
+
         return generated_files
     
     def _build_tables_context(self, context: 'AppContext') -> str:

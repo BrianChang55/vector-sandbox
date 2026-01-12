@@ -7,6 +7,7 @@ Tests the following fixes:
 3. Context Propagation: Ensures updated context flows across parallel steps
 4. Field Validation: Blocks generation when incorrect field names are detected
 """
+from termios import PENDIN
 import unittest
 from unittest.mock import Mock, patch, MagicMock
 from typing import List, Generator
@@ -18,7 +19,8 @@ from vector_app.models import (
     InternalApp, AppVersion, AppDataTable
 )
 from vector_app.services.handlers.generate_handler import GenerateHandler
-from vector_app.services.handlers.base_handler import FileChange, PlanStep, AgentEvent
+from vector_app.services.handlers.base_handler import FileChange
+from vector_app.services.planning_service import PlanStep, PlanStepStatus
 
 
 class TestSchemaLocking(TestCase):
@@ -187,7 +189,11 @@ class TestTableCodeSeparation(TestCase):
             id='step-1',
             type='data',
             title='Define data tables',
-            description='Create task table'
+            description='Create task table',
+            step_order=0,
+            status=PlanStepStatus.PENDING,
+            duration=None,
+            output=None
         )
 
         # Execute step

@@ -1,4 +1,4 @@
-from vector_app.services.handlers.diff_utils import format_with_line_numbers
+from vector_app.services.diff import format_with_line_numbers
 
 """
 Error Fix Prompts

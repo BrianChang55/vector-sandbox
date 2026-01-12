@@ -8,8 +8,9 @@ import logging
 import time
 from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
-from .base_handler import BaseHandler, AgentEvent, FileChange, PlanStep
-from .diff_utils import parse_diffs, apply_diff, format_with_line_numbers
+from .base_handler import BaseHandler, AgentEvent, FileChange
+from vector_app.services.diff import parse_diffs, apply_diff, format_with_line_numbers
+from vector_app.services.planning_service import PlanStepStatus
 
 if TYPE_CHECKING:
     from vector_app.models import InternalApp, AppVersion
@@ -365,16 +366,16 @@ class EditHandler(BaseHandler):
             
             generated_files.extend(edited_files)
             
-            step.status = "complete"
+            step.status = PlanStepStatus.COMPLETE
             step.duration = int((time.time() - step_start) * 1000)
             
-            yield self.emit_step_completed(step, 0, step.duration)
-            yield self.emit_step_complete(0, "complete", step.duration)
+            yield self.emit_step_completed(step, 0)
+            yield self.emit_step_complete(0, PlanStepStatus.COMPLETE.value, step.duration)
             
         except Exception as e:
             logger.error(f"Edit execution error: {e}")
-            step.status = "error"
-            yield self.emit_step_complete(0, "error", int((time.time() - step_start) * 1000))
+            step.status = PlanStepStatus.ERROR
+            yield self.emit_step_complete(0, PlanStepStatus.ERROR.value, int((time.time() - step_start) * 1000))
             yield self.emit_thinking(f"Error during edit: {str(e)}", "reflection")
         
         # ===== PHASE 4: VALIDATE & FIX =====
@@ -405,9 +406,9 @@ class EditHandler(BaseHandler):
                             break
             
             step.duration = int((time.time() - step_start) * 1000)
-            yield self.emit_step_completed(step, 1, step.duration)
-            yield self.emit_step_complete(1, "complete", step.duration)
-            
+            yield self.emit_step_completed(step, 1)
+            yield self.emit_step_complete(1, PlanStepStatus.COMPLETE.value, step.duration)
+
             yield self.emit_validation_result(
                 passed=validation_passed,
                 fix_attempts=fix_attempts,
