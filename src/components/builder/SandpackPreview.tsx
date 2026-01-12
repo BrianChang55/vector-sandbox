@@ -1112,6 +1112,57 @@ function BundlerReadyReporter({ onReady }: { onReady: (ready: boolean) => void }
   return null
 }
 
+/**
+ * ConsoleLogForwarder - Forwards Sandpack console logs to the browser console
+ * 
+ * This component listens for console messages from the Sandpack iframe
+ * and forwards them to the actual browser console for easier debugging.
+ */
+function ConsoleLogForwarder() {
+  const { listen } = useSandpack()
+
+  useEffect(() => {
+    const unsubscribe = listen((message) => {
+      const msg = message as any
+      
+      // Sandpack sends console logs as messages with type 'console'
+      if (msg.type === 'console' && msg.log) {
+        // msg.log is an array of log entries
+        if (Array.isArray(msg.log)) {
+          msg.log.forEach((logEntry: any) => {
+            const method = logEntry.method || 'log'
+            const data = Array.isArray(logEntry.data) ? logEntry.data : [logEntry.data]
+            
+            // Forward to browser console based on log level
+            switch (method) {
+              case 'log':
+                console.log('[Sandpack]', ...data)
+                break
+              case 'warn':
+                console.warn('[Sandpack]', ...data)
+                break
+              case 'error':
+                console.error('[Sandpack]', ...data)
+                break
+              case 'info':
+                console.info('[Sandpack]', ...data)
+                break
+              case 'debug':
+                console.debug('[Sandpack]', ...data)
+                break
+              default:
+                console.log('[Sandpack]', ...data)
+            }
+          })
+        }
+      }
+    })
+
+    return () => unsubscribe()
+  }, [listen])
+
+  return null
+}
 
 function AutoRunPreview({ filesKey }: { filesKey: string }) {
   const { sandpack } = useSandpack()
@@ -1946,6 +1997,8 @@ export function SandpackPreview({
       >
         {/* Report bundler ready state to parent (for overlay outside SandpackProvider) */}
         <BundlerReadyReporter onReady={setIsBundlerReady} />
+        {/* Forward console logs to browser console */}
+        <ConsoleLogForwarder />
         {/* Auto-run preview - files are already deferred during streaming so this is safe */}
         <AutoRunPreview filesKey={filesKey} />
         <AutoRunOnEdit />
