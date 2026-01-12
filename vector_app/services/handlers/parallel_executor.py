@@ -2,14 +2,15 @@
 Parallel Step Executor
 
 Executes independent plan steps in parallel using ThreadPoolExecutor.
-Analyzes step dependencies based on file outputs and groups steps for concurrent execution.
+Groups steps by step_order for wave-based parallel execution.
 """
 import logging
 import time
 import queue
 from concurrent.futures import ThreadPoolExecutor, Future
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Generator, List, Optional, Set, Tuple, TYPE_CHECKING
+from dataclasses import dataclass
+from itertools import groupby
+from typing import Callable, Dict, Generator, List, Optional, Set, TYPE_CHECKING
 
 from .base_handler import AgentEvent, FileChange, PlanStep
 
@@ -30,165 +31,15 @@ class StepResult:
     duration_ms: int = 0
 
 
-@dataclass
-class StepDependencyInfo:
-    """Dependency information for a step."""
-    step_index: int
-    step: PlanStep
-    # Files this step is likely to produce (based on step type and description)
-    expected_outputs: Set[str] = field(default_factory=set)
-    # Files this step depends on (from existing_files at execution time)
-    depends_on: Set[str] = field(default_factory=set)
-    # Step indices this step depends on
-    dependent_on_steps: Set[int] = field(default_factory=set)
-
-
-class StepDependencyAnalyzer:
-    """
-    Analyzes dependencies between plan steps to determine which can run in parallel.
-    
-    Uses heuristics based on step types and descriptions to infer file dependencies.
-    """
-    
-    # Step types that typically produce specific output patterns
-    STEP_OUTPUT_PATTERNS = {
-        'design': {'src/App.tsx', 'src/types.ts', 'src/types/'},
-        'component': {'src/components/'},
-        'styling': {'src/styles/', 'src/index.css'},
-        'integration': {'src/hooks/', 'src/services/', 'src/api/'},
-        'validation': set(),  # Validation doesn't produce files
-        'code': {'src/'},  # Generic code can produce anything
-    }
-    
-    # Step types that typically depend on certain outputs
-    STEP_DEPENDENCIES = {
-        'component': {'design'},  # Components depend on design
-        'integration': {'component', 'design'},  # Integration depends on components
-        'styling': {'component', 'design'},  # Styling can depend on components
-        'validation': {'component', 'integration', 'styling'},  # Validation depends on all
-    }
-    
-    def analyze(self, steps: List[PlanStep]) -> List[List[int]]:
-        """
-        Analyze step dependencies and return execution waves.
-        
-        Each wave contains step indices that can be executed in parallel.
-        Steps in later waves depend on steps in earlier waves.
-        
-        Returns:
-            List of waves, where each wave is a list of step indices.
-        """
-        if not steps:
-            return []
-        
-        # Build dependency info for each step
-        dep_info = [self._build_dependency_info(i, step, steps) for i, step in enumerate(steps)]
-        
-        # Group into waves
-        waves = self._build_execution_waves(dep_info)
-        
-        logger.info(f"Analyzed {len(steps)} steps into {len(waves)} execution waves")
-        for i, wave in enumerate(waves):
-            wave_steps = [steps[idx].title for idx in wave]
-            logger.debug(f"Wave {i}: {wave_steps}")
-        
-        return waves
-    
-    def _build_dependency_info(
-        self,
-        step_index: int,
-        step: PlanStep,
-        all_steps: List[PlanStep],
-    ) -> StepDependencyInfo:
-        """Build dependency information for a single step."""
-        info = StepDependencyInfo(
-            step_index=step_index,
-            step=step,
-        )
-        
-        # Determine expected outputs based on step type
-        step_type = step.type.lower()
-        if step_type in self.STEP_OUTPUT_PATTERNS:
-            info.expected_outputs = self.STEP_OUTPUT_PATTERNS[step_type].copy()
-        
-        # Analyze step description for hints about file outputs
-        description_lower = step.description.lower()
-        title_lower = step.title.lower()
-        
-        # Check for component-specific outputs
-        if 'component' in description_lower or 'component' in title_lower:
-            info.expected_outputs.add('src/components/')
-        
-        # Check for App.tsx modifications
-        if 'app' in description_lower or 'main' in description_lower:
-            info.expected_outputs.add('src/App.tsx')
-        
-        # Determine dependencies based on step type
-        if step_type in self.STEP_DEPENDENCIES:
-            required_types = self.STEP_DEPENDENCIES[step_type]
-            for i, other_step in enumerate(all_steps):
-                if i >= step_index:
-                    continue
-                if other_step.type.lower() in required_types:
-                    info.dependent_on_steps.add(i)
-        
-        # Always depend on design step if it exists and we're not design
-        if step_type != 'design':
-            for i, other_step in enumerate(all_steps):
-                if i >= step_index:
-                    continue
-                if other_step.type.lower() == 'design':
-                    info.dependent_on_steps.add(i)
-                    break
-        
-        return info
-    
-    def _build_execution_waves(
-        self,
-        dep_info_list: List[StepDependencyInfo],
-    ) -> List[List[int]]:
-        """
-        Build execution waves from dependency information.
-        
-        Uses a topological sort approach, grouping steps that have all
-        their dependencies satisfied in the same wave.
-        """
-        waves: List[List[int]] = []
-        completed: Set[int] = set()
-        remaining: Set[int] = set(range(len(dep_info_list)))
-        
-        while remaining:
-            # Find all steps whose dependencies are satisfied
-            current_wave = []
-            for idx in remaining:
-                info = dep_info_list[idx]
-                if info.dependent_on_steps.issubset(completed):
-                    current_wave.append(idx)
-            
-            if not current_wave:
-                # Circular dependency or error - just add remaining sequentially
-                logger.warning("Could not resolve step dependencies, executing remaining steps sequentially")
-                for idx in sorted(remaining):
-                    waves.append([idx])
-                break
-            
-            # Sort by original index to maintain some ordering preference
-            current_wave.sort()
-            waves.append(current_wave)
-            
-            # Mark as completed
-            completed.update(current_wave)
-            remaining -= set(current_wave)
-        
-        return waves
-
-
 class ParallelStepExecutor:
     """
     Executes plan steps in parallel when dependencies allow.
     
     Uses ThreadPoolExecutor for concurrent step execution and maintains
     event ordering for streaming to the frontend.
+    
+    Steps are grouped into waves by their step_order field. Steps with
+    the same step_order execute in parallel.
     """
     
     def __init__(self, max_workers: int = 5):
@@ -200,7 +51,34 @@ class ParallelStepExecutor:
                         Limited to prevent overwhelming the LLM API.
         """
         self.max_workers = max_workers
-        self.analyzer = StepDependencyAnalyzer()
+    
+    def analyze_by_step_order(self, steps: List[PlanStep]) -> List[List[int]]:
+        """
+        Group steps into execution waves by their step_order field.
+        
+        Steps with the same step_order will be placed in the same wave
+        and can execute in parallel.
+        
+        Returns:
+            List of waves, where each wave is a list of step indices.
+        """
+        if not steps:
+            return []
+        
+        # Sort indices by step_order, then group by step_order
+        indexed_steps = sorted(enumerate(steps), key=lambda x: x[1].step_order)
+        waves = [
+            [idx for idx, _ in group]
+            for _, group in groupby(indexed_steps, key=lambda x: x[1].step_order)
+        ]
+        
+        logger.info(f"Grouped {len(steps)} steps into {len(waves)} execution waves by step_order")
+        for i, wave in enumerate(waves):
+            wave_steps = [steps[idx].title for idx in wave]
+            step_order = steps[wave[0]].step_order if wave else 0
+            logger.debug(f"Wave {i} (step_order={step_order}): {wave_steps}")
+        
+        return waves
     
     def execute_steps(
         self,
@@ -229,8 +107,8 @@ class ParallelStepExecutor:
         
         generated_files = list(initial_files)
         
-        # Analyze dependencies and get execution waves
-        waves = self.analyzer.analyze(steps)
+        # Group steps into waves by step_order
+        waves = self.analyze_by_step_order(steps)
         
         # If only single-step waves, execute sequentially (no benefit from parallelization)
         if all(len(wave) == 1 for wave in waves):

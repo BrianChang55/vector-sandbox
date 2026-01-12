@@ -392,30 +392,53 @@ class GenerateHandler(BaseHandler):
             
             plan_data = json.loads(response)
             
-            return [
+            reasoning = plan_data.get("reasoning", "Building the requested app.")
+            steps_data = plan_data.get("steps", [])
+            
+            steps = [
                 PlanStep(
                     id=str(uuid.uuid4()),
                     type=s.get("type", "code"),
                     title=s.get("title", "Generate Code"),
                     description=s.get("description", ""),
+                    step_order=s.get("step_order", 0),
                 )
-                for s in plan_data.get("steps", [])
+                for s in steps_data
             ]
+            
+            # Log the plan details
+            logger.info("=" * 80)
+            logger.info("📋 GENERATED PLAN")
+            logger.info("=" * 80)
+            logger.info(f"Reasoning: {reasoning}")
+            logger.info(f"Total Steps: {len(steps)}")
+            logger.info("-" * 80)
+            for i, step in enumerate(steps, 1):
+                logger.info(f"Step {i} (order={step.step_order}): [{step.type}] {step.title}")
+                logger.info(f"  Description: {step.description}")
+            logger.info("=" * 80)
+            
+            return steps
             
         except Exception as e:
             logger.error(f"Plan generation error: {e}")
-            # Fallback to default plan
+            # Fallback to default plan with explicit step_order
             return [
                 self.create_step("design", "Design App Structure", 
-                                "Plan the component hierarchy and data flow"),
+                                "Plan the component hierarchy and data flow",
+                                step_order=0),
                 self.create_step("component", "Create Main Component", 
-                                "Build the primary app component"),
+                                "Create src/App.tsx with main app structure",
+                                step_order=1),
                 self.create_step("component", "Build UI Components", 
-                                "Create reusable UI components"),
+                                "Create src/components/ with reusable UI components",
+                                step_order=1),
                 self.create_step("integration", "Connect Data Layer", 
-                                "Integrate with the runtime API"),
+                                "Modify src/App.tsx to integrate with the runtime API",
+                                step_order=2),
                 self.create_step("styling", "Apply Styling", 
-                                "Add professional styling with Tailwind"),
+                                "Add professional styling with Tailwind to all components",
+                                step_order=3),
             ]
     
     def _stream_llm_with_validation(

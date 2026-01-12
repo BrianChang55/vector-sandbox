@@ -755,6 +755,9 @@ class AgenticService:
                 
                 plan_data = json.loads(content)
                 
+                reasoning = plan_data.get("reasoning", "Building the requested app.")
+                steps_data = plan_data.get("steps", [])
+
                 steps = [
                     PlanStep(
                         id=str(uuid.uuid4()),
@@ -762,16 +765,30 @@ class AgenticService:
                         title=s.get("title", "Generate Code"),
                         description=s.get("description", ""),
                     )
-                    for s in plan_data.get("steps", [])
+                    for s in steps_data
                 ]
                 
-                return AgentPlan(
+                plan = AgentPlan(
                     id=str(uuid.uuid4()),
                     goal=user_message,
-                    reasoning=plan_data.get("reasoning", "Building the requested app."),
+                    reasoning=reasoning,
                     steps=steps,
                     estimated_duration=len(steps) * 5000,  # 5s per step estimate
                 )
+                
+                # Log the plan details
+                logger.debug("=" * 80)
+                logger.debug("📋 GENERATED PLAN")
+                logger.debug("=" * 80)
+                logger.debug(f"Reasoning: {reasoning}")
+                logger.debug(f"Total Steps: {len(steps)}")
+                logger.debug("-" * 80)
+                for i, step in enumerate(steps, 1):
+                    logger.debug(f"Step {i}: [{step.type}] {step.title}")
+                    logger.debug(f"  Description: {step.description}")
+                logger.debug("=" * 80)
+                
+                return plan
                 
         except Exception as e:
             logger.error(f"Plan generation error: {e}")
