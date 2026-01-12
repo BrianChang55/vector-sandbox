@@ -1023,7 +1023,10 @@ Then use the table slug in dataStore calls: `dataStore.query('your-table-slug')`
 
 ### 🎯 CRITICAL: Import TypeScript Types for Type Safety
 
-**If tables exist, `src/lib/types.ts` is AUTO-GENERATED with ALL table types.**
+**🚨 DO NOT CREATE OR EDIT `src/lib/types.ts` - IT IS THE DATABASE SOURCE OF TRUTH!**
+
+The file `src/lib/types.ts` reflects the ACTUAL database schema - the ONLY fields and attributes that exist.
+**THIS IS READ-ONLY - YOU CAN ONLY IMPORT IT, NEVER CREATE OR MODIFY IT!**
 
 ✅ **ALWAYS import and use these types to ensure correct field names:**
 
@@ -1647,16 +1650,18 @@ const items: Database['{first_table}']['row'][] = result.rows;
 """
 
         typescript_types_section = f"""
-## 🎯 CRITICAL: TypeScript Types File Available
+## 🎯 CRITICAL: TypeScript Types File - Database Source of Truth
 
-The file `src/lib/types.ts` has been generated with ALL table types.
-**YOU MUST import and use these types to ensure correct field names!**
+🚨 **DO NOT CREATE OR EDIT `src/lib/types.ts` - IT REFLECTS THE ACTUAL DATABASE STATE!**
+
+The file `src/lib/types.ts` is the SOURCE OF TRUTH for what exists in the database.
+**These are the ONLY tables, fields, and types that are accessible. You CANNOT modify or add to them!**
 
 **AVAILABLE TABLES:** {table_list}
-🚨 **YOU CAN ONLY USE THESE TABLES** - DO NOT reference any other tables!
-🚨 **DO NOT CREATE NEW TABLES** - all tables are already defined!
+🚨 **THESE ARE THE ONLY TABLES THAT EXIST** - You cannot reference any other tables!
+🚨 **THESE ARE THE ONLY FIELDS THAT EXIST** - The types below show ALL accessible fields!
 
-Full content of src/lib/types.ts:
+Full content of src/lib/types.ts (DATABASE SCHEMA - READ-ONLY):
 ```typescript
 {content}
 ```
@@ -1674,9 +1679,9 @@ Full content of src/lib/types.ts:
    ❌ WRONG: `const items = result.rows`
    ✅ CORRECT: `const items: Database['tasks']['row'][] = result.rows`
 
-4. **Look at the database.ts content above** to see EXACT field names - don't guess!
+4. **The types.ts file above shows the ONLY fields that exist in the database** - these are not suggestions, they are constraints!
 
-5. **If you use a wrong field name**, validation will FAIL and you'll have to fix it!
+5. **If you reference a field that's not in types.ts**, that field does NOT EXIST and your code will fail validation!
 
 """
 
