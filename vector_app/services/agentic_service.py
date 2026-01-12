@@ -168,18 +168,18 @@ class AgenticService:
             try:
                 return build_data_store_context(app)
             except Exception as e:
-                logger.warning(f"Failed to build data store context: {e}")
+                logger.warning("Failed to build data store context: %s", e)
                 return None
 
         def build_mcp_context():
             try:
                 mcp_context = build_mcp_tools_context(app)
                 if mcp_context.has_tools:
-                    logger.info(f"MCP context: {len(mcp_context.tools)} tools available")
+                    logger.info("MCP context: %s tools available", len(mcp_context.tools))
                     return mcp_context.full_context
                 return None
             except Exception as e:
-                logger.warning(f"Failed to build MCP context: {e}")
+                logger.warning("Failed to build MCP context: %s", e)
                 return None
 
         # Execute both context builders in parallel
@@ -198,7 +198,7 @@ class AgenticService:
                     else:
                         mcp_tools_context_str = result
                 except Exception as e:
-                    logger.warning(f"Context gathering ({context_type}) failed: {e}")
+                    logger.warning("Context gathering (%s) failed: %s", context_type, e)
 
         return data_store_context, mcp_tools_context_str
 
@@ -264,7 +264,7 @@ class AgenticService:
                 )
                 return  # Intent routing handled everything
             except Exception as e:
-                logger.warning(f"Intent routing failed, falling back to legacy: {e}")
+                logger.warning("Intent routing failed, falling back to legacy: %s", e)
                 # Fall through to legacy behavior
 
         # ===== LEGACY BEHAVIOR (FALLBACK) =====
@@ -424,7 +424,7 @@ class AgenticService:
                 )
 
             except Exception as e:
-                logger.error(f"Step execution error: {e}")
+                logger.error("Step execution error: %s", e)
                 step.status = "error"
                 yield AgentEvent(
                     "step_complete",
@@ -736,8 +736,10 @@ class AgenticService:
         intent = intent_classifier.classify(user_message, app_context, model)
 
         logger.info(
-            f"Intent classified: {intent.intent.value} "
-            f"(confidence: {intent.confidence:.0%}, scope: {intent.scope})"
+            "Intent classified: %s (confidence: %.0f%%, scope: %s)",
+            intent.intent.value,
+            intent.confidence * 100,
+            intent.scope
         )
 
         yield AgentEvent(
@@ -771,7 +773,6 @@ class AgenticService:
             version=version,
             data_store_context=data_store_context,
             mcp_tools_context=matched_tools_context,
-            # matched_tools_context=matched_tools_context,
         )
 
         # ===== COMPLETE =====
@@ -933,7 +934,7 @@ class AgenticService:
                         )
 
         except Exception as e:
-            logger.error(f"Step execution error: {e}")
+            logger.error("Step execution error: %s", e)
             yield AgentEvent(
                 "thinking",
                 {
@@ -1092,10 +1093,10 @@ class AgenticService:
                                 previous_content="",
                                 lines_added=block_lines,
                                 lines_removed=0,
-                            )
                         )
+                    )
 
-        logger.info(f"Parsed {len(files)} files from AI response")
+        logger.info("Parsed %s files from AI response", len(files))
         return files
 
     def _generate_final_app(
@@ -1200,12 +1201,12 @@ class AgenticService:
                                 }
                             },
                         )
-                        logger.info(f"Generated final App.tsx: {len(app_content)} chars")
+                        logger.info("Generated final App.tsx: %s chars", len(app_content))
                     else:
                         logger.warning("Failed to generate final App.tsx, keeping existing")
 
         except Exception as e:
-            logger.error(f"Final app generation error: {e}")
+            logger.error("Final app generation error: %s", e)
             yield AgentEvent(
                 "thinking",
                 {
@@ -1282,7 +1283,7 @@ class AgenticService:
             if existing_table:
                 # Table already exists - skip to avoid duplicate snapshot errors
                 # The LLM often repeats table definitions across steps
-                logger.info(f"Table {table_def.slug} already exists, skipping")
+                logger.info("Table %s already exists, skipping", table_def.slug)
                 continue
             else:
                 # Create new table
@@ -1312,7 +1313,7 @@ class AgenticService:
                         }
                     )
                 else:
-                    logger.warning(f"Failed to create table {table_def.slug}: {errors}")
+                    logger.warning("Failed to create table %s: %s", table_def.slug, errors)
 
         return created_tables
 
