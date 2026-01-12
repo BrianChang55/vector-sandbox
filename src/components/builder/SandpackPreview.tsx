@@ -14,7 +14,6 @@ import {
 } from '@codesandbox/sandpack-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Monitor,
   Code2,
   Terminal,
   Eye,
