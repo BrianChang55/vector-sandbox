@@ -143,6 +143,14 @@ class SchemaHandler(BaseHandler):
         data_store_context = kwargs.get('data_store_context')
         mcp_tools_context = kwargs.get('mcp_tools_context')
         
+        # Debug log the context being passed to LLM
+        self.log_llm_context(
+            intent_name=intent.intent.value if intent else "MODIFY_SCHEMA",
+            handler_name="SchemaHandler",
+            data_store_context=data_store_context,
+            mcp_tools_context=mcp_tools_context,
+        )
+        
         if not app or not version:
             yield self.emit_thinking(
                 "Cannot modify schema without app context - falling back to generation",

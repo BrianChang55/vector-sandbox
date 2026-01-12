@@ -70,19 +70,21 @@ export interface TasksUpdate {
 }
 
 /**
+ * Valid table slugs
+ * Use this enum for type-safe table slug references
+ */
+export const enum TableSlug {
+  Tasks = 'tasks',
+}
+
+/**
  * Database schema mapping
  * Maps table slugs to their types
  */
 export interface Database {
-  'tasks': {
+  [TableSlug.Tasks]: {
     row: Tasks;
     insert: TasksInsert;
     update: TasksUpdate;
   };
 }
-
-/**
- * Valid table slugs
- * Use this type for type-safe table slug references
- */
-export type TableSlug = 'tasks';

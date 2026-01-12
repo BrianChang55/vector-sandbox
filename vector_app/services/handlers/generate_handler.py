@@ -75,6 +75,14 @@ class GenerateHandler(BaseHandler):
         data_store_context = kwargs.get('data_store_context')
         mcp_tools_context = kwargs.get('mcp_tools_context')
         
+        # Debug log the context being passed to LLM
+        self.log_llm_context(
+            intent_name=intent.intent.value if intent else "GENERATE_NEW",
+            handler_name="GenerateHandler",
+            data_store_context=data_store_context,
+            mcp_tools_context=mcp_tools_context,
+        )
+        
         # Import prompts
         from vector_app.prompts.agentic import (
             build_plan_prompt,
