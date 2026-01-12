@@ -863,35 +863,94 @@ App Name: {app_name}
 Available Resources: {available_resources}
 Has Existing Spec: {has_existing_spec}
 
-🚨 **CRITICAL PLANNING RULE FOR DATA STORAGE:**
+🚨 **CRITICAL PLANNING RULES:**
 
+## 1. Data Storage Rule
 If the app needs to store/manage ANY data, you MUST:
+- **First Step MUST be type="data" with step_order=0**: Define ALL table schemas needed for the ENTIRE application
+- Think through EVERY entity that needs to be stored upfront
+- **YOU CANNOT CREATE TABLES LATER** - all tables must be defined in this first step!
 
-1. **First Step MUST be type="data"**: Define ALL table schemas needed for the ENTIRE application
-   - Think through EVERY entity that needs to be stored
-   - Include ALL tables needed by ALL features upfront
-   - Examples: If building a project tracker, you might need: projects, tasks, sprints, burndown_snapshots, comments, etc.
-   - **YOU CANNOT CREATE TABLES LATER** - all tables must be defined in this first step!
+## 2. Parallel Execution with step_order
+Each step has a `step_order` (integer) that determines when it executes:
+- **step_order=0**: Executes first (always use for "data" type steps)
+- **step_order=1, 2, 3...**: Higher numbers execute after lower numbers complete
+- **Steps with the SAME step_order run IN PARALLEL** - they must be 100% independent!
 
-2. **Remaining Steps MUST be type="code"**: Build UI using ONLY the tables from step 1
-   - Code steps can ONLY use tables defined in the data step
-   - Cannot create new tables during code generation
+Rules for parallel steps (same step_order):
+- They MUST NOT create or modify the same files
+- They MUST NOT depend on each other's output
+- Each step's description MUST explicitly list the files it will create
 
-3. **Be Comprehensive**: List out EVERY table in the data step description
-   - ❌ BAD: "Create table schemas for core data"
-   - ✅ GOOD: "Create table schemas for: projects, tasks, sprints, burndown_snapshots, team_members"
+## 3. Explicit File Ownership in Descriptions
+Each step description MUST clearly state which files it will create or modify:
+- ❌ BAD: "Build UI components"
+- ✅ GOOD: "Create src/components/Header.tsx and src/components/Sidebar.tsx"
+- ❌ BAD: "Create table schemas for core data"
+- ✅ GOOD: "Create table schemas for: projects, tasks, sprints, team_members"
 
-Generate a plan with 2-4 steps (fewer for simple requests). Return JSON:
+## 4. Detailed Step Descriptions
+
+Each step description must be self-contained and specific enough that an AI executing ONLY that step can succeed without seeing other steps.
+
+### Step Type Guidelines:
+
+**"data" steps (ALWAYS step_order=0):**
+- List EVERY table that the entire app needs - you cannot add tables later!
+- For each table, specify key columns with their purpose
+- Think through relationships and foreign keys upfront
+- ✅ "Create table schemas for: projects (name, description, status, owner_id, due_date), tasks (title, project_id FK, assignee_id, status, priority, due_date, completed_at), team_members (name, email, role, avatar_url), comments (task_id FK, author_id, content, created_at)"
+- ❌ "Create the database tables" (missing table names and columns)
+
+**"component" steps:**
+- Specify EXACT file path(s) this step creates
+- Describe what data the component fetches (which table slug, what filters)
+- List key UI elements: tables, forms, modals, buttons, filters
+- Specify user interactions: click handlers, form submissions, navigation
+- ✅ "Create src/components/ProjectBoard.tsx: Fetches tasks from 'tasks' table filtered by project_id. Displays a 3-column Kanban board (To Do, In Progress, Done). Each task card shows title, assignee avatar, and due date. Clicking a card opens edit modal. Include 'Add Task' button per column that opens TaskForm with pre-set status."
+- ✅ "Create src/components/TaskForm.tsx: A modal form for creating/editing tasks. Fields: title (required, min 3 chars), description (optional textarea), status (select: todo/in_progress/done), priority (1-5 slider), due_date (date picker), assignee_id (select from team_members). Props: task?: Task for edit mode, onSave callback, onClose callback."
+- ❌ "Build the task UI" (no file paths, no specifics)
+
+**"integration" steps:**
+- List ALL files being MODIFIED (not created)
+- Describe routing structure if adding React Router
+- Explain how components connect: shared state, callbacks, context
+- ✅ "Modify src/App.tsx: Add React Router with routes: / (Dashboard), /projects (ProjectList), /projects/:id (ProjectBoard), /team (TeamMembers). Import Sidebar and render it persistently on the left. Pass navigation handlers to Sidebar. Add global state for currentUser using useState."
+- ❌ "Wire up the app" (no specifics about what's being wired)
+
+**"styling" steps:**
+- Specify which files are being styled
+- Describe the visual theme, color scheme, or design tokens
+- ✅ "Style src/components/Dashboard.tsx and src/components/StatCard.tsx: Apply dark theme with slate-800 backgrounds, rounded-xl cards with subtle ring borders, gradient accent colors (blue-500 to purple-500) for CTAs, and consistent p-6 spacing."
+- ❌ "Make it look nice" (no specifics)
+
+**"code" steps (utilities/helpers):**
+- Specify file path and exported functions
+- Describe function signatures and purposes
+- ✅ "Create src/utils/taskHelpers.ts: Export getTasksByStatus(tasks, status) to group tasks, calculateProjectProgress(tasks) returning percentage complete, getOverdueTasks(tasks) filtering by due_date < today, formatDueDate(date) returning 'Today', 'Tomorrow', or formatted date."
+- ❌ "Add helper functions" (which helpers? what do they do?)
+
+**"validation" steps:**
+- Specify which forms/inputs are being validated
+- List validation rules for each field
+- Describe how errors are displayed
+- ✅ "Add validation to src/components/TaskForm.tsx: title required (min 3, max 100 chars), due_date must be today or future, priority must be 1-5. Show inline error messages below each field in red-500 text. Disable submit button while form is invalid."
+
+### Universal Requirements:
+1. **Exact file paths** - Every step must list files it creates or modifies
+2. **Data dependencies** - Reference table slugs for any data access
+3. **Self-contained** - Another AI should be able to execute this step with ONLY its description
+
+Generate a plan with 2-5 steps. Return JSON:
 {{
-    "reasoning": "Your analysis of what needs to be built. LIST ALL DATA TABLES NEEDED.",
+    "reasoning": "<string: Your analysis of what needs to be built. LIST ALL DATA TABLES NEEDED.>",
     "steps": [
-        {{"type": "data", "title": "Define All Data Tables", "description": "Create table schemas for: [LIST EVERY TABLE NAME HERE]"}},
-        {{"type": "code", "title": "Build Core Components", "description": "..."}}
+        {{"type": "<step_type>", "step_order": <int>, "title": "<string>", "description": "<detailed description following guidelines above>"}}
     ]
 }}
 
 Step types: research, design, data, code, component, styling, integration, validation
-**REMEMBER**: ALL data tables must be created in ONE data step at the beginning!"""
+**REMEMBER**: Data steps are always step_order=0. Steps with the same step_order run in parallel and must not conflict!"""
 
 STEP_PROMPT_TEMPLATE = """Step {step_number}: {step_title}
 Description: {step_description}

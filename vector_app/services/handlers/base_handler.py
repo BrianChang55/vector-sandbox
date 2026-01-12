@@ -71,6 +71,7 @@ class PlanStep:
     type: str
     title: str
     description: str
+    step_order: int = 0  # Wave number for parallel execution (0 = first)
     status: str = "pending"
     duration: Optional[int] = None
     output: Optional[str] = None
@@ -559,13 +560,14 @@ class BaseHandler(ABC):
         
         return files
     
-    def create_step(self, step_type: str, title: str, description: str) -> PlanStep:
+    def create_step(self, step_type: str, title: str, description: str, step_order: int = 0) -> PlanStep:
         """Create a new plan step."""
         return PlanStep(
             id=str(uuid.uuid4()),
             type=step_type,
             title=title,
             description=description,
+            step_order=step_order,
         )
 
     def get_language(self, path: str) -> str:
