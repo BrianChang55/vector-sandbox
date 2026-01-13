@@ -1,0 +1,103 @@
+# Prospector configuration for Django project
+strictness: medium
+test-warnings: false
+doc-warnings: false
+member-warnings: false
+
+# Explicitly enable tools
+pylint:
+  run: true
+  disable:
+    # Django-specific false positives
+    - django-not-configured
+    - no-member  # Django models have dynamic attributes
+    - too-few-public-methods  # Django models/views often have few methods
+    - too-many-ancestors  # Django class hierarchies are deep
+    - too-many-instance-attributes  # Django models can have many fields
+    - too-many-arguments  # Common in Django views and services
+    - too-many-locals  # Common in business logic
+    - too-many-branches  # Will address gradually
+    - too-many-statements  # Will address gradually
+    - fixme  # Allow TODO comments
+    - line-too-long  # Black handles this
+
+    # Common false positives
+    - import-outside-toplevel  # Sometimes necessary for circular imports
+    - cyclic-import  # Django apps often have circular dependencies
+    - duplicate-code  # Will address manually
+    - too-many-return-statements  # Sometimes necessary
+    - inconsistent-return-statements  # Sometimes intentional
+
+    # Style preferences (Black handles formatting)
+    - missing-module-docstring  # Start permissive
+    - missing-class-docstring  # Start permissive
+    - missing-function-docstring  # Start permissive
+    - bad-continuation  # Black handles this
+    - wrong-import-order  # isort handles this
+    - ungrouped-imports  # isort handles this
+
+  options:
+    max-line-length: 110
+    load-plugins:
+      - pylint_django
+      - pylint_django.checkers.migrations
+    django-settings-module: internal_apps.settings
+
+pycodestyle:
+  run: true
+  disable:
+    - E501  # Line too long - Black handles this
+    - W503  # Line break before binary operator - Black handles this
+    - E203  # Whitespace before ':' - Black handles this
+  options:
+    max-line-length: 110
+
+pyflakes:
+  run: true
+
+mccabe:
+  run: true
+  options:
+    max-complexity: 15  # Start permissive, can reduce to 10 later
+
+pydocstyle:
+  run: false  # Disabled initially, enable later if desired
+
+pep8:
+  run: false  # Superseded by pycodestyle
+
+pyroma:
+  run: false  # Not applicable (no package setup)
+
+# File patterns to ignore
+ignore-paths:
+  - env
+  - venv
+  - .venv
+  - __pycache__
+  - migrations
+  - .git
+  - build
+  - dist
+  - *.egg-info
+  - .mypy_cache
+  - .pytest_cache
+  - .tox
+  - node_modules
+
+ignore-patterns:
+  - (^|/)\..+  # Hidden files/directories
+  - ^env/
+  - ^venv/
+  - ^\.venv/
+  - /migrations/
+  - /__pycache__/
+  - \.pyc$
+  - \.pyo$
+
+# Output configuration
+output-format: grouped
+
+# Use Django plugin features
+uses:
+  - django

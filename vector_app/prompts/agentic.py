@@ -290,6 +290,7 @@ interface ExtendedTask extends Database['tasks']['row'] {{
 }}
 ```
 
+
 **Why prefer TableSlug?** It's auto-generated from your schema, so it's always correct and provides IDE autocomplete.
 
 ### 14. ALWAYS Export Types That Other Files Need (CRITICAL)
