@@ -1,6 +1,7 @@
 """
 Services layer for business logic
 """
+
 from .resource_discovery import ResourceDiscoveryService
 from .codegen import CodegenService
 from .validation import AppSpecValidationService
@@ -28,4 +29,3 @@ __all__ = [
     'ExecutionScopeResult',
     'get_execution_scope_classifier',
 ]
-

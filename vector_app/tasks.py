@@ -186,6 +186,7 @@ def run_agentic_generation(self, job_id: str):
             model=model,
             app=app,
             version=version,
+            session=session,
         ):
             # Check for cancellation periodically
             job.refresh_from_db(fields=['status'])

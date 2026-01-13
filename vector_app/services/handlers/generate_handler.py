@@ -6,6 +6,7 @@ This handler is used when the user intent is GENERATE_NEW.
 
 OPTIMIZED: Uses parallel execution for independent plan steps when possible.
 """
+
 import json
 import logging
 import re
@@ -46,48 +47,48 @@ PROTECTED_FILES = {
 class GenerateHandler(BaseHandler):
     """
     Handler for full app generation from scratch.
-    
+
     This is the default handler used when:
     - No existing app exists
     - User explicitly asks to build/create/generate
     - Intent is classified as GENERATE_NEW
-    
+
     OPTIMIZED: Uses parallel execution for independent plan steps.
     """
-    
+
     def __init__(self):
         super().__init__()
         # Create parallel executor for step execution (max 5 concurrent steps)
         self._parallel_executor: Optional[ParallelStepExecutor] = None
-    
+
     @property
     def parallel_executor(self) -> ParallelStepExecutor:
         """Lazy-load the parallel executor."""
         if self._parallel_executor is None:
             self._parallel_executor = create_parallel_executor(max_workers=5)
         return self._parallel_executor
-    
+
     def execute(
         self,
-        intent: 'IntentResult',
-        context: 'AppContext',
+        intent: "IntentResult",
+        context: "AppContext",
         user_message: str,
         current_spec: Optional[Dict[str, Any]],
         registry_surface: Dict[str, Any],
         app_name: str,
         model: str,
-        app: Optional['InternalApp'] = None,
-        version: Optional['AppVersion'] = None,
+        app: Optional["InternalApp"] = None,
+        version: Optional["AppVersion"] = None,
         **kwargs,
     ) -> Generator[AgentEvent, None, List[FileChange]]:
         """
         Execute full app generation.
-        
+
         Follows the Research → Plan → Execute → Validate flow.
         """
         start_time = time.time()
         generated_files: List[FileChange] = []
-        
+
         # Get additional context
         data_store_context = kwargs.get('data_store_context')
         mcp_tools_context = kwargs.get('mcp_tools_context')
@@ -98,11 +99,11 @@ class GenerateHandler(BaseHandler):
             data_store_context,
             mcp_tools_context,
         )
-        
+
         # ===== PHASE 1: PLANNING =====
         yield self.emit_phase_change("planning", "Creating implementation plan...")
         yield self.emit_thinking("Breaking down the task into executable steps...", "decision")
-        
+
         # Build context for planning
         plan_context = self._build_plan_context(
             app_name=app_name,
@@ -111,10 +112,10 @@ class GenerateHandler(BaseHandler):
             context=context,
             mcp_tools_context=mcp_tools_context,
         )
-        
+
         # Generate plan
         plan_steps = self._create_plan(styled_user_message, plan_context, model)
-        
+
         yield self.emit_plan_created(
             steps=plan_steps,
             explored_dirs=3,
@@ -164,6 +165,25 @@ class GenerateHandler(BaseHandler):
                     file_paths = [str(f.path) for f in data_phase_files]
                     logger.info(f"📁 [DATA PHASE] Generated {len(data_phase_files)} file(s) for code phase: {', '.join(file_paths)}")
 
+        # Generate types.ts from existing tables if no data phase but tables exist
+        if not data_steps and app and code_steps:
+            tables = AppDataTable.objects.filter(internal_app=app).order_by('name')
+            if tables.exists():
+                logger.info(f"📝 [PRE-CODE] No data steps but {tables.count()} table(s) exist - generating types.ts")
+
+                ts_types_content = generate_typescript_types(list(tables))
+                types_file = FileChange(
+                    path='src/lib/types.ts',
+                    action='create',
+                    language='typescript',
+                    content=ts_types_content,
+                    lines_added=ts_types_content.count('\n') + 1,
+                )
+
+                data_phase_files.append(types_file)
+                yield self.emit_file_generated(types_file)
+                logger.info(f"✅ [PRE-CODE] Generated src/lib/types.ts from existing tables")
+
         # PHASE 2b: Execute code steps in parallel (NO DB changes allowed)
         if code_steps:
             logger.info(f"💻 [CODE PHASE] Executing {len(code_steps)} code step(s) in parallel with {len(data_phase_files)} existing file(s)")
@@ -185,41 +205,41 @@ class GenerateHandler(BaseHandler):
         
         # ===== PHASE 3: VALIDATE =====
         yield self.emit_phase_change("validating", "Validating generated code...")
-        
+
         validation_passed, fix_attempts = yield from self._validate_and_fix(
             generated_files=generated_files,
             model=model,
         )
-        
+
         yield self.emit_validation_result(
             passed=validation_passed,
             fix_attempts=fix_attempts,
         )
-        
+
         return generated_files
-    
+
     def _build_plan_context(
         self,
         app_name: str,
         current_spec: Optional[Dict[str, Any]],
         registry_surface: Dict[str, Any],
-        context: 'AppContext',
+        context: "AppContext",
         mcp_tools_context: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Build context dictionary for planning."""
         resources = registry_surface.get("resources", [])
-        
+
         # Build data store summary
         data_store_summary = ""
         if context.existing_tables:
             table_names = [t.name for t in context.existing_tables]
             data_store_summary = f"Tables: {', '.join(table_names)}"
-        
+
         # Build MCP tools summary
         mcp_summary = ""
         if mcp_tools_context:
             mcp_summary = "MCP integrations available"
-        
+
         return {
             "app_name": app_name,
             "has_existing_spec": current_spec is not None,
@@ -293,8 +313,8 @@ class GenerateHandler(BaseHandler):
         context: Dict[str, Any],
         registry_surface: Dict[str, Any],
         model: str,
-        app: Optional['InternalApp'] = None,
-        version: Optional['AppVersion'] = None,
+        app: Optional["InternalApp"] = None,
+        version: Optional["AppVersion"] = None,
         data_store_context: Optional[str] = None,
         mcp_tools_context: Optional[str] = None,
         allow_table_creation: bool = True,
@@ -358,7 +378,7 @@ class GenerateHandler(BaseHandler):
         )
 
         return generated_files
-    
+
     def _create_plan(
         self,
         user_message: str,
@@ -367,28 +387,31 @@ class GenerateHandler(BaseHandler):
     ) -> List[PlanStep]:
         """Create an execution plan for the app generation."""
         plan_prompt = build_plan_prompt(user_message, context)
-        
+
+        # Use Opus for planning - better reasoning for complex plan generation
+        plan_model = "anthropic/claude-opus-4"
+
         try:
             response = self.call_llm(
                 system_prompt="You are an expert at planning app development tasks.",
                 user_prompt=plan_prompt,
-                model=model,
+                model=plan_model,
                 temperature=0.3,
             )
-            
+
             # Parse JSON from response
             json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response, re.DOTALL)
             if json_match:
                 response = json_match.group(1)
-            
+
             # Clean up content
             response = response.strip()
-            if not response.startswith('{'):
-                start = response.find('{')
-                end = response.rfind('}')
+            if not response.startswith("{"):
+                start = response.find("{")
+                end = response.rfind("}")
                 if start >= 0 and end > start:
-                    response = response[start:end+1]
-            
+                    response = response[start : end + 1]
+
             plan_data = json.loads(response)
             
             reasoning = plan_data.get("reasoning", "Building the requested app.")
@@ -439,13 +462,9 @@ class GenerateHandler(BaseHandler):
                                 "Add professional styling with Tailwind to all components",
                                 step_order=3),
             ]
-    
+
     def _stream_llm_with_validation(
-        self,
-        system_prompt: str,
-        user_prompt: str,
-        model: str,
-        step_index: int
+        self, system_prompt: str, user_prompt: str, model: str, step_index: int
     ) -> Generator[tuple, None, str]:
         """Stream LLM response with real-time validation. Yields (warnings, content_so_far), returns full_content."""
         validator = self.create_streaming_validator()
@@ -536,18 +555,121 @@ class GenerateHandler(BaseHandler):
                 yield self.emit_file_generated(types_file)
                 logger.info(f"✅ [TYPESCRIPT] Generated src/lib/types.ts ({len(ts_types_content)} chars)")
 
+    def _build_tables_summary_for_system_prompt(self, app: 'InternalApp') -> str:
+        """Build concise table schema summary for system prompt."""
+        tables = AppDataTable.objects.filter(internal_app=app).order_by('name')
+        if not tables.exists():
+            return "No tables defined."
+
+        lines = []
+        for table in tables:
+            schema = table.schema_json or {}
+            columns = schema.get('columns', [])
+            field_names = [col['name'] for col in columns]
+            lines.append(f"- '{table.slug}': {', '.join(field_names)}")
+
+        return "\n".join(lines)
+
+    def _build_syntax_fix_prompt(self, original_content: str, syntax_errors: List[Dict]) -> str:
+        """Build prompt to fix TypeScript syntax errors."""
+        error_list = "\n".join(f"- {err['file']}: {err['error']}\n  Fix: {err['fix']}" for err in syntax_errors)
+
+        return f"""🚨 YOUR CODE HAS TYPESCRIPT SYNTAX ERRORS 🚨
+
+{'='*80}
+SYNTAX ERRORS FOUND:
+{'='*80}
+{error_list}
+
+{'='*80}
+HOW TO FIX THESE ERRORS:
+{'='*80}
+
+1. INLINE IMPORTS IN TYPES (ts(2499)):
+   ❌ WRONG: Database[import('./types').TableSlug.Projects]
+   ✅ CORRECT:
+   ```typescript
+   import type {{ Database, TableSlug }} from './lib/types';
+   // ... then use:
+   const items: Database[TableSlug.Projects]['row'][] = result.rows;
+   ```
+
+2. INTERFACE EXTENDS WITH INDEXED ACCESS (ts(2499)):
+   ❌ WRONG: interface Foo extends Database[TableSlug.Projects]['row']
+   ✅ CORRECT: Use type alias instead:
+   ```typescript
+   type FooBase = Database[TableSlug.Projects]['row'];
+   interface Foo extends FooBase {{
+     extraField: string;
+   }}
+   ```
+   OR use intersection types:
+   ```typescript
+   type Foo = Database[TableSlug.Projects]['row'] & {{
+     extraField: string;
+   }};
+   ```
+
+3. STRAY QUOTES:
+   ❌ WRONG: const foo = 'bar';'
+   ✅ CORRECT: const foo = 'bar';
+
+{'='*80}
+
+NOW REGENERATE THE COMPLETE, CORRECTED CODE.
+Include ALL files, not just the ones with errors.
+DO NOT output explanations - ONLY output the fixed code blocks.
+
+Original code that needs fixing:
+{original_content}
+"""
+
     def _validate_and_fix_fields(
         self,
         files: List[FileChange],
         full_content: str,
-        app: Optional['InternalApp'],
-        version: Optional['AppVersion'],
-        model: str
+        app: Optional["InternalApp"],
+        version: Optional["AppVersion"],
+        model: str,
     ) -> Generator[AgentEvent, None, List[FileChange]]:
         """Validate field names and request fix if needed. Returns final files."""
         if not (app and files):
             return files
 
+        # NEW: Check TypeScript syntax FIRST
+        code_blocks = {f.path: f.content for f in files}
+        syntax_errors = self._validate_typescript_syntax(code_blocks)
+        if syntax_errors:
+            logger.error(f"🚨 [SYNTAX VALIDATION] Found {len(syntax_errors)} syntax errors")
+            for err in syntax_errors:
+                logger.error(f"   {err['file']}: {err['error']}")
+
+            yield self.emit_thinking(
+                f"❌ TypeScript syntax errors found. Requesting fix from Claude...",
+                "reflection",
+            )
+
+            # Build fix prompt for syntax errors
+            fix_prompt = self._build_syntax_fix_prompt(full_content, syntax_errors)
+
+            # Request fix
+            fixed_content = ""
+            for chunk in self.stream_llm_response(
+                system_prompt="You are a code generation assistant. Fix TypeScript syntax errors.",
+                user_prompt=fix_prompt,
+                model=model,
+                temperature=0.3,
+            ):
+                fixed_content += chunk
+
+            # Re-parse and update files
+            files = self.parse_code_blocks(fixed_content)
+            files = exclude_protected_files(files, PROTECTED_FILES)
+            full_content = fixed_content  # Update for field validation below
+
+            yield self.emit_thinking("✅ TypeScript syntax fixed", "observation")
+
+        # Continue with EXISTING field validation logic
         validation_result = self._validate_datastore_field_names(files, app)
         if validation_result["passed"]:
             return files
@@ -568,10 +690,21 @@ class GenerateHandler(BaseHandler):
             data_store_context=data_store_context,
         )
 
+        # Build data-aware system prompt
+        all_tables_summary = self._build_tables_summary_for_system_prompt(app)
+        system_prompt = f"""You are a code generation assistant fixing field validation errors.
+
+DATABASE SCHEMA CONTEXT:
+{all_tables_summary}
+
+Your task: Fix field errors by using ONLY fields that exist in the schema above.
+Common issue: Code queries the WRONG table - check if the field exists on a different table.
+"""
+
         # Request fix from Claude
         fixed_content = ""
         for chunk in self.stream_llm_response(
-            system_prompt="You are a code generation assistant. Fix the code based on validation errors.",
+            system_prompt=system_prompt,
             user_prompt=fix_prompt,
             model=model,
             temperature=0.3,
@@ -613,8 +746,8 @@ class GenerateHandler(BaseHandler):
         existing_files: List[FileChange],
         registry_surface: Dict[str, Any],
         model: str,
-        app: Optional['InternalApp'] = None,
-        version: Optional['AppVersion'] = None,
+        app: Optional["InternalApp"] = None,
+        version: Optional["AppVersion"] = None,
         data_store_context: Optional[str] = None,
         mcp_tools_context: Optional[str] = None,
         allow_table_creation: bool = True,
@@ -624,17 +757,20 @@ class GenerateHandler(BaseHandler):
 
         # Build prompts
         prompt = build_step_prompt(
-            step, step_index, user_message, context,
-            existing_files, registry_surface, data_store_context,
+            step,
+            step_index,
+            user_message,
+            context,
+            existing_files,
+            registry_surface,
+            data_store_context,
             connectors_context=mcp_tools_context,
         )
         system_prompt = build_codegen_system_prompt(registry_surface, has_data_store)
 
         try:
             # Stream LLM response with validation
-            generator = self._stream_llm_with_validation(
-                system_prompt, prompt, model, step_index
-            )
+            generator = self._stream_llm_with_validation(system_prompt, prompt, model, step_index)
             full_content = ""
             try:
                 while True:
@@ -643,7 +779,9 @@ class GenerateHandler(BaseHandler):
                     for warning in warnings:
                         yield self.emit_streaming_warning(warning)
                     if not warnings:  # Progress signal
-                        yield self.emit_step_progress(step_index, min(90, len(full_content) // 50), "Generating code...")
+                        yield self.emit_step_progress(
+                            step_index, min(90, len(full_content) // 50), "Generating code..."
+                        )
             except StopIteration as e:
                 # Capture the return value from the generator
                 full_content = e.value if e.value is not None else full_content
@@ -673,7 +811,7 @@ class GenerateHandler(BaseHandler):
             logger.error(f"Step execution error: {e}")
             yield self.emit_thinking(f"Error during step: {str(e)}", "reflection")
             raise
-    
+
     def _parse_table_definitions(self, content: str) -> List[Dict[str, Any]]:
         """Parse TABLE_DEFINITION blocks from agent output."""
         return TableDefinitionParser.parse_table_definitions(content)
@@ -681,19 +819,19 @@ class GenerateHandler(BaseHandler):
     def _apply_table_definitions(
         self,
         table_defs: List[Dict[str, Any]],
-        app: 'InternalApp',
-        version: 'AppVersion',
+        app: "InternalApp",
+        version: "AppVersion",
     ) -> Generator[AgentEvent, None, None]:
         """Apply table definitions to the app's data store."""
         for table_def in table_defs:
-            slug = table_def['slug']
-            
+            slug = table_def["slug"]
+
             # Check if table exists
             existing = AppDataTable.objects.filter(
                 internal_app=app,
                 slug=slug,
             ).first()
-            
+
             if existing:
                 logger.info(f"Table {slug} already exists, skipping")
                 continue
@@ -717,16 +855,16 @@ class GenerateHandler(BaseHandler):
             table, errors = AppDataService.create_table_versioned(
                 app=app,
                 version=version,
-                name=table_def['name'],
+                name=table_def["name"],
                 schema=schema,
-                description=table_def.get('description', ''),
+                description=table_def.get("description", ""),
             )
-            
+
             if table:
                 yield self.emit_table_created(
                     slug=table.slug,
                     name=table.name,
-                    columns=len(table_def['columns']),
+                    columns=len(table_def["columns"]),
                 )
             else:
                 logger.warning(f"Failed to create table {slug}: {errors}")
@@ -738,32 +876,32 @@ class GenerateHandler(BaseHandler):
     ) -> Generator[AgentEvent, None, tuple]:
         """
         Validate generated code and attempt to fix errors.
-        
+
         Returns (validation_passed, fix_attempts)
         """
         MAX_FIX_ATTEMPTS = 2
         validation_passed = False
         fix_attempts = 0
-        
+
         for attempt in range(1, MAX_FIX_ATTEMPTS + 1):
             # Run TypeScript validation
             validation = self._validate_typescript(generated_files)
-            
-            if validation['passed']:
+
+            if validation["passed"]:
                 validation_passed = True
                 break
-            
+
             # Attempt to fix
             fix_attempts = attempt
-            error_count = len(validation.get('errors', []))
-            
+            error_count = len(validation.get("errors", []))
+
             yield self.emit_thinking(
                 f"Found {error_count} compilation error(s), attempting fix ({attempt}/{MAX_FIX_ATTEMPTS})",
                 "observation",
             )
-            
+
             fix_service = get_error_fix_service()
-            
+
             # Convert FileChange to the format expected by fix service
             # Note: FileChange from types.py is compatible with agentic_service
             agentic_files = [
@@ -778,29 +916,29 @@ class GenerateHandler(BaseHandler):
                 )
                 for f in generated_files
             ]
-            
+
             # Create CompilationError objects
             errors = [
                 CompilationError(
-                    file=e.get('file', ''),
-                    line=e.get('line', 0),
-                    column=e.get('column', 0),
-                    message=e.get('message', ''),
-                    code=e.get('code'),
+                    file=e.get("file", ""),
+                    line=e.get("line", 0),
+                    column=e.get("column", 0),
+                    message=e.get("message", ""),
+                    code=e.get("code"),
                 )
-                for e in validation.get('errors', [])
+                for e in validation.get("errors", [])
             ]
-            
+
             # Run fix service
             fixed_files_by_path = {}
-            
+
             fix_gen = fix_service.fix_errors(
                 files=agentic_files,
                 errors=errors,
                 model=model,
                 attempt=attempt,
             )
-            
+
             while True:
                 try:
                     event = next(fix_gen)
@@ -819,7 +957,7 @@ class GenerateHandler(BaseHandler):
                             )
                 except StopIteration:
                     break
-            
+
             # Apply fixed files
             if fixed_files_by_path:
                 updated = []
@@ -830,14 +968,13 @@ class GenerateHandler(BaseHandler):
                         updated.append(f)
                 generated_files.clear()
                 generated_files.extend(updated)
-        
+
         # Final validation check
         if not validation_passed:
             final = self._validate_typescript(generated_files)
-            validation_passed = final['passed']
-        
-        return (validation_passed, fix_attempts)
+            validation_passed = final["passed"]
 
+        return (validation_passed, fix_attempts)
 
     def _validate_typescript(self, files: List[FileChange]) -> Dict[str, Any]:
         """

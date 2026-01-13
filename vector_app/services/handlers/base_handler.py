@@ -4,6 +4,7 @@ Base Handler
 Abstract base class for all intent handlers.
 Provides common utilities for AgentEvent generation and LLM interactions.
 """
+
 import json
 import logging
 import re
@@ -15,11 +16,12 @@ from typing import Any, Dict, Generator, List, Optional, Set, TYPE_CHECKING
 from django.conf import settings
 import httpx
 
+from vector_app.services.error_fix_service import get_error_fix_service
+from vector_app.services.planning_service import PlanStep
 from vector_app.services.types import (
     FileChange,
     AgentEvent,
 )
-from vector_app.services.planning_service import PlanStep
 from vector_app.services.validation_service import get_validation_service
 
 if TYPE_CHECKING:
@@ -64,7 +66,7 @@ def exclude_protected_files(
 class StreamingValidator:
     """
     Validates code during streaming to catch issues early.
-    
+
     Performs lightweight checks on accumulated content to detect:
     - Excessive 'any' type usage
     - Debug console.log statements
@@ -72,86 +74,88 @@ class StreamingValidator:
     - Bracket imbalance
     - Empty catch blocks
     """
-    
+
     def __init__(self):
         self.warnings: List[str] = []
         self.any_count = 0
         self.console_log_count = 0
         self.todo_count = 0
         self._last_check_length = 0
-    
+
     def check_chunk(self, chunk: str, accumulated: str) -> List[str]:
         """
         Check a new chunk for issues.
-        
+
         Only performs expensive checks periodically to avoid overhead.
-        
+
         Returns list of new warnings (if any).
         """
         new_warnings = []
-        
+
         # Quick checks on the new chunk
-        if 'as any' in chunk:
-            self.any_count += chunk.count('as any')
+        if "as any" in chunk:
+            self.any_count += chunk.count("as any")
             if self.any_count > 3:
                 warning = f"Excessive 'as any' usage ({self.any_count}x) - consider proper types"
                 if warning not in self.warnings:
                     self.warnings.append(warning)
                     new_warnings.append(warning)
-        
-        if 'console.log' in chunk:
-            self.console_log_count += chunk.count('console.log')
+
+        if "console.log" in chunk:
+            self.console_log_count += chunk.count("console.log")
             if self.console_log_count > 2:
-                warning = f"Debug console.log statements ({self.console_log_count}x) - remove before production"
+                warning = (
+                    f"Debug console.log statements ({self.console_log_count}x) - remove before production"
+                )
                 if warning not in self.warnings:
                     self.warnings.append(warning)
                     new_warnings.append(warning)
-        
-        if '// TODO' in chunk or '// FIXME' in chunk:
+
+        if "// TODO" in chunk or "// FIXME" in chunk:
             self.todo_count += 1
             warning = "TODO/FIXME placeholder detected - ensure completion"
             if warning not in self.warnings:
                 self.warnings.append(warning)
                 new_warnings.append(warning)
-        
+
         # Periodic deeper checks (every 2000 chars)
         if len(accumulated) - self._last_check_length > 2000:
             self._last_check_length = len(accumulated)
-            
+
             # Check for empty catch blocks
-            if 'catch' in accumulated and 'catch (e) {}' in accumulated.replace(' ', ''):
+            if "catch" in accumulated and "catch (e) {}" in accumulated.replace(" ", ""):
                 warning = "Empty catch block detected - add error handling"
                 if warning not in self.warnings:
                     self.warnings.append(warning)
                     new_warnings.append(warning)
-        
+
         return new_warnings
-    
+
     def final_check(self, content: str) -> List[str]:
         """
         Perform final validation checks on complete content.
-        
+
         Returns list of final warnings.
         """
         final_warnings = []
-        
+
         # Check bracket balance
-        open_braces = content.count('{')
-        close_braces = content.count('}')
+        open_braces = content.count("{")
+        close_braces = content.count("}")
         if abs(open_braces - close_braces) > 2:
             final_warnings.append(f"Bracket imbalance: {open_braces} open vs {close_braces} close")
-        
-        open_parens = content.count('(')
-        close_parens = content.count(')')
+
+        open_parens = content.count("(")
+        close_parens = content.count(")")
         if abs(open_parens - close_parens) > 2:
             final_warnings.append(f"Parenthesis imbalance: {open_parens} open vs {close_parens} close")
-        
+
         # Check for incomplete code patterns
-        if '...' in content and 'rest' not in content.lower():
+        if "..." in content and "rest" not in content.lower():
             final_warnings.append("Ellipsis '...' found - may indicate incomplete code")
-        
+
         return final_warnings
-    
+
     def get_all_warnings(self) -> List[str]:
         """Get all accumulated warnings."""
         return self.warnings.copy()
@@ -160,19 +164,20 @@ class StreamingValidator:
 class BaseHandler(ABC):
     """
     Abstract base class for intent handlers.
-    
+
     All handlers must implement the execute() method which yields AgentEvent
     objects for the streaming response.
     """
-    
+
     OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-    
+
     def __init__(self):
-        self.api_key = getattr(settings, 'OPENROUTER_API_KEY', None) or \
-                      getattr(settings, 'OPENAI_API_KEY', None)
-        self.app_name = getattr(settings, 'OPENROUTER_APP_NAME', 'Internal Apps Builder')
-        self.site_url = getattr(settings, 'BASE_URL', 'http://localhost:8001')
-    
+        self.api_key = getattr(settings, "OPENROUTER_API_KEY", None) or getattr(
+            settings, "OPENAI_API_KEY", None
+        )
+        self.app_name = getattr(settings, "OPENROUTER_APP_NAME", "Internal Apps Builder")
+        self.site_url = getattr(settings, "BASE_URL", "http://localhost:8001")
+
     def _build_headers(self) -> Dict[str, str]:
         """Build API headers for OpenRouter."""
         return {
@@ -181,24 +186,24 @@ class BaseHandler(ABC):
             "HTTP-Referer": self.site_url,
             "X-Title": self.app_name,
         }
-    
+
     @abstractmethod
     def execute(
         self,
-        intent: 'IntentResult',
-        context: 'AppContext',
+        intent: "IntentResult",
+        context: "AppContext",
         user_message: str,
         current_spec: Optional[Dict[str, Any]],
         registry_surface: Dict[str, Any],
         app_name: str,
         model: str,
-        app: Optional['InternalApp'] = None,
-        version: Optional['AppVersion'] = None,
+        app: Optional["InternalApp"] = None,
+        version: Optional["AppVersion"] = None,
         **kwargs,
     ) -> Generator[AgentEvent, None, List[FileChange]]:
         """
         Execute the handler for the given intent.
-        
+
         Args:
             intent: Classified intent result
             context: App context from analyzer
@@ -209,31 +214,37 @@ class BaseHandler(ABC):
             model: LLM model to use
             app: Optional InternalApp instance
             version: Optional AppVersion instance
-            
+
         Yields:
             AgentEvent objects for streaming
-            
+
         Returns:
             List of FileChange objects representing all changes
         """
         pass
-    
+
     # ===== Common Event Emitters =====
-    
+
     def emit_phase_change(self, phase: str, message: str) -> AgentEvent:
         """Emit a phase change event."""
-        return AgentEvent("phase_change", {
-            "phase": phase,
-            "message": message,
-        })
-    
+        return AgentEvent(
+            "phase_change",
+            {
+                "phase": phase,
+                "message": message,
+            },
+        )
+
     def emit_thinking(self, content: str, thinking_type: str = "reasoning") -> AgentEvent:
         """Emit a thinking event."""
-        return AgentEvent("thinking", {
-            "content": content,
-            "type": thinking_type,
-        })
-    
+        return AgentEvent(
+            "thinking",
+            {
+                "content": content,
+                "type": thinking_type,
+            },
+        )
+
     def emit_plan_created(
         self,
         steps: List[PlanStep],
@@ -249,21 +260,27 @@ class BaseHandler(ABC):
             "steps": [asdict(s) for s in steps],
             "estimated_duration": len(steps) * 5000,
         }
-        return AgentEvent("plan_created", {
-            "plan": plan,
-            "steps": [asdict(s) for s in steps],
-            "exploredDirectories": explored_dirs,
-            "exploredFiles": explored_files,
-            "searches": searches,
-        })
-    
+        return AgentEvent(
+            "plan_created",
+            {
+                "plan": plan,
+                "steps": [asdict(s) for s in steps],
+                "exploredDirectories": explored_dirs,
+                "exploredFiles": explored_files,
+                "searches": searches,
+            },
+        )
+
     def emit_step_started(self, step: PlanStep, step_index: int) -> AgentEvent:
         """Emit step started event."""
-        return AgentEvent("step_started", {
-            "stepId": step.id,
-            "stepIndex": step_index,
-        })
-    
+        return AgentEvent(
+            "step_started",
+            {
+                "stepId": step.id,
+                "stepIndex": step_index,
+            },
+        )
+
     def emit_step_start(self, step: PlanStep, step_index: int) -> AgentEvent:
         """Emit step start event (legacy format)."""
         return AgentEvent("step_start", {
@@ -281,34 +298,46 @@ class BaseHandler(ABC):
     
     def emit_step_complete(self, step_index: int, status: str, duration: int) -> AgentEvent:
         """Emit step complete event (legacy format)."""
-        return AgentEvent("step_complete", {
-            "step_index": step_index,
-            "status": status,
-            "duration": duration,
-        })
-    
+        return AgentEvent(
+            "step_complete",
+            {
+                "step_index": step_index,
+                "status": status,
+                "duration": duration,
+            },
+        )
+
     def emit_step_progress(self, step_index: int, progress: int, message: str) -> AgentEvent:
         """Emit step progress event."""
-        return AgentEvent("step_progress", {
-            "step_index": step_index,
-            "progress": min(100, progress),
-            "message": message,
-        })
-    
+        return AgentEvent(
+            "step_progress",
+            {
+                "step_index": step_index,
+                "progress": min(100, progress),
+                "message": message,
+            },
+        )
+
     def emit_file_generated(self, file: FileChange) -> AgentEvent:
         """Emit file generated event."""
-        return AgentEvent("file_generated", {
-            "file": file.to_dict(),
-        })
-    
+        return AgentEvent(
+            "file_generated",
+            {
+                "file": file.to_dict(),
+            },
+        )
+
     def emit_table_created(self, slug: str, name: str, columns: int) -> AgentEvent:
         """Emit table created event."""
-        return AgentEvent("table_created", {
-            "slug": slug,
-            "name": name,
-            "columns": columns,
-        })
-    
+        return AgentEvent(
+            "table_created",
+            {
+                "slug": slug,
+                "name": name,
+                "columns": columns,
+            },
+        )
+
     def emit_table_updated(
         self,
         slug: str,
@@ -318,16 +347,19 @@ class BaseHandler(ABC):
         modified: List[str] = None,
     ) -> AgentEvent:
         """Emit table updated event."""
-        return AgentEvent("table_updated", {
-            "slug": slug,
-            "name": name,
-            "changes": {
-                "added": added or [],
-                "removed": removed or [],
-                "modified": modified or [],
+        return AgentEvent(
+            "table_updated",
+            {
+                "slug": slug,
+                "name": name,
+                "changes": {
+                    "added": added or [],
+                    "removed": removed or [],
+                    "modified": modified or [],
+                },
             },
-        })
-    
+        )
+
     def emit_validation_result(
         self,
         passed: bool,
@@ -336,28 +368,34 @@ class BaseHandler(ABC):
         fix_attempts: int = 0,
     ) -> AgentEvent:
         """Emit validation result event."""
-        return AgentEvent("validation_result", {
-            "passed": passed,
-            "errors": errors or [],
-            "warnings": warnings or [],
-            "fix_attempts": fix_attempts,
-        })
-    
+        return AgentEvent(
+            "validation_result",
+            {
+                "passed": passed,
+                "errors": errors or [],
+                "warnings": warnings or [],
+                "fix_attempts": fix_attempts,
+            },
+        )
+
     # ===== Streaming Validation =====
-    
+
     def create_streaming_validator(self) -> StreamingValidator:
         """Create a new streaming validator instance."""
         return StreamingValidator()
-    
+
     def emit_streaming_warning(self, warning: str) -> AgentEvent:
         """Emit a warning detected during streaming."""
-        return AgentEvent("streaming_warning", {
-            "warning": warning,
-            "severity": "low",
-        })
-    
+        return AgentEvent(
+            "streaming_warning",
+            {
+                "warning": warning,
+                "severity": "low",
+            },
+        )
+
     # ===== LLM Utilities =====
-    
+
     def stream_llm_response(
         self,
         system_prompt: str,
@@ -368,12 +406,12 @@ class BaseHandler(ABC):
     ) -> Generator[str, None, str]:
         """
         Stream LLM response and yield chunks.
-        
+
         Yields individual content chunks as they arrive.
         Returns the full accumulated content.
         """
         full_content = ""
-        
+
         try:
             with httpx.Client(timeout=timeout) as client:
                 with client.stream(
@@ -391,34 +429,34 @@ class BaseHandler(ABC):
                     },
                 ) as response:
                     response.raise_for_status()
-                    
+
                     for line in response.iter_lines():
                         if not line:
                             continue
-                        
+
                         if line.startswith("data: "):
                             data = line[6:]
                             if data == "[DONE]":
                                 break
-                            
+
                             try:
                                 chunk_data = json.loads(data)
                                 delta = chunk_data.get("choices", [{}])[0].get("delta", {})
                                 content = delta.get("content", "")
-                                
+
                                 if content:
                                     full_content += content
                                     yield content
-                                    
+
                             except json.JSONDecodeError:
                                 continue
-                                
+
         except Exception as e:
             logger.error(f"LLM streaming error: {e}")
             raise
-        
+
         return full_content
-    
+
     def call_llm(
         self,
         system_prompt: str,
@@ -429,7 +467,7 @@ class BaseHandler(ABC):
     ) -> str:
         """
         Make a non-streaming LLM call.
-        
+
         Returns the complete response content.
         """
         try:
@@ -447,20 +485,20 @@ class BaseHandler(ABC):
                     },
                 )
                 response.raise_for_status()
-                
+
                 result = response.json()
                 return result["choices"][0]["message"]["content"]
-                
+
         except Exception as e:
             logger.error(f"LLM call error: {e}")
             raise
-    
+
     # ===== Code Parsing Utilities =====
-    
+
     def parse_code_blocks(self, content: str) -> List[FileChange]:
         """
         Parse code blocks from LLM response into FileChange objects.
-        
+
         Supports multiple formats:
         - ```filepath:path/to/file.ext
         - ```path/to/file.ext
@@ -468,80 +506,93 @@ class BaseHandler(ABC):
         """
         files = []
         seen_paths = set()
-        
+
         patterns = [
             # Pattern 1: ```filepath:path/to/file.ext (highest priority)
-            r'```filepath:([^\n`]+)\n(.*?)```',
+            r"```filepath:([^\n`]+)\n(.*?)```",
             # Pattern 2: ```src/path/to/file.ext (explicit src path)
-            r'```(src/[^\n`]+\.[a-zA-Z]+)\n(.*?)```',
+            r"```(src/[^\n`]+\.[a-zA-Z]+)\n(.*?)```",
             # Pattern 3: ```path/to/file.ext (with extension, but not filepath:)
-            r'```([a-zA-Z][^\n`]*\.[a-zA-Z]+)\n(.*?)```',
+            r"```([a-zA-Z][^\n`]*\.[a-zA-Z]+)\n(.*?)```",
             # Pattern 4: // filepath: path/to/file.ext followed by code
-            r'// filepath:\s*([^\n]+)\n(.*?)(?=// filepath:|```|$)',
+            r"// filepath:\s*([^\n]+)\n(.*?)(?=// filepath:|```|$)",
         ]
-        
+
         for pattern in patterns:
             matches = re.findall(pattern, content, re.DOTALL)
             for filepath, code in matches:
                 filepath = filepath.strip()
                 code = code.strip()
-                
+
                 # Remove any filepath: prefix that might have been captured
-                if filepath.startswith('filepath:'):
+                if filepath.startswith("filepath:"):
                     filepath = filepath[9:].strip()
-                
+
                 # Skip language-only markers
-                if filepath.lower() in ('tsx', 'ts', 'js', 'jsx', 'css', 'json', 'html',
-                                        'typescript', 'javascript', 'react', 'python'):
+                if filepath.lower() in (
+                    "tsx",
+                    "ts",
+                    "js",
+                    "jsx",
+                    "css",
+                    "json",
+                    "html",
+                    "typescript",
+                    "javascript",
+                    "react",
+                    "python",
+                ):
                     continue
-                
+
                 # Skip if path contains 'filepath:' (malformed)
-                if 'filepath:' in filepath:
+                if "filepath:" in filepath:
                     continue
-                
+
                 # Skip if no actual code
                 if not code or len(code) < 10:
                     continue
-                
+
                 # Normalize the file path
                 normalized_path = filepath
-                if normalized_path.startswith('/'):
+                if normalized_path.startswith("/"):
                     normalized_path = normalized_path[1:]
-                if not normalized_path.startswith('src/'):
+                if not normalized_path.startswith("src/"):
                     normalized_path = f"src/{normalized_path}"
-                
+
                 # Skip if we already have this file
                 if normalized_path in seen_paths:
                     continue
                 seen_paths.add(normalized_path)
-                
+
                 # Determine language from extension
-                ext = normalized_path.split('.')[-1] if '.' in normalized_path else 'tsx'
+                ext = normalized_path.split(".")[-1] if "." in normalized_path else "tsx"
                 lang_map = {
-                    'tsx': 'tsx',
-                    'ts': 'ts',
-                    'jsx': 'tsx',
-                    'js': 'ts',
-                    'css': 'css',
-                    'json': 'json',
-                    'html': 'html',
+                    "tsx": "tsx",
+                    "ts": "ts",
+                    "jsx": "tsx",
+                    "js": "ts",
+                    "css": "css",
+                    "json": "json",
+                    "html": "html",
                 }
-                
+
                 # Clean up the code - remove trailing ```
-                code = re.sub(r'```\s*$', '', code).strip()
-                
+                code = re.sub(r"```\s*$", "", code).strip()
+
                 # For new files: lines_added = total lines, lines_removed = 0
-                lines_in_code = code.count('\n') + (1 if code and not code.endswith('\n') else 0)
-                
-                files.append(FileChange(
-                    path=normalized_path,
-                    action='create',
-                    language=lang_map.get(ext, 'tsx'),
-                    content=code,
-                    lines_added=lines_in_code,
-                    lines_removed=0,
-                ))
-        
+                lines_in_code = code.count("\n") + (1 if code and not code.endswith("\n") else 0)
+
+                files.append(
+                    FileChange(
+                        path=normalized_path,
+                        action="create",
+                        language=lang_map.get(ext, "tsx"),
+                        content=code,
+                        lines_added=lines_in_code,
+                        lines_removed=0,
+                    )
+                )
+
         return files
     
     def create_step(self, step_type: str, title: str, description: str, step_order: int = 0) -> PlanStep:
@@ -557,16 +608,16 @@ class BaseHandler(ABC):
     def get_language(self, path: str) -> str:
         """Determine language from file extension."""
         lang_map = {
-            'tsx': 'tsx',
-            'ts': 'ts',
-            'jsx': 'tsx',
-            'js': 'ts',
-            'css': 'css',
-            'json': 'json',
-            'html': 'html',
+            "tsx": "tsx",
+            "ts": "ts",
+            "jsx": "tsx",
+            "js": "ts",
+            "css": "css",
+            "json": "json",
+            "html": "html",
         }
-        ext = path.split('.')[-1] if '.' in path else 'tsx'
-        return lang_map.get(ext, 'tsx')
+        ext = path.split(".")[-1] if "." in path else "tsx"
+        return lang_map.get(ext, "tsx")
 
     def log_llm_context(
         self,
@@ -589,7 +640,7 @@ class BaseHandler(ABC):
         )
 
     # ===== Validation Utilities =====
-    
+
     def validate_and_fix(
         self,
         generated_files: List[FileChange],
@@ -598,53 +649,51 @@ class BaseHandler(ABC):
     ) -> Generator[AgentEvent, None, tuple]:
         """
         Validate generated TypeScript code and attempt to fix errors.
-        
+
         Args:
             generated_files: List of files to validate
             model: LLM model for error fixing
             max_attempts: Maximum fix attempts
-            
+
         Yields:
             AgentEvent objects for progress
-            
+
         Returns:
             Tuple of (validation_passed, fix_attempts)
         """
-        from vector_app.services.error_fix_service import get_error_fix_service
-        
         validation_service = get_validation_service()
         validation_passed = False
         fix_attempts = 0
-        
+
         for attempt in range(1, max_attempts + 1):
             # Run TypeScript validation
             validation = validation_service.validate_typescript(generated_files)
-            
+
             if validation.passed:
                 validation_passed = True
                 break
-            
+
             # Attempt to fix
             fix_attempts = attempt
             error_count = len(validation.errors)
-            
+
             yield self.emit_thinking(
                 f"Found {error_count} compilation error(s), attempting fix ({attempt}/{max_attempts})",
                 "observation",
             )
-            
+
             fix_service = get_error_fix_service()
-            
+
             # Run fix service
             fixed_files_by_path = {}
-            
+
             fix_gen = fix_service.fix_errors(
                 files=generated_files,
                 errors=validation.errors,
                 model=model,
                 attempt=attempt,
             )
-            
+
             while True:
                 try:
                     event = next(fix_gen)
@@ -663,28 +712,26 @@ class BaseHandler(ABC):
                             )
                 except StopIteration:
                     break
-            
+
             # Apply fixed files
             if fixed_files_by_path:
                 for i, f in enumerate(generated_files):
                     if f.path in fixed_files_by_path:
                         generated_files[i] = fixed_files_by_path[f.path]
-        
+
         # Final validation check
         if not validation_passed:
             final = validation_service.validate_typescript(generated_files)
             validation_passed = final.passed
-        
+
         return (validation_passed, fix_attempts)
 
     def _validate_datastore_field_names(
-        self,
-        files: List[FileChange],
-        app: Optional['InternalApp']
+        self, files: List[FileChange], app: Optional["InternalApp"]
     ) -> Dict[str, Any]:
         """
         Validate that generated code uses exact field names from schemas.
-        
+
         Orchestrates business logic by coordinating validation service methods.
 
         Returns:
@@ -700,7 +747,9 @@ class BaseHandler(ABC):
         if not table_schemas:
             return {"passed": True, "errors": [], "warnings": []}
 
-        logger.info(f"🔍 [FIELD VALIDATION] Validating {len(files)} files against {len(table_schemas)} table schemas")
+        logger.info(
+            f"🔍 [FIELD VALIDATION] Validating {len(files)} files against {len(table_schemas)} table schemas"
+        )
 
         # Collect all validation errors
         errors = []
@@ -731,21 +780,133 @@ class BaseHandler(ABC):
             "warnings": warnings,
         }
 
-    def _build_field_fix_prompt(
+    def _validate_typescript_syntax(self, code_blocks: Dict[str, str]) -> List[Dict[str, str]]:
+        """Validate TypeScript syntax for common errors."""
+        errors = []
+
+        for file_path, content in code_blocks.items():
+            # Error 1: Inline import in indexed access
+            if re.search(r'Database\[import\([\'"]', content):
+                errors.append({
+                    'file': file_path,
+                    'error': 'Invalid syntax: Cannot use inline import() in indexed access type',
+                    'pattern': 'Database[import(...).TableSlug.X]',
+                    'fix': 'Import TableSlug first, then use: Database[TableSlug.X]'
+                })
+
+            # Error 2: Stray quotes at line end
+            if re.search(r';[\s]*[\'"][\s]*$', content, re.MULTILINE):
+                errors.append({
+                    'file': file_path,
+                    'error': 'Stray quote at end of line',
+                    'pattern': ";' or ;\"",
+                    'fix': 'Remove the extra quote - line should end with just ;'
+                })
+
+            # Error 3: Using extends with indexed access (INVALID TypeScript - ts(2499))
+            if re.search(r'interface\s+\w+\s+extends\s+Database\[', content):
+                errors.append({
+                    'file': file_path,
+                    'error': 'Invalid TypeScript: interface cannot extend indexed access type (ts(2499))',
+                    'pattern': 'interface Foo extends Database[TableSlug.X]',
+                    'fix': 'Use type alias instead: type Foo = Database[TableSlug.X] & { extra: string }'
+                })
+
+        return errors
+
+    def _extract_all_table_schemas(self, data_store_context: str) -> Dict[str, List[str]]:
+        """Extract table names and their fields from data_store_context."""
+        tables = {}
+
+        # Parse data_store_context for table definitions
+        # Format: Table 'table-name': [field1, field2, ...]
+        table_pattern = r"Table '([^']+)'[^\[]*\[([^\]]+)\]"
+        for match in re.finditer(table_pattern, data_store_context):
+            table_name = match.group(1)
+            fields_str = match.group(2)
+            fields = [f.strip().strip("'\"") for f in fields_str.split(',')]
+            tables[table_name] = fields
+
+        return tables
+
+    def _build_cross_table_guidance(
         self,
-        original_content: str,
         errors: List[str],
-        data_store_context: Optional[str] = None
+        all_tables: Dict[str, List[str]]
+    ) -> str:
+        """Build guidance showing if missing fields exist on other tables."""
+        guidance_parts = []
+
+        for error in errors:
+            # Parse error: "filter references unknown field 'X' for table 'Y'"
+            match = re.search(r"unknown field '([^']+)' for table '([^']+)'", error)
+            if not match:
+                continue
+
+            field_name = match.group(1)
+            table_name = match.group(2)
+
+            # Search for this field in OTHER tables
+            tables_with_field = [
+                tbl for tbl, fields in all_tables.items()
+                if field_name in fields and tbl != table_name
+            ]
+
+            if tables_with_field:
+                guidance_parts.append(
+                    f"⚠️  Field '{field_name}' doesn't exist on '{table_name}' table\n"
+                    f"   BUT it EXISTS on these tables: {', '.join(tables_with_field)}\n"
+                    f"   → You may be querying the WRONG table!\n"
+                    f"   → Consider: Should you query one of these tables instead?\n"
+                )
+            else:
+                valid_fields = all_tables.get(table_name, [])
+                if valid_fields:
+                    guidance_parts.append(
+                        f"⚠️  Field '{field_name}' doesn't exist ANYWHERE in your schema\n"
+                        f"   → This is field hallucination - you invented a field that doesn't exist\n"
+                        f"   → Use one of these fields from '{table_name}': {', '.join(valid_fields[:5])}\n"
+                    )
+
+        return "\n".join(guidance_parts) if guidance_parts else "See errors above for details."
+
+    def _build_full_schema_section(self, all_tables: Dict[str, List[str]]) -> str:
+        """Build a section showing ALL tables and their fields."""
+        if not all_tables:
+            return "No schema information available."
+
+        lines = []
+        for table_name, fields in sorted(all_tables.items()):
+            lines.append(f"📋 Table '{table_name}':")
+            lines.append(f"   Fields: {', '.join(fields)}")
+            lines.append("")
+
+        return "\n".join(lines)
+
+    def _build_field_fix_prompt(
+        self, original_content: str, errors: List[str], data_store_context: Optional[str] = None
     ) -> str:
         """Build a prompt to ask Claude to fix field name errors."""
         error_list = "\n".join(f"- {error}" for error in errors)
 
         # Check if any errors are about missing tables
-        has_missing_tables = any('non-existent table' in error or 'not found' in error.lower() for error in errors)
+        has_missing_tables = any(
+            "non-existent table" in error or "not found" in error.lower() for error in errors
+        )
 
-        # Include data_store_context so Claude sees the current schema
-        schema_section = ""
+        # NEW: Extract ALL table schemas and build cross-table guidance
+        all_tables_schema = {}
+        cross_table_guidance = ""
+        full_schema_section = ""
+
         if data_store_context:
+            all_tables_schema = self._extract_all_table_schemas(data_store_context)
+            cross_table_guidance = self._build_cross_table_guidance(errors, all_tables_schema)
+            full_schema_section = self._build_full_schema_section(all_tables_schema)
+
+        # Legacy schema section (keep for backwards compatibility if no tables extracted)
+        schema_section = ""
+        if data_store_context and not full_schema_section:
             schema_section = f"\n\n**CURRENT DATABASE SCHEMA:**\n{data_store_context}\n"
 
         missing_table_instructions = ""
@@ -770,34 +931,93 @@ Some errors indicate you're trying to use tables that don't exist yet. To fix th
 **IMPORTANT:** If you need to create tables, output the TABLE_DEFINITION blocks FIRST, then the code blocks.
 """
 
-        return f"""Your previous code generation had field name validation errors. You used incorrect field names that don't match the database schema.
+        # Use enhanced sections if available, otherwise fall back to legacy
+        understanding_section = cross_table_guidance if cross_table_guidance else ""
+        schema_display = full_schema_section if full_schema_section else schema_section
 
-**ERRORS FOUND:**
+        return f"""
+🚨🚨🚨 YOUR CODE HAS CRITICAL FIELD ERRORS 🚨🚨🚨
+
+You generated code with field validation errors. You MUST fix ALL of them.
+
+{'='*80}
+ERRORS FOUND:
+{'='*80}
 {error_list}
-{schema_section}
+
+{'='*80}
+UNDERSTANDING THE ERRORS:
+{'='*80}
+{understanding_section if understanding_section else "See the schema below to find correct field names."}
+
+{'='*80}
+COMPLETE DATABASE SCHEMA (SOURCE OF TRUTH):
+{'='*80}
+{schema_display}
 {missing_table_instructions}
-**🚨 CRITICAL RULES TO FIX THESE ERRORS:**
 
-1. **EACH TABLE HAS ITS OWN FIELDS** - You CANNOT use fields from one table when querying another!
-   - Example: `sprint_number` belongs to the `sprints` table, NOT the `projects` table
-   - You MUST check the schema above to see which fields belong to which table
+{'='*80}
+HOW TO FIX - FOLLOW THESE EXACT STEPS:
+{'='*80}
 
-2. **USE EXACT FIELD NAMES** - Do NOT rename or transform field names
-   - If schema defines `title`, use `title` (not `taskTitle`, `task_title`, or `titleText`)
-   - If schema defines `total_story_points`, use `total_story_points` (not `totalStoryPoints`)
+1. READ THE ERROR CAREFULLY
+   - If it says "field 'X' doesn't exist on table 'Y'"
+   - Check: Does field 'X' exist on a DIFFERENT table?
+   - Ask: Am I querying the RIGHT table for what I'm trying to do?
 
-3. **CHECK WHICH TABLE YOU'RE QUERYING** - Before using a field, verify it exists in THAT specific table
-   - When calling `dataStore.query('projects', ...)`, you can ONLY use fields from the `projects` table
-   - Look at the schema above - each table lists its available fields
+2. COMMON MISTAKE - QUERYING WRONG TABLE
+   ❌ WRONG: dataStore.query('projects', {{ filters: [{{ field: 'project_id', op: 'eq', value: 'x' }}] }})
+   ⚠️  Problem: 'projects' table doesn't have 'project_id' field
+   ⚠️  Why: 'project_id' is used by OTHER tables to REFERENCE projects, not by projects themselves
 
-**YOUR TASK:**
-Please regenerate the ENTIRE code fixing ALL field name errors. Pay special attention to:
-- Creating any missing tables FIRST (if errors mention "non-existent table") using TABLE_DEFINITION blocks
-- Which table you're querying (the first parameter to dataStore.query/insert/update)
-- Which fields are available in THAT specific table (check the schema above)
-- Using exact field names as defined in the schema
+   ✅ CORRECT: Query the table that HAS the field:
+   - If you want "tasks for a specific project" → Query 'tasks' table, filter by 'project_id'
+   - If you want "comments for a task" → Query 'comments' table, filter by 'task_id'
+   - If you want "projects owned by someone" → Query 'projects' table, filter by 'owner_id'
 
-**PREVIOUS CODE (WITH ERRORS):**
+3. EXAMINE YOUR CODE'S INTENT
+   - What data are you trying to fetch?
+   - Look at the component name, variable names, UI context
+   - Match your intent to the RIGHT table
+
+4. USE THE SCHEMA ABOVE
+   - Find the table that has the field you need
+   - Use ONLY fields that exist on that table
+   - If no suitable field exists, redesign your query logic
+
+5. EXAMPLE FIX FOR RELATIONSHIP ERRORS:
+   ```typescript
+   // ❌ WRONG - trying to filter projects by project_id
+   const result = await dataStore.query('projects', {{
+     filters: [{{ field: 'project_id', op: 'eq', value: projectId }}]
+   }});
+
+   // ✅ CORRECT - fetch a specific project by its ID
+   const result = await dataStore.query('projects', {{
+     filters: [{{ field: 'id', op: 'eq', value: projectId }}]
+   }});
+
+   // OR if you actually wanted tasks for a project:
+   // ✅ CORRECT - query tasks table with project_id filter
+   const result = await dataStore.query('tasks', {{
+     filters: [{{ field: 'project_id', op: 'eq', value: projectId }}]
+   }});
+   ```
+
+VERIFICATION CHECKLIST:
+□ Check which table you're accessing (first parameter to dataStore call)
+□ Find that table in the schema above
+□ Verify EVERY field you use exists in that table's definition
+□ Use EXACT field names as defined (no renaming or transforming)
+□ If field exists on OTHER tables, consider if you're querying the wrong table
+
+{'='*80}
+
+NOW REGENERATE THE COMPLETE, CORRECTED CODE.
+- Fix the table selection AND/OR field names
+- Ensure semantic correctness (are you fetching the right data?)
+- DO NOT output explanations - ONLY output the fixed code blocks
+
+Previous code with errors:
 {original_content}
-
-Generate the complete corrected code now."""
+"""
