@@ -524,3 +524,220 @@ export function Card({ title }: Props) {
         assert 'subtitle?: string;' in result
         assert 'subtitle }: Props' in result
         assert 'className="text-gray-500"' in result
+
+
+# =============================================================================
+# Hunk Relocation Tests
+# =============================================================================
+
+from vector_app.services.diff import (
+    _extract_old_lines,
+    _find_hunk_locations,
+    _relocate_hunk_header,
+)
+
+
+class TestExtractOldLines:
+    """Tests for _extract_old_lines helper."""
+    
+    def test_extracts_context_and_minus_lines(self):
+        """Extract both context (space) and removed (minus) lines."""
+        hunk = '''@@ -10,5 +10,5 @@ function test() {
+ const a = 1;
+-const b = 2;
++const b = 3;
+ const c = 4;
+ return a + c;'''
+        
+        old_lines = _extract_old_lines(hunk)
+        
+        assert old_lines == ['const a = 1;', 'const b = 2;', 'const c = 4;', 'return a + c;']
+    
+    def test_extracts_only_context_lines(self):
+        """Extract context lines when there are no minus lines (pure addition)."""
+        hunk = '''@@ -5,3 +5,4 @@ import React from 'react';
+ function App() {
++  const x = 1;
+   return null;
+ }'''
+        
+        old_lines = _extract_old_lines(hunk)
+        
+        assert old_lines == ['function App() {', '  return null;', '}']
+    
+    def test_extracts_only_minus_lines(self):
+        """Extract minus lines when there are no context lines."""
+        hunk = '''@@ -1,2 +1,1 @@
+-line one
+-line two
++combined line'''
+        
+        old_lines = _extract_old_lines(hunk)
+        
+        assert old_lines == ['line one', 'line two']
+    
+    def test_empty_hunk(self):
+        """Handle empty or header-only hunk."""
+        hunk = '''@@ -1,0 +1,1 @@'''
+        
+        old_lines = _extract_old_lines(hunk)
+        
+        assert old_lines == []
+
+
+class TestFindHunkLocations:
+    """Tests for _find_hunk_locations helper."""
+    
+    def test_finds_single_match(self):
+        """Find old lines at exactly one location."""
+        file_lines = [
+            'line 1',
+            'line 2',
+            'target line A',
+            'target line B',
+            'line 5',
+        ]
+        old_lines = ['target line A', 'target line B']
+        
+        locations = _find_hunk_locations(old_lines, file_lines)
+        
+        assert locations == [3]  # 1-indexed
+    
+    def test_finds_multiple_matches(self):
+        """Find old lines at multiple locations."""
+        file_lines = [
+            'repeated content',
+            'repeated content',
+            'other stuff',
+            'repeated content',
+            'repeated content',
+        ]
+        old_lines = ['repeated content', 'repeated content']
+        
+        locations = _find_hunk_locations(old_lines, file_lines)
+        
+        assert locations == [1, 4]  # Both occurrences
+    
+    def test_finds_no_match(self):
+        """Return empty list when old lines not found."""
+        file_lines = ['line 1', 'line 2', 'line 3']
+        old_lines = ['not in file']
+        
+        locations = _find_hunk_locations(old_lines, file_lines)
+        
+        assert locations == []
+    
+    def test_empty_old_lines(self):
+        """Handle empty old lines list."""
+        file_lines = ['line 1', 'line 2']
+        old_lines = []
+        
+        locations = _find_hunk_locations(old_lines, file_lines)
+        
+        assert locations == []
+
+
+class TestRelocateHunkHeader:
+    """Tests for _relocate_hunk_header helper."""
+    
+    def test_relocates_simple_header(self):
+        """Relocate a hunk to a new line number."""
+        hunk = '''@@ -10,3 +10,4 @@ context
+ line 1
++added
+ line 2'''
+        
+        relocated = _relocate_hunk_header(hunk, 25)
+        
+        assert relocated.startswith('@@ -25,3 +25,4 @@ context')
+        assert 'line 1' in relocated
+        assert '+added' in relocated
+    
+    def test_preserves_offset_between_old_and_new(self):
+        """Preserve the offset between old and new start lines."""
+        # Old starts at 10, new starts at 12 (offset of +2)
+        hunk = '''@@ -10,2 +12,3 @@
+ context
++added'''
+        
+        # Relocating old to line 50 should make new line 52
+        relocated = _relocate_hunk_header(hunk, 50)
+        
+        assert '@@ -50,2 +52,3 @@' in relocated
+
+
+class TestHunkRelocation:
+    """Integration tests for hunk relocation in apply_diff."""
+    
+    def test_relocates_hunk_with_wrong_line_number(self):
+        """Relocate a hunk when its stated line number is wrong."""
+        # File has content at lines 1-6, but hunk claims to be at line 100
+        original = '''function test() {
+  const a = 1;
+  const b = 2;
+  return a + b;
+}
+'''
+        
+        # Hunk says line 100, but the context is actually at line 2-4
+        # Note: context/minus lines must match file content exactly (including indentation)
+        diff = FileDiff(
+            path='src/test.ts',
+            hunks=['''@@ -100,3 +100,3 @@
+   const a = 1;
+-  const b = 2;
++  const b = 3;
+   return a + b;''']
+        )
+        
+        result = apply_diff(original, diff)
+        
+        # Should find the context at the correct location and apply
+        assert 'const b = 3;' in result
+        assert 'const b = 2;' not in result
+    
+    def test_skips_hunk_with_multiple_matches(self):
+        """Skip relocation when old lines appear multiple times."""
+        original = '''function test1() {
+  return 1;
+}
+
+function test2() {
+  return 1;
+}
+'''
+        
+        # This context appears twice in the file
+        diff = FileDiff(
+            path='src/test.ts',
+            hunks=['''@@ -200,2 +200,2 @@
+-  return 1;
++  return 2;
+ }''']
+        )
+        
+        result = apply_diff(original, diff)
+        
+        # Should NOT apply since there are multiple matches
+        # Original content should be preserved
+        assert result.count('return 1;') == 2
+        assert 'return 2;' not in result
+    
+    def test_skips_hunk_with_no_match(self):
+        """Skip relocation when old lines don't exist in file."""
+        original = '''const x = 1;
+const y = 2;
+'''
+        
+        diff = FileDiff(
+            path='src/test.ts',
+            hunks=['''@@ -50,2 +50,2 @@
+-nonexistent line
++replacement
+ also nonexistent''']
+        )
+        
+        result = apply_diff(original, diff)
+        
+        # Original should be unchanged
+        assert result == original

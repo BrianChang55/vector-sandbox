@@ -252,12 +252,50 @@ def apply_diff(original_content: str, diff: FileDiff) -> str:
     return _apply_hunks_backwards(original_content, diff)
 
 
+def _try_apply_single_hunk(hunk: str, current_content: str, file_path: str) -> Optional[str]:
+    """
+    Try to apply a single hunk to the content.
+    
+    Args:
+        hunk: The hunk string to apply
+        current_content: The current file content
+        file_path: The file path (for constructing the diff)
+        
+    Returns:
+        The new content if successful, None if failed
+    """
+    single_hunk_diff = f"--- {file_path}\n+++ {file_path}\n{_fix_hunk_header(hunk)}"
+    
+    try:
+        parsed_diffs = list(whatthepatch.parse_patch(single_hunk_diff))
+        if not parsed_diffs:
+            return None
+        
+        parsed_diff = parsed_diffs[0]
+        current_lines = current_content.split('\n')
+        result = whatthepatch.apply_diff(parsed_diff, current_lines)
+        new_lines = list(result)
+        
+        if new_lines is None:
+            return None
+        
+        return '\n'.join(new_lines)
+        
+    except Exception:
+        return None
+
+
 def _apply_hunks_backwards(original_content: str, diff: FileDiff) -> str:
     """
     Apply hunks one by one in reverse order (highest line numbers first).
     
     This prevents line number shifts from earlier hunks affecting later ones.
     When applying from bottom to top, line numbers for earlier hunks remain valid.
+    
+    If a hunk fails to apply at its stated location, attempts to relocate it
+    by searching for the hunk's old lines in the file. If found at exactly
+    one location, the hunk is retried there. If found at multiple locations,
+    a warning is logged and the hunk is skipped.
     
     Args:
         original_content: The original file content
@@ -269,49 +307,71 @@ def _apply_hunks_backwards(original_content: str, diff: FileDiff) -> str:
     if not diff.hunks:
         return original_content
     
-    # Sort hunks by starting line number in descending order
+    # Sort hunks by starting line number in descending order to avoid shifting every applied hunk
     sorted_hunks = sorted(diff.hunks, key=_get_hunk_start_line, reverse=True)
     
     current_content = original_content
     applied_count = 0
+    relocated_count = 0
     failed_hunks = []
     
     for hunk in sorted_hunks:
         start_line = _get_hunk_start_line(hunk)
         
-        # Create a single-hunk diff for this hunk
-        single_hunk_diff = f"--- {diff.path}\n+++ {diff.path}\n{_fix_hunk_header(hunk)}"
+        # First attempt: apply at stated location
+        result = _try_apply_single_hunk(hunk, current_content, diff.path)
         
-        try:
-            parsed_diffs = list(whatthepatch.parse_patch(single_hunk_diff))
-            if not parsed_diffs:
-                logger.warning(f"[DIFF] whatthepatch could not parse hunk at line {start_line}")
-                failed_hunks.append(start_line)
-                continue
-            
-            parsed_diff = parsed_diffs[0]
-            current_lines = current_content.split('\n')
-            result = whatthepatch.apply_diff(parsed_diff, current_lines)
-            new_lines = list(result)
-            
-            if new_lines is None:
-                logger.warning(f"[DIFF] whatthepatch returned None for hunk at line {start_line}")
-                failed_hunks.append(start_line)
-                continue
-            
-            current_content = '\n'.join(new_lines)
+        if result is not None:
+            current_content = result
             applied_count += 1
-            
-        except Exception as e:
-            logger.warning(f"[DIFF] Failed to apply hunk at line {start_line}: {e}")
+            continue
+
+        # Failed - attempt relocation by searching for old lines
+        old_lines = _extract_old_lines(hunk)
+        if not old_lines:
+            logger.warning(f"[DIFF] Failed to apply hunk at line {start_line}, no old lines to relocate with")
             failed_hunks.append(start_line)
             continue
+        
+        file_lines = current_content.split('\n')
+        locations = _find_hunk_locations(old_lines, file_lines)
+        
+        if len(locations) == 0:
+            logger.warning(f"[DIFF] Failed to apply hunk at line {start_line}, could not find matching lines in file")
+            failed_hunks.append(start_line)
+            continue
+        
+        if len(locations) > 1:
+            logger.warning(
+                f"[DIFF] Failed to apply hunk at line {start_line}, "
+                f"found {len(locations)} possible locations: {locations}. Skipping relocation."
+            )
+            failed_hunks.append(start_line)
+            continue
+        
+        # Exactly one location found - relocate and retry
+        new_location = locations[0]
+        relocated_hunk = _relocate_hunk_header(hunk, new_location)
+        
+        result = _try_apply_single_hunk(relocated_hunk, current_content, diff.path)
+        
+        if result is not None:
+            logger.info(f"[DIFF] Relocated hunk from line {start_line} to line {new_location} for {diff.path}")
+            current_content = result
+            applied_count += 1
+            relocated_count += 1
+        else:
+            logger.warning(f"[DIFF] Failed to apply hunk even after relocating from line {start_line} to {new_location}")
+            failed_hunks.append(start_line)
     
     if failed_hunks:
         logger.warning(f"[DIFF] {len(failed_hunks)} hunk(s) failed to apply for {diff.path}: lines {failed_hunks}")
     
     if applied_count > 0:
-        logger.info(f"[DIFF] Applied {applied_count}/{len(diff.hunks)} hunks for {diff.path}")
+        if relocated_count > 0:
+            logger.info(f"[DIFF] Applied {applied_count}/{len(diff.hunks)} hunks for {diff.path} ({relocated_count} relocated)")
+        else:
+            logger.info(f"[DIFF] Applied {applied_count}/{len(diff.hunks)} hunks for {diff.path}")
         return current_content
     else:
         logger.error(f"[DIFF] All hunks failed to apply for {diff.path}")
@@ -386,6 +446,110 @@ def _get_hunk_start_line(hunk: str) -> int:
     
     match = re.match(r'@@ -(\d+)', hunk)
     return int(match.group(1)) if match else 0
+
+
+def _extract_old_lines(hunk: str) -> List[str]:
+    """
+    Extract lines expected in the original file from a hunk.
+    
+    These are the context lines (starting with ' ') and removed lines 
+    (starting with '-'). This sequence can be used to locate where the
+    hunk should be applied if the line numbers are incorrect.
+    
+    Args:
+        hunk: A hunk string starting with @@ header
+        
+    Returns:
+        List of lines (without the leading space/minus) that should exist
+        in the original file at the hunk's target location
+    """
+    old_lines = []
+    for line in hunk.split('\n'):
+        # Skip the @@ header
+        if line.startswith('@@'):
+            continue
+        # Removed lines (strip the - prefix)
+        if line.startswith('-') and not line.startswith('---'):
+            old_lines.append(line[1:])
+        # Context lines (strip the space prefix)
+        elif line.startswith(' '):
+            old_lines.append(line[1:])
+        # Empty lines in context (no prefix)
+        elif line == '' and old_lines:
+            old_lines.append('')
+    return old_lines
+
+
+def _find_hunk_locations(old_lines: List[str], file_lines: List[str]) -> List[int]:
+    """
+    Find all positions where the old_lines sequence appears in file_lines.
+    
+    Uses exact matching - all lines must match in sequence.
+    
+    Args:
+        old_lines: The sequence of lines to search for (from _extract_old_lines)
+        file_lines: The file content split into lines
+        
+    Returns:
+        List of 1-indexed line numbers where the sequence starts.
+        Empty list if no matches, multiple entries if found in multiple places.
+    """
+    if not old_lines:
+        return []
+    
+    matches = []
+    search_range = len(file_lines) - len(old_lines) + 1
+    
+    for i in range(search_range):
+        # Check if old_lines matches starting at position i
+        if file_lines[i:i + len(old_lines)] == old_lines:
+            matches.append(i + 1)  # Convert to 1-indexed
+    
+    return matches
+
+
+def _relocate_hunk_header(hunk: str, new_start_line: int) -> str:
+    """
+    Adjust a hunk's @@ header to use a new starting line number.
+    
+    The "new" side start line is adjusted by the same offset as the "old" side,
+    maintaining the relative difference between them.
+    
+    Args:
+        hunk: A hunk string starting with @@ header
+        new_start_line: The 1-indexed line number where the hunk should be applied
+        
+    Returns:
+        The hunk with updated @@ header line numbers
+    """
+    lines = hunk.split('\n')
+    if not lines or not lines[0].startswith('@@'):
+        return hunk
+    
+    header = lines[0]
+    content_lines = lines[1:]
+    
+    # Parse the original header
+    # Format: @@ -old_start,old_count +new_start,new_count @@ optional context
+    match = re.match(r'@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))?(?: @@(.*))?', header)
+    if not match:
+        return hunk
+    
+    old_start = int(match.group(1))
+    old_count = match.group(2) or '1'
+    orig_new_start = int(match.group(3))
+    new_count = match.group(4) or '1'
+    context_text = match.group(5) or ''
+    
+    # Calculate the offset between old and new start lines
+    # This preserves the relationship (e.g., if adding lines, new_start > old_start)
+    offset = orig_new_start - old_start
+    relocated_new_start = new_start_line + offset
+    
+    # Reconstruct header with new line numbers
+    new_header = f'@@ -{new_start_line},{old_count} +{relocated_new_start},{new_count} @@{context_text}'
+    
+    return new_header + '\n' + '\n'.join(content_lines)
 
 
 def _reconstruct_diff(diff: FileDiff) -> str:
