@@ -9,9 +9,11 @@ OPTIMIZED: Uses parallel execution for independent plan steps when possible.
 
 import json
 import logging
+import queue
 import re
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
 from .base_handler import BaseHandler, AgentEvent, FileChange, exclude_protected_files
@@ -21,15 +23,15 @@ from vector_app.models import AppDataTable
 from vector_app.prompts.agentic import (
     apply_design_style_prompt,
     build_codegen_system_prompt,
-    build_plan_prompt,
     build_step_prompt,
 )
 from vector_app.services.typescript_types_generator import generate_typescript_types
 from vector_app.services.app_data_service import AppDataService
 from vector_app.services.error_fix_service import get_error_fix_service
-from vector_app.services.planning_service import PlanStep, PlanStepStatus
+from vector_app.services.planning_service import PlanStep, PlanStepStatus, PlanOperationType, get_planning_service, AgentPlan
 from vector_app.services.types import CompilationError
 from vector_app.services.validation_service import get_validation_service
+from vector_app.prompts.agentic import build_file_prompt
 
 if TYPE_CHECKING:
     from vector_app.models import InternalApp, AppVersion
@@ -113,8 +115,14 @@ class GenerateHandler(BaseHandler):
             mcp_tools_context=mcp_tools_context,
         )
 
-        # Generate plan
-        plan_steps = self._create_plan(styled_user_message, plan_context, model)
+        # Generate plan using the planning service
+        try:
+            planning_service = get_planning_service()
+            plan: AgentPlan = planning_service.create_plan(styled_user_message, plan_context, model)
+            plan_steps = plan.steps
+        except Exception as e:
+            logger.error(f"Planning service failed: {e}, using default plan")
+            plan_steps = self._create_default_plan()
 
         yield self.emit_plan_created(
             steps=plan_steps,
@@ -250,6 +258,58 @@ class GenerateHandler(BaseHandler):
             "connectors_summary": mcp_summary,
             "has_mcp_tools": bool(mcp_tools_context),
         }
+
+    def _create_default_plan(self) -> List[PlanStep]:
+        """
+        Create a default fallback plan when the planning service fails.
+        """
+        return [
+            PlanStep(
+                id=str(uuid.uuid4()),
+                type="design",
+                title="Design App Structure",
+                description="Plan the component hierarchy and data flow",
+                step_order=0,
+                target_files=["src/App.tsx"],
+                operation_type=PlanOperationType.GENERATE,
+            ),
+            PlanStep(
+                id=str(uuid.uuid4()),
+                type="component",
+                title="Create Main Component",
+                description="Create src/App.tsx with main app structure",
+                step_order=1,
+                target_files=["src/App.tsx"],
+                operation_type=PlanOperationType.GENERATE,
+            ),
+            PlanStep(
+                id=str(uuid.uuid4()),
+                type="component",
+                title="Build UI Components",
+                description="Create src/components/ with reusable UI components",
+                step_order=1,
+                target_files=["src/components/ui/Button.tsx", "src/components/ui/Card.tsx"],
+                operation_type=PlanOperationType.GENERATE,
+            ),
+            PlanStep(
+                id=str(uuid.uuid4()),
+                type="integration",
+                title="Connect Data Layer",
+                description="Modify src/App.tsx to integrate with the runtime API",
+                step_order=2,
+                target_files=["src/App.tsx"],
+                operation_type=PlanOperationType.EDIT,
+            ),
+            PlanStep(
+                id=str(uuid.uuid4()),
+                type="styling",
+                title="Apply Styling",
+                description="Add professional styling with Tailwind to all components",
+                step_order=3,
+                target_files=["src/App.tsx", "src/components/ui/Button.tsx", "src/components/ui/Card.tsx"],
+                operation_type=PlanOperationType.EDIT,
+            ),
+        ]
     
     def _execute_data_steps_sequential(
         self,
@@ -378,90 +438,6 @@ class GenerateHandler(BaseHandler):
         )
 
         return generated_files
-
-    def _create_plan(
-        self,
-        user_message: str,
-        context: Dict[str, Any],
-        model: str,
-    ) -> List[PlanStep]:
-        """Create an execution plan for the app generation."""
-        plan_prompt = build_plan_prompt(user_message, context)
-
-        # Use Opus for planning - better reasoning for complex plan generation
-        plan_model = "anthropic/claude-opus-4"
-
-        try:
-            response = self.call_llm(
-                system_prompt="You are an expert at planning app development tasks.",
-                user_prompt=plan_prompt,
-                model=plan_model,
-                temperature=0.3,
-            )
-
-            # Parse JSON from response
-            json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response, re.DOTALL)
-            if json_match:
-                response = json_match.group(1)
-
-            # Clean up content
-            response = response.strip()
-            if not response.startswith("{"):
-                start = response.find("{")
-                end = response.rfind("}")
-                if start >= 0 and end > start:
-                    response = response[start : end + 1]
-
-            plan_data = json.loads(response)
-            
-            reasoning = plan_data.get("reasoning", "Building the requested app.")
-            steps_data = plan_data.get("steps", [])
-            
-            steps = [
-                PlanStep(
-                    id=str(uuid.uuid4()),
-                    type=s.get("type", "code"),
-                    title=s.get("title", "Generate Code"),
-                    description=s.get("description", ""),
-                    step_order=s.get("step_order", 0),
-                )
-                for s in steps_data
-            ]
-            
-            # Log the plan details
-            logger.info("=" * 80)
-            logger.info("📋 GENERATED PLAN")
-            logger.info("=" * 80)
-            logger.info(f"Reasoning: {reasoning}")
-            logger.info(f"Total Steps: {len(steps)}")
-            logger.info("-" * 80)
-            for i, step in enumerate(steps, 1):
-                logger.info(f"Step {i} (order={step.step_order}): [{step.type}] {step.title}")
-                logger.info(f"  Description: {step.description}")
-            logger.info("=" * 80)
-            
-            return steps
-            
-        except Exception as e:
-            logger.error(f"Plan generation error: {e}")
-            # Fallback to default plan with explicit step_order
-            return [
-                self.create_step("design", "Design App Structure", 
-                                "Plan the component hierarchy and data flow",
-                                step_order=0),
-                self.create_step("component", "Create Main Component", 
-                                "Create src/App.tsx with main app structure",
-                                step_order=1),
-                self.create_step("component", "Build UI Components", 
-                                "Create src/components/ with reusable UI components",
-                                step_order=1),
-                self.create_step("integration", "Connect Data Layer", 
-                                "Modify src/App.tsx to integrate with the runtime API",
-                                step_order=2),
-                self.create_step("styling", "Apply Styling", 
-                                "Add professional styling with Tailwind to all components",
-                                step_order=3),
-            ]
 
     def _stream_llm_with_validation(
         self, system_prompt: str, user_prompt: str, model: str, step_index: int
@@ -752,7 +728,242 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
         mcp_tools_context: Optional[str] = None,
         allow_table_creation: bool = True,
     ) -> Generator[AgentEvent, None, None]:
-        """Execute a single plan step and yield progress events."""
+        """Execute a single plan step and yield progress events.
+        
+        Automatically uses parallel sub-agents when the step has multiple
+        explicitly defined target files.
+        """
+        # Check if step has multiple explicit target files
+        target_files = getattr(step, 'target_files', None) or []
+        use_subagents = len(target_files) >= 2
+        
+        if use_subagents:
+            logger.info(f"[STEP {step_index}] Using sub-agents for {len(target_files)} target files: {target_files}")
+            yield from self._execute_step_with_subagents(
+                step=step,
+                step_index=step_index,
+                user_message=user_message,
+                context=context,
+                existing_files=existing_files,
+                registry_surface=registry_surface,
+                model=model,
+                app=app,
+                version=version,
+                data_store_context=data_store_context,
+                mcp_tools_context=mcp_tools_context,
+                allow_table_creation=allow_table_creation,
+            )
+        else:
+            # Single-agent execution (original behavior)
+            yield from self._execute_step_single_agent(
+                step=step,
+                step_index=step_index,
+                user_message=user_message,
+                context=context,
+                existing_files=existing_files,
+                registry_surface=registry_surface,
+                model=model,
+                app=app,
+                version=version,
+                data_store_context=data_store_context,
+                mcp_tools_context=mcp_tools_context,
+                allow_table_creation=allow_table_creation,
+            )
+
+    def _execute_step_with_subagents(
+        self,
+        step: PlanStep,
+        step_index: int,
+        user_message: str,
+        context: Dict[str, Any],
+        existing_files: List[FileChange],
+        registry_surface: Dict[str, Any],
+        model: str,
+        app: Optional["InternalApp"] = None,
+        version: Optional["AppVersion"] = None,
+        data_store_context: Optional[str] = None,
+        mcp_tools_context: Optional[str] = None,
+        allow_table_creation: bool = True,
+    ) -> Generator[AgentEvent, None, None]:
+        """
+        Execute a plan step using parallel sub-agents, one per file.
+        
+        Each target file is generated by a separate LLM call running in parallel.
+        This is only called when step.target_files has 2+ entries.
+        """
+        has_data_store = context.get('has_data_store', False)
+        
+        # Use explicit target files from the step
+        target_files = list(step.target_files)
+        
+        logger.info(f"[SUBAGENTS] Executing step {step_index} with {len(target_files)} parallel sub-agents: {target_files}")
+        # Build system prompt once (shared across all sub-agents)
+        system_prompt = build_codegen_system_prompt(registry_surface, has_data_store)
+        
+        # Thread-safe queue for collecting events from parallel threads
+        event_queue: queue.Queue = queue.Queue()
+        
+        # Results storage
+        all_files: List[FileChange] = []
+        all_content: List[str] = []  # For table creation handling
+        errors: List[Exception] = []
+        
+        def generate_file(file_path: str, file_index: int) -> tuple:
+            """Generate a single file in a thread."""
+            try:
+                # Build focused prompt for this file
+                prompt = build_file_prompt(
+                    file_path=file_path,
+                    step=step,
+                    step_index=step_index,
+                    user_message=user_message,
+                    context=context,
+                    existing_files=existing_files,
+                    other_target_files=[f for f in target_files if f != file_path],
+                    registry_surface=registry_surface,
+                    data_store_context=data_store_context,
+                    connectors_context=mcp_tools_context,
+                )
+
+                # Signal start
+                event_queue.put((time.time(), file_index, "start", file_path))
+                
+                # Call LLM (non-streaming for parallel execution)
+                content = self.call_llm(
+                    system_prompt=system_prompt,
+                    user_prompt=prompt,
+                    model=model,
+                    temperature=0.3,
+                    timeout=120.0,
+                )
+                
+                # Parse the generated file
+                files = self.parse_code_blocks(content)
+                
+                # Filter to only the target file (in case LLM generates extra files)
+                target_file = None
+                for f in files:
+                    if f.path == file_path or f.path.endswith(file_path.split('/')[-1]):
+                        target_file = f
+                        break
+                
+                # If no exact match, take the first file
+                if target_file is None and files:
+                    target_file = files[0]
+                    # Correct the path
+                    target_file = FileChange(
+                        path=file_path,
+                        action=target_file.action,
+                        language=target_file.language,
+                        content=target_file.content,
+                        previous_content=target_file.previous_content,
+                        lines_added=target_file.lines_added,
+                        lines_removed=target_file.lines_removed,
+                    )
+                
+                # Signal completion
+                event_queue.put((time.time(), file_index, "complete", file_path))
+                
+                return (file_path, target_file, content, None)
+                
+            except Exception as e:
+                logger.error(f"[SUBAGENTS] Error generating {file_path}: {e}")
+                event_queue.put((time.time(), file_index, "error", str(e)))
+                return (file_path, None, "", e)
+        
+        # Execute all file generations in parallel
+        with ThreadPoolExecutor(max_workers=min(5, len(target_files))) as executor:
+            futures = {
+                executor.submit(generate_file, file_path, idx): file_path
+                for idx, file_path in enumerate(target_files)
+            }
+            
+            # Emit progress events as files complete
+            completed_count = 0
+            while completed_count < len(futures):
+                try:
+                    # Check for events from threads
+                    while True:
+                        try:
+                            _, file_idx, event_type, data = event_queue.get_nowait()
+                            if event_type == "start":
+                                yield self.emit_thinking(f"Generating {data}...", "decision")
+                            elif event_type == "complete":
+                                yield self.emit_step_progress(
+                                    step_index,
+                                    min(90, ((completed_count + 1) * 100) // len(target_files)),
+                                    f"Generated {data}"
+                                )
+                            elif event_type == "error":
+                                yield self.emit_thinking(f"Error: {data}", "reflection")
+                        except queue.Empty:
+                            break
+                    
+                    # Check for completed futures
+                    for future in list(futures.keys()):
+                        if future.done():
+                            file_path, file_change, content, error = future.result()
+                            if error:
+                                errors.append(error)
+                            else:
+                                if file_change:
+                                    all_files.append(file_change)
+                                if content:
+                                    all_content.append(content)
+                            completed_count += 1
+                            del futures[future]
+                    
+                    time.sleep(0.1)  # Brief sleep to avoid busy-waiting
+                    
+                except Exception as e:
+                    logger.error(f"[SUBAGENTS] Error in event loop: {e}")
+                    break
+
+        # Handle any errors
+        if errors and not all_files:
+            raise errors[0]  # Re-raise first error if no files generated
+        
+        # Filter out protected files
+        all_files = exclude_protected_files(all_files, PROTECTED_FILES)
+        
+        # Handle table creation from all content
+        combined_content = "\n\n".join(all_content)
+        for event in self._handle_table_creation(combined_content, app, version, allow_table_creation):
+            yield event
+        
+        # Validate and fix field names
+        for event in self._validate_and_fix_fields(all_files, combined_content, app, version, model):
+            if isinstance(event, list):  # Final files returned
+                all_files = event
+                break
+            yield event
+        
+        # Emit all files
+        for file in all_files:
+            yield self.emit_file_generated(file)
+        
+        logger.info(f"[SUBAGENTS] Step {step_index} complete: generated {len(all_files)} file(s)")
+
+    def _execute_step_single_agent(
+        self,
+        step: PlanStep,
+        step_index: int,
+        user_message: str,
+        context: Dict[str, Any],
+        existing_files: List[FileChange],
+        registry_surface: Dict[str, Any],
+        model: str,
+        app: Optional["InternalApp"] = None,
+        version: Optional["AppVersion"] = None,
+        data_store_context: Optional[str] = None,
+        mcp_tools_context: Optional[str] = None,
+        allow_table_creation: bool = True,
+    ) -> Generator[AgentEvent, None, None]:
+        """
+        Execute a plan step using a single LLM call (original behavior).
+        
+        This is the fallback when sub-agents cannot be used.
+        """
         has_data_store = context.get('has_data_store', False)
 
         # Build prompts
