@@ -74,7 +74,7 @@ export function AppBuilderPage() {
         navigate(app.published_url, { replace: true })
       } else {
         // If not published, redirect to preview
-        navigate(`/preview/apps/${app.id}`, { replace: true })
+        navigate(`/preview/apps/${app.id}/`, { replace: true })
       }
     }
   }, [isViewer, app, navigate])
@@ -461,7 +461,7 @@ export function AppBuilderPage() {
             className="gap-1.5 text-xs"
             onClick={() => {
               if (selectedVersion) {
-                const previewPageUrl = `/preview/apps/${appId}?version=${selectedVersion.id}`
+                const previewPageUrl = `/preview/apps/${appId}/?version=${selectedVersion.id}`
                 window.open(previewPageUrl, '_blank')
               }
             }}

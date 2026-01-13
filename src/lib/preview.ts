@@ -17,6 +17,6 @@ export function buildPreviewUrl(appId: string, versionId?: string | null) {
   }
   
   const queryString = params.toString()
-  return `${PREVIEW_BASE_URL}/preview/apps/${appId}${queryString ? `?${queryString}` : ''}`
+  return `${PREVIEW_BASE_URL}/preview/apps/${appId}/${queryString ? `?${queryString}` : ''}`
 }
 

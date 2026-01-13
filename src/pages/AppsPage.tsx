@@ -455,7 +455,7 @@ export function AppsPage() {
                     navigate(app.published_url)
                   } else if (isViewer) {
                     // Published but no URL? Go to preview
-                    navigate(`/preview/apps/${app.id}`)
+                    navigate(`/preview/apps/${app.id}/`)
                   } else {
                     navigate(`/apps/${app.id}`)
                   }
