@@ -2190,7 +2190,7 @@ export function AgenticChatPanel({
                     )}
 
                     {/* Thought duration badge (after thinking completes) */}
-                    {message.thinkingDuration && message.thinkingDuration > 0 && (
+                    {(message.thinkingDuration ?? 0) > 0 && (
                       <div className="flex items-center gap-1 text-[10px] text-gray-400">
                         <Lightbulb className="h-2.5 w-2.5 flex-shrink-0" />
                         <span>Thought for {message.thinkingDuration}s</span>
@@ -2198,7 +2198,7 @@ export function AgenticChatPanel({
                     )}
 
                     {/* Planning duration badge (after planning completes) */}
-                    {message.planningDuration && message.planningDuration > 0 && (
+                    {(message.planningDuration ?? 0) > 0 && (
                       <div className="flex items-center gap-1 text-[10px] text-gray-400">
                         <ListChecks className="h-2.5 w-2.5 flex-shrink-0" />
                         <span>Planned for {message.planningDuration}s</span>
