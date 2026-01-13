@@ -1830,9 +1830,7 @@ export function SandpackPreview({
   
   // Convert committed files to Sandpack format - only updates when committed files change
   const sandpackFiles = useMemo(() => {
-    console.log('[RefreshDebug][SandpackPreview] sandpackFiles useMemo running')
     const converted = convertToSandpackFiles(committedFiles, appId, versionId, appName)
-    console.log('[RefreshDebug][SandpackPreview] sandpackFiles converted, file count:', Object.keys(converted).length)
     return converted
   }, [committedFiles, appId, versionId, appName])
   
@@ -1840,9 +1838,7 @@ export function SandpackPreview({
   // This preserves user edits when just switching tabs, but ensures new version loads after generation
   useEffect(() => {
     const newKey = `${versionId}-${getTotalChars(committedFiles)}`
-    console.log('[RefreshDebug][SandpackPreview] Checking sandpackKey, current:', sandpackKey, 'new:', newKey)
     if (newKey !== sandpackKey) {
-      console.log('[RefreshDebug][SandpackPreview] sandpackKey changed! Remounting SandpackProvider')
       setSandpackKey(newKey)
       setInitializedFiles(sandpackFiles)
       // Reset persisted snapshot when the generation baseline changes
@@ -1875,7 +1871,6 @@ export function SandpackPreview({
   
   // Use initializedFiles if set, otherwise use sandpackFiles
   const filesToUse = Object.keys(initializedFiles).length > 0 ? initializedFiles : sandpackFiles
-  console.log('[RefreshDebug][SandpackPreview] filesToUse selected, using:', Object.keys(initializedFiles).length > 0 ? 'initializedFiles' : 'sandpackFiles', 'count:', Object.keys(filesToUse).length)
   const defaultEntryFile = useMemo(() => {
     if (filesToUse['/App.tsx']) return '/App.tsx'
     const keys = Object.keys(filesToUse)
@@ -2026,8 +2021,6 @@ export function SandpackPreview({
       window.removeEventListener('message', handleMessage)
     }
   }, [appId, versionId])
-
-  console.log('[RefreshDebug][SandpackPreview] Rendering with sandpackKey:', sandpackKey)
 
   return (
     <div
