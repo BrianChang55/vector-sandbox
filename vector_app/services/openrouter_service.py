@@ -202,7 +202,7 @@ class OpenRouterService:
         user_prompt = build_user_prompt(intent_message, current_spec)
         
         try:
-            with httpx.Client(timeout=120.0) as client:
+            with httpx.Client(timeout=180.0) as client:
                 response = client.post(
                     self.OPENROUTER_API_URL,
                     headers=self._build_headers(),
@@ -266,7 +266,7 @@ class OpenRouterService:
         messages.append({"role": "user", "content": user_prompt})
         
         try:
-            with httpx.Client(timeout=120.0) as client:
+            with httpx.Client(timeout=180.0) as client:
                 with client.stream(
                     "POST",
                     self.OPENROUTER_API_URL,

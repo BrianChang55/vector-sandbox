@@ -834,7 +834,7 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
                     user_prompt=prompt,
                     model=model,
                     temperature=0.3,
-                    timeout=120.0,
+                    timeout=180.0,
                 )
                 
                 # Parse the generated file
@@ -1191,4 +1191,12 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
         """
         Validate TypeScript files using ValidationService.
         """
+        # Debug: Check if types.ts is included in files for validation
+        file_paths = [f.path for f in files]
+        has_types = 'src/lib/types.ts' in file_paths
+        logger.debug(f"[VALIDATION DEBUG] Files being validated: {file_paths}")
+        logger.debug(f"[VALIDATION DEBUG] src/lib/types.ts included: {has_types}")
+        if not has_types:
+            logger.warning("[VALIDATION DEBUG] ⚠️ src/lib/types.ts NOT in files list - imports will fail with TS2307")
+        
         return get_validation_service().validate_typescript(files).to_dict()
