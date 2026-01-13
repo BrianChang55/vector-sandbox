@@ -19,6 +19,7 @@ from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 from .base_handler import BaseHandler, AgentEvent, FileChange, exclude_protected_files
 from .parallel_executor import create_parallel_executor, ParallelStepExecutor
 from ..datastore import TableDefinitionParser, build_data_store_context, get_system_columns
+from ..diff import parse_diffs, apply_diff, format_with_line_numbers
 from vector_app.models import AppDataTable, VersionFile
 from vector_app.prompts.agentic import (
     apply_design_style_prompt,
@@ -177,7 +178,7 @@ class GenerateHandler(BaseHandler):
         if not data_steps and app and code_steps:
             tables = AppDataTable.objects.filter(internal_app=app).order_by('name')
             if tables.exists():
-                logger.info(f"📝 [PRE-CODE] No data steps but {tables.count()} table(s) exist - generating types.ts")
+                logger.info(f"[PRE-CODE] No data steps but {tables.count()} table(s) exist - generating types.ts")
 
                 ts_types_content = generate_typescript_types(list(tables))
                 types_file = FileChange(
@@ -190,11 +191,11 @@ class GenerateHandler(BaseHandler):
 
                 data_phase_files.append(types_file)
                 yield self.emit_file_generated(types_file)
-                logger.info(f"✅ [PRE-CODE] Generated src/lib/types.ts from existing tables")
+                logger.info(f"[PRE-CODE] Generated src/lib/types.ts from existing tables")
 
         # PHASE 2b: Execute code steps in parallel (NO DB changes allowed)
         if code_steps:
-            logger.info(f"💻 [CODE PHASE] Executing {len(code_steps)} code step(s) in parallel with {len(data_phase_files)} existing file(s)")
+            logger.info(f"[CODE PHASE] Executing {len(code_steps)} code step(s) in parallel with {len(data_phase_files)} existing file(s)")
             generated_files = yield from self._execute_steps_parallel(
                 plan_steps=code_steps,
                 user_message=styled_user_message,
@@ -503,11 +504,11 @@ class GenerateHandler(BaseHandler):
         # Block table creation in code phase
         if not allow_creation:
             logger.warning(
-                f"🚫 [CODE PHASE] Blocked {len(table_defs)} table definition(s) - "
+                f"[CODE PHASE] Blocked {len(table_defs)} table definition(s) - "
                 f"tables can only be created in data phase"
             )
             yield self.emit_thinking(
-                "⚠️ Table definitions detected in code phase. All tables must be defined in the data step.",
+                "Table definitions detected in code phase. All tables must be defined in the data step.",
                 "reflection"
             )
             return
@@ -524,7 +525,7 @@ class GenerateHandler(BaseHandler):
         if app:
             tables = AppDataTable.objects.filter(internal_app=app).order_by('name')
             if tables.exists():
-                logger.info(f"📝 [TYPESCRIPT] Generating types file for {tables.count()} table(s)")
+                logger.info(f"[TYPESCRIPT] Generating types file for {tables.count()} table(s)")
 
                 ts_types_content = generate_typescript_types(list(tables))
 
@@ -537,7 +538,7 @@ class GenerateHandler(BaseHandler):
                 )
 
                 yield self.emit_file_generated(types_file)
-                logger.info(f"✅ [TYPESCRIPT] Generated src/lib/types.ts ({len(ts_types_content)} chars)")
+                logger.info(f"[TYPESCRIPT] Generated src/lib/types.ts ({len(ts_types_content)} chars)")
 
     def _build_tables_summary_for_system_prompt(self, app: 'InternalApp') -> str:
         """Build concise table schema summary for system prompt."""
@@ -554,58 +555,55 @@ class GenerateHandler(BaseHandler):
 
         return "\n".join(lines)
 
-    def _build_syntax_fix_prompt(self, original_content: str, syntax_errors: List[Dict]) -> str:
-        """Build prompt to fix TypeScript syntax errors."""
+    def _build_syntax_fix_prompt(self, files: List[FileChange], syntax_errors: List[Dict]) -> str:
+        """Build prompt to fix TypeScript syntax errors using diffs."""
         error_list = "\n".join(f"- {err['file']}: {err['error']}\n  Fix: {err['fix']}" for err in syntax_errors)
 
-        return f"""🚨 YOUR CODE HAS TYPESCRIPT SYNTAX ERRORS 🚨
+        # Build file contents with line numbers for accurate diff generation
+        files_with_lines = []
+        for f in files:
+            numbered_content = format_with_line_numbers(f.content)
+            files_with_lines.append(f"### {f.path}\n```typescript\n{numbered_content}\n```")
+        files_section = "\n\n".join(files_with_lines)
 
-{'='*80}
-SYNTAX ERRORS FOUND:
-{'='*80}
+        return f"""Fix the TypeScript syntax errors below using unified diffs.
+
+SYNTAX ERRORS:
 {error_list}
 
-{'='*80}
-HOW TO FIX THESE ERRORS:
-{'='*80}
-
+COMMON FIXES:
 1. INLINE IMPORTS IN TYPES (ts(2499)):
-   ❌ WRONG: Database[import('./types').TableSlug.Projects]
-   ✅ CORRECT:
-   ```typescript
-   import type {{ Database, TableSlug }} from './lib/types';
-   // ... then use:
-   const items: Database[TableSlug.Projects]['row'][] = result.rows;
-   ```
+   WRONG: Database[import('./types').TableSlug.Projects]
+   CORRECT: Import at top, then use: Database[TableSlug.Projects]['row']
+   
+   Proper Import of TableSlug (when there is already a database). They must be separate:
+   import type {{ Database }} from './lib/types';
+   import {{ TableSlug }} from './lib/types';
 
 2. INTERFACE EXTENDS WITH INDEXED ACCESS (ts(2499)):
-   ❌ WRONG: interface Foo extends Database[TableSlug.Projects]['row']
-   ✅ CORRECT: Use type alias instead:
-   ```typescript
-   type FooBase = Database[TableSlug.Projects]['row'];
-   interface Foo extends FooBase {{
-     extraField: string;
-   }}
-   ```
-   OR use intersection types:
-   ```typescript
-   type Foo = Database[TableSlug.Projects]['row'] & {{
-     extraField: string;
-   }};
-   ```
+   WRONG: interface Foo extends Database[TableSlug.Projects]['row']
+   CORRECT: Use type alias: type FooBase = Database[TableSlug.Projects]['row'];
 
 3. STRAY QUOTES:
-   ❌ WRONG: const foo = 'bar';'
-   ✅ CORRECT: const foo = 'bar';
+   WRONG: const foo = 'bar';'
+   CORRECT: const foo = 'bar';
 
-{'='*80}
 
-NOW REGENERATE THE COMPLETE, CORRECTED CODE.
-Include ALL files, not just the ones with errors.
-DO NOT output explanations - ONLY output the fixed code blocks.
+OUTPUT FORMAT:
+Return ONLY unified diffs in ```diff blocks. Example:
 
-Original code that needs fixing:
-{original_content}
+```diff
+--- src/App.tsx
++++ src/App.tsx
+@@ -5,3 +5,4 @@
+ import React from 'react';
++import type {{ Database }} from './lib/types';
+
+import {{ TableSlug }} from './lib/types'; 
+```
+
+FILES WITH LINE NUMBERS:
+{files_section}
 """
 
     def _validate_and_fix_fields(
@@ -624,34 +622,63 @@ Original code that needs fixing:
         code_blocks = {f.path: f.content for f in files}
         syntax_errors = self._validate_typescript_syntax(code_blocks)
         if syntax_errors:
-            logger.error(f"🚨 [SYNTAX VALIDATION] Found {len(syntax_errors)} syntax errors")
+            logger.error(f"[SYNTAX VALIDATION] Found {len(syntax_errors)} syntax errors")
             for err in syntax_errors:
                 logger.error(f"   {err['file']}: {err['error']}")
 
             yield self.emit_thinking(
-                f"❌ TypeScript syntax errors found. Requesting fix from Claude...",
+                f"TypeScript syntax errors detected. Initiating automated fix process...",
                 "reflection",
             )
 
-            # Build fix prompt for syntax errors
-            fix_prompt = self._build_syntax_fix_prompt(full_content, syntax_errors)
+            # Build fix prompt for syntax errors (now asks for diffs)
+            fix_prompt = self._build_syntax_fix_prompt(files, syntax_errors)
 
-            # Request fix
-            fixed_content = ""
+            # Request fix via diffs
+            diff_response = ""
             for chunk in self.stream_llm_response(
-                system_prompt="You are a code generation assistant. Fix TypeScript syntax errors.",
+                system_prompt="You are a code generation assistant. Fix TypeScript syntax errors using unified diffs only.",
                 user_prompt=fix_prompt,
                 model=model,
                 temperature=0.3,
             ):
-                fixed_content += chunk
+                diff_response += chunk
 
-            # Re-parse and update files
-            files = self.parse_code_blocks(fixed_content)
-            files = exclude_protected_files(files, PROTECTED_FILES)
-            full_content = fixed_content  # Update for field validation below
+            # Parse and apply diffs to original files
+            diffs = parse_diffs(diff_response)
+            if diffs:
+                files_by_path = {f.path: f for f in files}
+                for diff in diffs:
+                    # Skip protected files
+                    if diff.path in PROTECTED_FILES:
+                        logger.info(f"[SYNTAX FIX] Skipping protected file: {diff.path}")
+                        continue
+                    
+                    original_file = files_by_path.get(diff.path)
+                    if original_file:
+                        try:
+                            new_content = apply_diff(original_file.content, diff)
+                            # Update the file in place
+                            files_by_path[diff.path] = FileChange(
+                                path=original_file.path,
+                                action=original_file.action,
+                                language=original_file.language,
+                                content=new_content,
+                                previous_content=original_file.content,
+                                lines_added=diff.lines_added,
+                                lines_removed=diff.lines_removed,
+                            )
+                        except Exception as e:
+                            logger.error(f"[SYNTAX FIX] Failed to apply diff to {diff.path}: {e}")
+                    else:
+                        logger.warning(f"[SYNTAX FIX] No original file found for diff: {diff.path}")
 
-            yield self.emit_thinking("✅ TypeScript syntax fixed", "observation")
+                files = list(files_by_path.values())
+                logger.info(f"[SYNTAX FIX] Applied {len(diffs)} diff(s)")
+            else:
+                logger.warning("[SYNTAX FIX] No diffs found in LLM response")
+
+            yield self.emit_thinking("TypeScript syntax errors resolved", "observation")
 
         # Continue with EXISTING field validation logic
         validation_result = self._validate_datastore_field_names(files, app)
@@ -660,10 +687,10 @@ Original code that needs fixing:
 
         # Validation failed - request fix
         yield self.emit_thinking(
-            f"❌ Field validation failed with {len(validation_result['errors'])} error(s). Requesting fix from Claude...",
+            f"Field validation failed with {len(validation_result['errors'])} error(s). Initiating automated fix process...",
             "reflection",
         )
-        logger.error(f"🚨 [FIELD VALIDATION] BLOCKING generation due to field errors")
+        logger.error(f"[FIELD VALIDATION] BLOCKING generation due to field errors")
 
         # Build fix prompt with fresh schema context
         data_store_context = build_data_store_context(app)
@@ -711,11 +738,11 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
         # Re-validate
         revalidation = self._validate_datastore_field_names(files, app)
         if revalidation["passed"]:
-            yield self.emit_thinking("✅ Field validation passed after fix", "observation")
+            yield self.emit_thinking("Field validation passed after fix", "observation")
         else:
-            logger.error(f"❌ [FIELD VALIDATION] Still has errors after fix: {revalidation['errors']}")
+            logger.error(f"[FIELD VALIDATION] Still has errors after fix: {revalidation['errors']}")
             yield self.emit_thinking(
-                f"⚠️ Field validation still has {len(revalidation['errors'])} error(s) after fix attempt",
+                f"Field validation still has {len(revalidation['errors'])} error(s) after fix attempt",
                 "reflection",
             )
 
@@ -1055,7 +1082,7 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
                 logger.info(f"Table {slug} already exists, skipping")
                 continue
 
-            # 🚨 CRITICAL: Add system columns (id, created_at, updated_at)
+            # CRITICAL: Add system columns (id, created_at, updated_at)
             # The parser filters these out if LLM defines them
             # We add them here before validation so they're part of the schema
             # Start with user-defined columns
