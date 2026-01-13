@@ -1183,14 +1183,31 @@ function ConsoleLogForwarder() {
 
 function AutoRunPreview({ filesKey }: { filesKey: string }) {
   const { sandpack } = useSandpack()
+  const lastRunKeyRef = useRef<string | null>(null)
 
   console.log('[RefreshDebug][AutoRunPreview] Render, filesKey:', filesKey)
 
   useEffect(() => {
-    console.log('[RefreshDebug][AutoRunPreview] Effect triggered, calling runSandpack(). filesKey:', filesKey)
-    sandpack.runSandpack()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filesKey])
+    // Skip if we already ran for this key
+    if (lastRunKeyRef.current === filesKey) {
+      console.log('[RefreshDebug][AutoRunPreview] Skipping, already ran for:', filesKey)
+      return
+    }
+
+    // Debounce: wait for props to settle before running
+    const timer = setTimeout(() => {
+      // Only run if not already bundling
+      if (sandpack.status !== 'running') {
+        console.log('[RefreshDebug][AutoRunPreview] Running sandpack for:', filesKey)
+        lastRunKeyRef.current = filesKey
+        sandpack.runSandpack()
+      } else {
+        console.log('[RefreshDebug][AutoRunPreview] Skipping, sandpack already running')
+      }
+    }, 300) // 300ms debounce
+
+    return () => clearTimeout(timer)
+  }, [filesKey, sandpack.status])
 
   return null
 }
