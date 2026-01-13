@@ -859,7 +859,7 @@ class AgenticService:
         )
 
         try:
-            with httpx.Client(timeout=120.0) as client:
+            with httpx.Client(timeout=180.0) as client:
                 with client.stream(
                     "POST",
                     self.OPENROUTER_API_URL,
@@ -1142,7 +1142,7 @@ class AgenticService:
         prompt = build_final_app_prompt(user_message, context, components_info, other_files)
 
         try:
-            with httpx.Client(timeout=120.0) as client:
+            with httpx.Client(timeout=180.0) as client:
                 with client.stream(
                     "POST",
                     self.OPENROUTER_API_URL,

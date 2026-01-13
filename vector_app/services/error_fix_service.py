@@ -122,7 +122,7 @@ class ErrorFixService:
         })
         
         try:
-            with httpx.Client(timeout=120.0) as client:
+            with httpx.Client(timeout=180.0) as client:
                 with client.stream(
                     "POST",
                     self.OPENROUTER_API_URL,
@@ -260,7 +260,7 @@ class ErrorFixService:
         })
         
         try:
-            with httpx.Client(timeout=120.0) as client:
+            with httpx.Client(timeout=180.0) as client:
                 with client.stream(
                     "POST",
                     self.OPENROUTER_API_URL,

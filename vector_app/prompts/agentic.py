@@ -278,7 +278,8 @@ owner: Database['projects']['row'];
 status: string;
 
 // ✅✅ PREFERRED - Import and use TableSlug enum (algorithmically generated, zero typos)
-import type {{ Database, TableSlug }} from './lib/types';
+import type {{ Database }} from './lib/types';
+import {{ TableSlug }} from './lib/types';
 interface ExtendedTask extends Database[TableSlug.Tasks]['row'] {{
   extraField: string;
 }}
@@ -1189,7 +1190,8 @@ Requirements:
   interface Foo extends Database['projects']['row'] {{ extra: string; }}
 
   // ✅ ALSO CORRECT - Import and use TableSlug enum
-  import type {{ Database, TableSlug }} from '../lib/types';
+  import type {{ Database }} from '../lib/types';
+  import {{ TableSlug }} from '../lib/types';
   interface Foo extends Database[TableSlug.Projects]['row'] {{ extra: string; }}
   ```
 - Use Tailwind CSS for all styling (available via CDN)
@@ -1247,7 +1249,8 @@ CRITICAL REQUIREMENTS:
     interface Foo extends Database['projects']['row'] {{ extra: string; }}
 
     // ✅ ALSO CORRECT - Import and use TableSlug enum
-    import type {{ Database, TableSlug }} from './lib/types';
+    import type {{ Database }} from './lib/types';
+    import {{ TableSlug }} from './lib/types';
     interface Foo extends Database[TableSlug.Projects]['row'] {{ extra: string; }}
     ```
 

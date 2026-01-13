@@ -1,0 +1,5 @@
+@@ -5,3 +6,3 @@
+   const y = 2;
+-  return null;
++  return <div>{x + y}</div>;
+ }

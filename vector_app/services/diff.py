@@ -11,7 +11,7 @@ import re
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import Any, Dict, Generator, Iterator, List, Optional, Tuple
 
 import whatthepatch
 
@@ -293,9 +293,15 @@ def _apply_hunks_backwards(original_content: str, diff: FileDiff) -> str:
     When applying from bottom to top, line numbers for earlier hunks remain valid.
     
     If a hunk fails to apply at its stated location, attempts to relocate it
-    by searching for the hunk's old lines in the file. If found at exactly
-    one location, the hunk is retried there. If found at multiple locations,
-    a warning is logged and the hunk is skipped.
+    by searching for the hunk's old lines (context + removed) in the file. 
+    If found at exactly one location, the hunk is retried there.
+    
+    If the full context search fails (0 matches), falls back to searching
+    with just the removed lines. This is more resilient to AI-hallucinated
+    context lines while still being precise if the removed lines are unique.
+    
+    If found at multiple locations (ambiguous), a warning is logged and the 
+    hunk is skipped.
     
     Args:
         original_content: The original file content
@@ -336,10 +342,30 @@ def _apply_hunks_backwards(original_content: str, diff: FileDiff) -> str:
         file_lines = current_content.split('\n')
         locations = _find_hunk_locations(old_lines, file_lines)
         
+        # Track whether we used removed-lines-only fallback (need to reconstruct hunk)
+        used_removed_only_fallback = False
+        removed_only = []
+        
         if len(locations) == 0:
-            logger.warning(f"[DIFF] Failed to apply hunk at line {start_line}, could not find matching lines in file")
-            failed_hunks.append(start_line)
-            continue
+            # Fallback: try searching with just the removed lines (more resilient to hallucinated context)
+            removed_only = _extract_removed_lines_only(hunk)
+            if removed_only:
+                locations = _find_hunk_locations(removed_only, file_lines)
+                if len(locations) == 1:
+                    logger.info(f"[DIFF] Full context search failed, but found unique match using removed lines only at line {locations[0]}")
+                    used_removed_only_fallback = True
+                elif len(locations) > 1:
+                    logger.warning(
+                        f"[DIFF] Failed to apply hunk at line {start_line}, "
+                        f"removed-lines-only search found {len(locations)} possible locations: {locations}. Skipping."
+                    )
+                    failed_hunks.append(start_line)
+                    continue
+            
+            if len(locations) == 0:
+                logger.warning(f"[DIFF] Failed to apply hunk at line {start_line}, could not find matching lines in file")
+                failed_hunks.append(start_line)
+                continue
         
         if len(locations) > 1:
             logger.warning(
@@ -351,18 +377,36 @@ def _apply_hunks_backwards(original_content: str, diff: FileDiff) -> str:
         
         # Exactly one location found - relocate and retry
         new_location = locations[0]
-        relocated_hunk = _relocate_hunk_header(hunk, new_location)
         
-        result = _try_apply_single_hunk(relocated_hunk, current_content, diff.path)
-        
-        if result is not None:
-            logger.info(f"[DIFF] Relocated hunk from line {start_line} to line {new_location} for {diff.path}")
-            current_content = result
-            applied_count += 1
-            relocated_count += 1
+        if used_removed_only_fallback:
+            # Reconstruct hunk with actual file context (since AI context was hallucinated)
+            added_lines = _extract_added_lines_only(hunk)
+            reconstructed_hunk = _reconstruct_hunk_with_actual_context(
+                file_lines, new_location, removed_only, added_lines
+            )
+            result = _try_apply_single_hunk(reconstructed_hunk, current_content, diff.path)
+            
+            if result is not None:
+                logger.info(f"[DIFF] Reconstructed and applied hunk at line {new_location} for {diff.path} (original line {start_line})")
+                current_content = result
+                applied_count += 1
+                relocated_count += 1
+            else:
+                logger.warning(f"[DIFF] Failed to apply reconstructed hunk at line {new_location} for {diff.path}")
+                failed_hunks.append(start_line)
         else:
-            logger.warning(f"[DIFF] Failed to apply hunk even after relocating from line {start_line} to {new_location}")
-            failed_hunks.append(start_line)
+            # Full context search succeeded - just relocate header
+            relocated_hunk = _relocate_hunk_header(hunk, new_location)
+            result = _try_apply_single_hunk(relocated_hunk, current_content, diff.path)
+            
+            if result is not None:
+                logger.info(f"[DIFF] Relocated hunk from line {start_line} to line {new_location} for {diff.path}")
+                current_content = result
+                applied_count += 1
+                relocated_count += 1
+            else:
+                logger.warning(f"[DIFF] Failed to apply hunk even after relocating from line {start_line} to {new_location}")
+                failed_hunks.append(start_line)
     
     if failed_hunks:
         logger.warning(f"[DIFF] {len(failed_hunks)} hunk(s) failed to apply for {diff.path}: lines {failed_hunks}")
@@ -478,6 +522,115 @@ def _extract_old_lines(hunk: str) -> List[str]:
         elif line == '' and old_lines:
             old_lines.append('')
     return old_lines
+
+
+def _extract_removed_lines_only(hunk: str) -> List[str]:
+    """
+    Extract only the removed lines from a hunk (lines starting with '-').
+    
+    This is used as a fallback for relocation when the full context+removed
+    search fails. Searching for just the removed lines is more resilient to
+    AI-hallucinated context lines, though less precise.
+    
+    Args:
+        hunk: A hunk string starting with @@ header
+        
+    Returns:
+        List of removed lines (without the - prefix)
+    """
+    removed_lines = []
+    for line in hunk.split('\n'):
+        # Skip the @@ header and --- file header
+        if line.startswith('@@') or line.startswith('---'):
+            continue
+        # Only removed lines (strip the - prefix)
+        if line.startswith('-'):
+            removed_lines.append(line[1:])
+    return removed_lines
+
+
+def _extract_added_lines_only(hunk: str) -> List[str]:
+    """
+    Extract only the added lines from a hunk (lines starting with '+').
+    
+    Args:
+        hunk: A hunk string starting with @@ header
+        
+    Returns:
+        List of added lines (without the + prefix)
+    """
+    added_lines = []
+    for line in hunk.split('\n'):
+        # Skip the @@ header and +++ file header
+        if line.startswith('@@') or line.startswith('+++'):
+            continue
+        # Only added lines (strip the + prefix)
+        if line.startswith('+'):
+            added_lines.append(line[1:])
+    return added_lines
+
+
+def _reconstruct_hunk_with_actual_context(
+    file_lines: List[str],
+    location: int,
+    removed_lines: List[str],
+    added_lines: List[str],
+    context_lines: int = 3
+) -> str:
+    """
+    Reconstruct a hunk using actual file content for context lines.
+    
+    This is used when the removed-lines-only fallback finds a unique match.
+    Instead of using the AI's potentially hallucinated context, we extract
+    the real context from the file around the found location.
+    
+    Args:
+        file_lines: The file content split into lines
+        location: 1-indexed line number where removed_lines start
+        removed_lines: The lines being removed (without - prefix)
+        added_lines: The lines being added (without + prefix)
+        context_lines: Number of context lines before and after (default 3)
+        
+    Returns:
+        A properly formatted hunk string with actual context
+    """
+    # Convert to 0-indexed
+    start_idx = location - 1
+    end_idx = start_idx + len(removed_lines)
+    
+    # Get context before (up to context_lines, but not before file start)
+    context_before_start = max(0, start_idx - context_lines)
+    context_before = file_lines[context_before_start:start_idx]
+    
+    # Get context after (up to context_lines, but not past file end)
+    context_after_end = min(len(file_lines), end_idx + context_lines)
+    context_after = file_lines[end_idx:context_after_end]
+    
+    # Calculate line numbers for header
+    old_start = context_before_start + 1  # 1-indexed
+    old_count = len(context_before) + len(removed_lines) + len(context_after)
+    new_count = len(context_before) + len(added_lines) + len(context_after)
+    
+    # Build the hunk
+    hunk_lines = [f'@@ -{old_start},{old_count} +{old_start},{new_count} @@']
+    
+    # Add context before
+    for line in context_before:
+        hunk_lines.append(' ' + line)
+    
+    # Add removed lines
+    for line in removed_lines:
+        hunk_lines.append('-' + line)
+    
+    # Add added lines
+    for line in added_lines:
+        hunk_lines.append('+' + line)
+    
+    # Add context after
+    for line in context_after:
+        hunk_lines.append(' ' + line)
+    
+    return '\n'.join(hunk_lines)
 
 
 def _find_hunk_locations(old_lines: List[str], file_lines: List[str]) -> List[int]:
