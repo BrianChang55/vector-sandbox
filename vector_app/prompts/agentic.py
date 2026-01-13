@@ -265,8 +265,8 @@ export function Toast({{ id, message, type, onClose }}: ToastData & {{ onClose: 
 import {{ Toast, ToastData }} from './Toast';
 ```
 
-### 13. Type Syntax - Avoid Malformed Type Declarations
-Always ensure TypeScript syntax is clean and well-formed:
+### 13. Type Syntax - Avoid Malformed Type Declarations & Prefer TableSlug
+Always ensure TypeScript syntax is clean and well-formed. **Prefer TableSlug enum for type safety:**
 
 ```typescript
 // ❌ WRONG - Stray quotes or malformed syntax
@@ -277,17 +277,20 @@ status: string";  // Extra quote!
 owner: Database['projects']['row'];
 status: string;
 
-// ✅ CORRECT - Use string literal keys
-interface ExtendedTask extends Database['tasks']['row'] {{
-  extraField: string;
-}}
-
-// ✅ ALSO CORRECT - Import TableSlug enum and use it
+// ✅✅ PREFERRED - Import and use TableSlug enum (algorithmically generated, zero typos)
 import type {{ Database, TableSlug }} from './lib/types';
 interface ExtendedTask extends Database[TableSlug.Tasks]['row'] {{
   extraField: string;
 }}
+const tasks: Database[TableSlug.Tasks]['row'][] = result.rows;
+
+// ⚠️ ALSO VALID - String literal keys work but prone to typos
+interface ExtendedTask extends Database['tasks']['row'] {{
+  extraField: string;
+}}
 ```
+
+**Why prefer TableSlug?** It's auto-generated from your schema, so it's always correct and provides IDE autocomplete.
 
 ### 14. ALWAYS Export Types That Other Files Need (CRITICAL)
 If you define a type/interface that ANY other file will import, you MUST use `export`:
@@ -1113,6 +1116,13 @@ import {{ dataStore }} from '../lib/dataStore';
 ```
 
 Requirements:
+- **🚨 DO NOT HALLUCINATE FIELDS 🚨**: Before using ANY field in a dataStore call, CHECK types.ts above to verify it exists
+- **COMMON MISTAKE**: Do NOT invent fields like `is_active`, `isActive`, `active_status` - use ONLY the exact field names shown in types.ts
+- **VERIFICATION STEP**: For each dataStore.query/insert/update call:
+  1. Look at types.ts above
+  2. Find the table you're accessing
+  3. Check that EVERY field you use is listed in that table's type definition
+  4. If a field doesn't exist, DON'T USE IT - change your approach or add it to the schema first
 - Use TypeScript with proper types
 - **🚨 CRITICAL - CHECK YOUR CODE FOR STRAY QUOTES 🚨**: Every line must end cleanly with semicolon `;` NOT `;'` or `;"` - these cause parse errors!
 - **CRITICAL**: Ensure all TypeScript syntax is valid - no stray quotes, unclosed brackets, or malformed type declarations
@@ -1170,12 +1180,14 @@ CRITICAL REQUIREMENTS:
 7. Use Tailwind CSS for all styling
 8. Handle loading and error states
 9. Make it interactive (search, filters, etc. as appropriate)
-10. **🚨 CRITICAL - CHECK YOUR CODE FOR STRAY QUOTES 🚨**: Every line must end cleanly with semicolon `;` NOT `;'` or `;"` - these cause parse errors!
-11. **CRITICAL**: Ensure all TypeScript syntax is valid - no stray quotes, unclosed brackets, or malformed type declarations
-12. **ONLY import from**: react, react-dom, lucide-react, framer-motion, react-router-dom
-13. **DO NOT use**: Any other npm packages not listed above
-14. For navigation, use react-router-dom (BrowserRouter, Routes, Route, Link, useNavigate)
-15. **CRITICAL - AVOID SYNTAX ERRORS**:
+10. **🚨 DO NOT HALLUCINATE FIELDS 🚨**: Before using ANY field in a dataStore call, CHECK types.ts to verify it exists - Do NOT invent fields like `is_active`, `isActive`, `active_status`
+11. **FIELD VERIFICATION**: For each dataStore.query/insert/update call, verify EVERY field you use is listed in types.ts for that specific table
+12. **🚨 CRITICAL - CHECK YOUR CODE FOR STRAY QUOTES 🚨**: Every line must end cleanly with semicolon `;` NOT `;'` or `;"` - these cause parse errors!
+13. **CRITICAL**: Ensure all TypeScript syntax is valid - no stray quotes, unclosed brackets, or malformed type declarations
+14. **ONLY import from**: react, react-dom, lucide-react, framer-motion, react-router-dom
+15. **DO NOT use**: Any other npm packages not listed above
+16. For navigation, use react-router-dom (BrowserRouter, Routes, Route, Link, useNavigate)
+17. **CRITICAL - AVOID SYNTAX ERRORS**:
     ```typescript
     // ❌ WRONG - Stray quotes cause parse errors
     owner: Database['projects']['row'];'  // Extra quote at end!
@@ -1662,37 +1674,47 @@ const items: Database['{first_table}']['row'][] = result.rows;
 """
 
         typescript_types_section = f"""
-## 🎯 DATABASE SCHEMA - THESE ARE THE ONLY TABLES THAT EXIST
+{'='*80}
+🚨🚨🚨 STOP - READ THESE CONSTRAINTS FIRST 🚨🚨🚨
+{'='*80}
 
-**AVAILABLE TABLES:** {table_list}
+AVAILABLE TABLES: {table_list}
+{f"⚠️  MISSING/UNAVAILABLE: (any tables not listed above)" if table_slugs else "No tables available yet"}
 
-Full types.ts file:
+{'='*80}
+CRITICAL RULES - YOU MUST FOLLOW THESE
+{'='*80}
+
+1. ONLY USE TABLES LISTED ABOVE
+   ❌ If step mentions 'team_members' but it's not in the list → Skip that feature
+   ❌ If step mentions 'users' but it's not in the list → Skip that feature
+   ✅ Only generate code for tables that EXIST in the list above
+
+2. ONLY USE FIELDS SHOWN IN types.ts BELOW
+   ❌ Do NOT invent fields like 'is_active', 'isActive', 'active'
+   ❌ Do NOT assume common fields exist
+   ✅ CHECK the type definition for EXACT field names
+
+3. DO NOT USE INLINE IMPORTS IN TYPES
+   ❌ WRONG: Database[import('./types').TableSlug.Projects]
+   ✅ CORRECT: Import TableSlug first, then use Database[TableSlug.Projects]
+
+4. DO NOT USE EXTENDS WITH INDEXED ACCESS (TypeScript Error ts(2499))
+   ❌ WRONG: interface Foo extends Database[TableSlug.Projects]['row']
+   ✅ CORRECT: type Foo = Database[TableSlug.Projects]['row'] & {{ extra: string }}
+
+5. IF STEP CANNOT BE COMPLETED → SKIP IT
+   If the step requires missing tables, DON'T generate broken code
+   Instead, focus only on features that CAN work with available tables
+
+{'='*80}
+
+Full types.ts content (THIS IS THE SOURCE OF TRUTH):
 ```typescript
 {content}
 ```
+
 {concrete_examples}
-
-## ⚠️ CRITICAL RULES:
-
-**RULE 1: ONLY use tables listed above**
-- Available: {table_list}
-- If step mentions a table not in this list → SKIP that feature entirely
-
-**RULE 2: ONLY use fields shown in types.ts**
-- Check the type definition for each table
-- If a field doesn't exist → DON'T use it
-
-**RULE 3: ALWAYS import Database type**
-```typescript
-import type {{ Database }} from '../lib/types';
-const item: Database['table-name']['insert'] = {{ /* fields */ }};
-```
-
-**RULE 4: If requested table doesn't exist → Descope**
-- Build ONLY features you CAN build with available tables
-- Skip features that need missing tables
-- No placeholders, no TODOs - just working code with what exists
-
 """
 
     # Show other existing files (last 3, truncated)
