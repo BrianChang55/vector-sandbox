@@ -245,7 +245,6 @@ export function startAgenticGeneration(
   const token = localStorage.getItem('access_token')
 
   if (token) {
-    const startTime = performance.now()
     let eventCount = 0
     
     fetch(url, {
@@ -361,7 +360,6 @@ export function reconnectToJob(
   const token = localStorage.getItem('access_token')
 
   if (token) {
-    const startTime = performance.now()
     let eventCount = 0
     
     fetch(url, {
@@ -489,7 +487,6 @@ export function startFixErrors(
   const token = localStorage.getItem('access_token')
 
   if (token) {
-    const startTime = performance.now()
     let eventCount = 0
     
     fetch(url, {
