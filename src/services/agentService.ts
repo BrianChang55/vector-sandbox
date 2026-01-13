@@ -245,6 +245,9 @@ export function startAgenticGeneration(
   const token = localStorage.getItem('access_token')
 
   if (token) {
+    const startTime = performance.now()
+    let eventCount = 0
+    
     fetch(url, {
       method: 'GET',
       headers: {
@@ -274,7 +277,8 @@ export function startAgenticGeneration(
             break
           }
 
-          buffer += decoder.decode(value, { stream: true })
+          const chunk = decoder.decode(value, { stream: true })
+          buffer += chunk
 
           // Parse SSE events
           const lines = buffer.split('\n')
@@ -291,6 +295,7 @@ export function startAgenticGeneration(
             } else if (line === '' && eventType && eventData) {
               try {
                 const data = JSON.parse(eventData)
+                eventCount++
                 
                 // Track the version ID when a draft version is created
                 if (eventType === 'version_draft' && data.version_id) {
@@ -304,7 +309,7 @@ export function startAgenticGeneration(
                 }
                 options.onEvent(event)
               } catch (e) {
-                console.warn('Failed to parse SSE data:', eventData)
+                // Failed to parse SSE data
               }
               eventType = ''
               eventData = ''
@@ -356,6 +361,9 @@ export function reconnectToJob(
   const token = localStorage.getItem('access_token')
 
   if (token) {
+    const startTime = performance.now()
+    let eventCount = 0
+    
     fetch(url, {
       method: 'GET',
       headers: {
@@ -385,7 +393,8 @@ export function reconnectToJob(
             break
           }
 
-          buffer += decoder.decode(value, { stream: true })
+          const chunk = decoder.decode(value, { stream: true })
+          buffer += chunk
 
           // Parse SSE events
           const lines = buffer.split('\n')
@@ -402,6 +411,8 @@ export function reconnectToJob(
             } else if (line === '' && eventType && eventData) {
               try {
                 const data = JSON.parse(eventData)
+                eventCount++
+                
                 const event: AgentEvent = {
                   type: eventType as AgentEventType,
                   timestamp: new Date().toISOString(),
@@ -409,7 +420,7 @@ export function reconnectToJob(
                 }
                 options.onEvent(event)
               } catch (e) {
-                console.warn('Failed to parse SSE data:', eventData)
+                // Failed to parse SSE data
               }
               eventType = ''
               eventData = ''
@@ -478,6 +489,9 @@ export function startFixErrors(
   const token = localStorage.getItem('access_token')
 
   if (token) {
+    const startTime = performance.now()
+    let eventCount = 0
+    
     fetch(url, {
       method: 'GET',
       headers: {
@@ -507,7 +521,8 @@ export function startFixErrors(
             break
           }
 
-          buffer += decoder.decode(value, { stream: true })
+          const chunk = decoder.decode(value, { stream: true })
+          buffer += chunk
 
           // Parse SSE events
           const lines = buffer.split('\n')
@@ -524,6 +539,8 @@ export function startFixErrors(
             } else if (line === '' && eventType && eventData) {
               try {
                 const data = JSON.parse(eventData)
+                eventCount++
+                
                 const event: AgentEvent = {
                   type: eventType as AgentEventType,
                   timestamp: new Date().toISOString(),
@@ -531,7 +548,7 @@ export function startFixErrors(
                 }
                 options.onEvent(event)
               } catch (e) {
-                console.warn('Failed to parse SSE data:', eventData)
+                // Failed to parse SSE data
               }
               eventType = ''
               eventData = ''

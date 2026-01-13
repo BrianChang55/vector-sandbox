@@ -80,6 +80,7 @@ interface LocalMessage {
   status: 'pending' | 'streaming' | 'complete' | 'error'
   isAgentic?: boolean
   thinkingDuration?: number
+  planningDuration?: number
   tasks?: PlanStep[]
   files?: FileChange[]
   exploredInfo?: { directories: number; files: number; searches: number }
@@ -125,6 +126,40 @@ function ThinkingIndicator({ startTime }: { startTime: number }) {
       </motion.div>
       <div>
         <span className="text-sm text-gray-600">Thought for </span>
+        <span className="text-sm font-medium text-gray-900">{elapsed}s</span>
+      </div>
+    </div>
+  )
+}
+
+// Animated planning indicator with timer
+function PlanningIndicator({ startTime }: { startTime: number }) {
+  const [elapsed, setElapsed] = useState(0)
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startTime) / 1000))
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [startTime])
+
+  return (
+    <div className="flex items-center gap-3 py-3">
+      <motion.div
+        className="w-8 h-8 rounded-lg bg-gray-100 border border-gray-200 flex items-center justify-center"
+        animate={{ 
+          boxShadow: [
+            '0 0 0 0 rgba(156, 163, 175, 0)',
+            '0 0 0 4px rgba(156, 163, 175, 0.1)',
+            '0 0 0 0 rgba(156, 163, 175, 0)',
+          ]
+        }}
+        transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+      >
+        <ListChecks className="h-4 w-4 text-gray-500" />
+      </motion.div>
+      <div>
+        <span className="text-sm text-gray-600">Planning for </span>
         <span className="text-sm font-medium text-gray-900">{elapsed}s</span>
       </div>
     </div>
@@ -527,6 +562,10 @@ export function AgenticChatPanel({
   const [selectedModel, setSelectedModel] = useState('anthropic/claude-sonnet-4')
   const [abortController, setAbortController] = useState<AbortController | null>(null)
   const [thinkingStartTime, setThinkingStartTime] = useState<number | null>(null)
+  const [planningStartTime, setPlanningStartTime] = useState<number | null>(null)
+  // Refs to avoid stale closure issues in event handlers
+  const thinkingStartTimeRef = useRef<number | null>(null)
+  const planningStartTimeRef = useRef<number | null>(null)
   const [accumulatedFiles, setAccumulatedFiles] = useState<FileChange[]>([])
   // Track the generating version ID so we can cancel it properly
   const [generatingVersionId, setGeneratingVersionId] = useState<string | null>(null)
@@ -680,33 +719,37 @@ export function AgenticChatPanel({
       const timestamp = new Date().toISOString()
       setMessages((prev) => {
         if (!prev.length) return prev
-        const updated = [...prev]
-        const lastMsg = updated[updated.length - 1]
-        if (lastMsg?.role === 'assistant') {
-          const existing = lastMsg.progressUpdates || []
+        const lastIdx = prev.length - 1
+        const lastMsg = prev[lastIdx]
+        if (lastMsg?.role !== 'assistant') return prev
+        
+        const existing = lastMsg.progressUpdates || []
 
-          const dedupeWindow = opts?.dedupeWindowMs ?? 4000
-          const last = existing[existing.length - 1]
-          const withinDedupeWindow =
-            last &&
-            Math.abs(new Date(timestamp).getTime() - new Date(last.timestamp).getTime()) <
-              dedupeWindow
-          if (last && last.text === text && last.variant === variant && withinDedupeWindow) {
-            return updated // skip noisy duplicate
-          }
-
-          const next = [
-            ...existing,
-            {
-              id: `${timestamp}-${existing.length}`,
-              text,
-              timestamp,
-              variant,
-            },
-          ]
-          lastMsg.progressUpdates = next // append only; don't rewrite prior rows
+        const dedupeWindow = opts?.dedupeWindowMs ?? 4000
+        const last = existing[existing.length - 1]
+        const withinDedupeWindow =
+          last &&
+          Math.abs(new Date(timestamp).getTime() - new Date(last.timestamp).getTime()) <
+            dedupeWindow
+        if (last && last.text === text && last.variant === variant && withinDedupeWindow) {
+          return prev // skip noisy duplicate
         }
-        return updated
+
+        const next = [
+          ...existing,
+          {
+            id: `${timestamp}-${existing.length}`,
+            text,
+            timestamp,
+            variant,
+          },
+        ]
+        
+        // Create new message object to trigger React re-render
+        return [
+          ...prev.slice(0, lastIdx),
+          { ...lastMsg, progressUpdates: next },
+        ]
       })
     },
     []
@@ -1090,8 +1133,10 @@ export function AgenticChatPanel({
           })
           break
 
-        case 'agent_start':
-          setThinkingStartTime(Date.now())
+        case 'agent_start': {
+          const now = Date.now()
+          setThinkingStartTime(now)
+          thinkingStartTimeRef.current = now
           setAccumulatedFiles([]) // Reset files for new generation
           progressMilestonesRef.current = new Set()
           progressUpdateCountRef.current = 0
@@ -1100,6 +1145,7 @@ export function AgenticChatPanel({
           progressThresholdIndexRef.current = 0
           appendProgressUpdate('Starting agentic build: setting up session and tools', 'phase')
           break
+        }
 
         case 'phase_change': {
           const phase = (data.phase as AgentState['phase']) || 'working'
@@ -1113,6 +1159,31 @@ export function AgenticChatPanel({
             idle: 'waiting',
             working: 'working',
           }
+          
+          // When transitioning to planning, finalize thinking duration and start planning timer
+          // Use refs to avoid stale closure issues
+          if (phase === 'planning' && thinkingStartTimeRef.current) {
+            const thinkingStart = thinkingStartTimeRef.current
+            setMessages((prev) => {
+              const lastIdx = prev.length - 1
+              if (lastIdx < 0) return prev
+              const lastMsg = prev[lastIdx]
+              if (lastMsg?.role !== 'assistant') return prev
+              return [
+                ...prev.slice(0, lastIdx),
+                {
+                  ...lastMsg,
+                  thinkingDuration: Math.floor((Date.now() - thinkingStart) / 1000),
+                },
+              ]
+            })
+            setThinkingStartTime(null)
+            thinkingStartTimeRef.current = null
+            const planningNow = Date.now()
+            setPlanningStartTime(planningNow)
+            planningStartTimeRef.current = planningNow
+          }
+          
           appendProgressUpdate(
             `Now ${phase}: ${phaseDescriptions[phase] || 'working'}`,
             'phase',
@@ -1129,7 +1200,11 @@ export function AgenticChatPanel({
           }
           break
 
-        case 'plan_created':
+        case 'plan_created': {
+          // Capture refs before setState to avoid stale closures
+          const thinkingStart = thinkingStartTimeRef.current
+          const planningStart = planningStartTimeRef.current
+          
           // Update the last assistant message with tasks
           setMessages((prev) => {
             const lastIdx = prev.length - 1
@@ -1147,9 +1222,14 @@ export function AgenticChatPanel({
                   files: data.exploredFiles || 0,
                   searches: data.searches || 0,
                 },
-                thinkingDuration: thinkingStartTime 
-                  ? Math.floor((Date.now() - thinkingStartTime) / 1000)
+                // Fallback: finalize thinkingDuration if phase_change didn't fire
+                thinkingDuration: thinkingStart 
+                  ? Math.floor((Date.now() - thinkingStart) / 1000)
                   : lastMsg.thinkingDuration,
+                // Finalize planning duration
+                planningDuration: planningStart
+                  ? Math.floor((Date.now() - planningStart) / 1000)
+                  : lastMsg.planningDuration,
               },
             ]
           })
@@ -1159,7 +1239,11 @@ export function AgenticChatPanel({
             { dedupeWindowMs: 4000 }
           )
           setThinkingStartTime(null)
+          thinkingStartTimeRef.current = null
+          setPlanningStartTime(null)
+          planningStartTimeRef.current = null
           break
+        }
 
         case 'step_start':
         case 'step_started': {
@@ -1494,7 +1578,8 @@ export function AgenticChatPanel({
       onSessionChange,
       onVersionCreated,
       onFilesGenerated,
-      thinkingStartTime,
+      // Note: thinkingStartTime and planningStartTime are accessed via refs
+      // to avoid stale closure issues, so they don't need to be dependencies
       accumulatedFiles,
       isHiddenPromptExecution,
       isHiddenPromptContent,
@@ -2099,11 +2184,24 @@ export function AgenticChatPanel({
                       <ThinkingIndicator startTime={thinkingStartTime} />
                     )}
 
+                    {/* Planning indicator - show while planning is in progress */}
+                    {isLastMessage && message.status === 'streaming' && planningStartTime && !message.tasks?.length && (
+                      <PlanningIndicator startTime={planningStartTime} />
+                    )}
+
                     {/* Thought duration badge (after thinking completes) */}
                     {message.thinkingDuration && message.thinkingDuration > 0 && (
                       <div className="flex items-center gap-1 text-[10px] text-gray-400">
                         <Lightbulb className="h-2.5 w-2.5 flex-shrink-0" />
                         <span>Thought for {message.thinkingDuration}s</span>
+                      </div>
+                    )}
+
+                    {/* Planning duration badge (after planning completes) */}
+                    {message.planningDuration && message.planningDuration > 0 && (
+                      <div className="flex items-center gap-1 text-[10px] text-gray-400">
+                        <ListChecks className="h-2.5 w-2.5 flex-shrink-0" />
+                        <span>Planned for {message.planningDuration}s</span>
                       </div>
                     )}
 
