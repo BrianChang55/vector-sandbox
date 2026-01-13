@@ -1085,8 +1085,11 @@ function BundlerReadyReporter({ onReady }: { onReady: (ready: boolean) => void }
   const { sandpack, listen } = useSandpack()
   const doneTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const startTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const hasReportedReadyRef = useRef(false)
   
   useEffect(() => {
+    hasReportedReadyRef.current = false
+    
     const unsubscribe = listen((message) => {
       const msg = message as { type: string }
       
@@ -1100,12 +1103,30 @@ function BundlerReadyReporter({ onReady }: { onReady: (ready: boolean) => void }
         if (!startTimeoutRef.current) {
           startTimeoutRef.current = setTimeout(() => {
             onReady(false)
+            hasReportedReadyRef.current = false
             startTimeoutRef.current = null
           }, 100)
         }
       }
       
-      if (msg.type === 'done') {
+      // 'resize' fires when the iframe has actual rendered content.
+      // This is more reliable than 'done' because 'done' waits for Sandpack's
+      // telemetry call to col.csbops.io, which can timeout and block for seconds.
+      // By listening for 'resize', we show the preview as soon as it's visible.
+      if (msg.type === 'resize' && !hasReportedReadyRef.current) {
+        if (startTimeoutRef.current) {
+          clearTimeout(startTimeoutRef.current)
+          startTimeoutRef.current = null
+        }
+        if (doneTimeoutRef.current) {
+          clearTimeout(doneTimeoutRef.current)
+          doneTimeoutRef.current = null
+        }
+        onReady(true)
+        hasReportedReadyRef.current = true
+      }
+      
+      if (msg.type === 'done' && !hasReportedReadyRef.current) {
         // Clear any pending "start" timeout
         if (startTimeoutRef.current) {
           clearTimeout(startTimeoutRef.current)
@@ -1117,6 +1138,7 @@ function BundlerReadyReporter({ onReady }: { onReady: (ready: boolean) => void }
         }
         doneTimeoutRef.current = setTimeout(() => {
           onReady(true)
+          hasReportedReadyRef.current = true
           doneTimeoutRef.current = null
         }, 200)
       }
