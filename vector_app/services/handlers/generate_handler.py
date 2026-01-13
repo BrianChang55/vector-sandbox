@@ -169,7 +169,6 @@ class GenerateHandler(BaseHandler):
         if not data_steps and app and code_steps:
             from vector_app.models import AppDataTable
             from vector_app.services import generate_typescript_types
-            from vector_app.services.types import FileChange
 
             tables = AppDataTable.objects.filter(internal_app=app).order_by('name')
             if tables.exists():
