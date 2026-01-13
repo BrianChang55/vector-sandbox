@@ -23,6 +23,7 @@ import {
   Clock,
   Search,
   ListChecks,
+  Square,
 } from 'lucide-react'
 import { ModelSelector } from './ModelSelector'
 import {
@@ -2213,19 +2214,31 @@ export function AgenticChatPanel({
                 size="sm"
                 placement="up"
               />
-              <button
-                onClick={handleSendClick}
-                disabled={!isLoading && !input.trim()}
-                className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-gray-900 text-white
-                           hover:bg-gray-800 disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-sm"
-                title={isLoading ? 'Stop generation' : 'Send message'}
-              >
-                {isLoading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <ArrowUp className="h-4 w-4" />
-                )}
-              </button>
+              {/* Dev mode: show red stop button when loading, otherwise show send button */}
+              {import.meta.env.DEV && isLoading ? (
+                <button
+                  onClick={handleCancel}
+                  className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-red-600 text-white
+                             hover:bg-red-700 transition-all shadow-sm"
+                  title="Cancel generation"
+                >
+                  <Square className="h-3 w-3 fill-current" />
+                </button>
+              ) : (
+                <button
+                  onClick={handleSendClick}
+                  disabled={!isLoading && !input.trim()}
+                  className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-gray-900 text-white
+                             hover:bg-gray-800 disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-sm"
+                  title={isLoading ? 'Stop generation' : 'Send message'}
+                >
+                  {isLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <ArrowUp className="h-4 w-4" />
+                  )}
+                </button>
+              )}
             </div>
           </div>
         </div>
