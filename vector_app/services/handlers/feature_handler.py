@@ -5,11 +5,15 @@ Adds new features to existing apps while preserving current functionality.
 Creates new components and integrates them into the existing structure.
 """
 
+import json
 import logging
+import re
 import time
 from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
 from .base_handler import BaseHandler, AgentEvent, FileChange
+from .generate_handler import GenerateHandler
+from vector_app.services.context_analyzer import get_context_analyzer
 from vector_app.services.diff import parse_diffs, apply_diff, format_with_line_numbers
 from vector_app.services.planning_service import PlanStepStatus
 
@@ -317,7 +321,6 @@ class FeatureHandler(BaseHandler):
                 "No existing app to add features to - generating new app",
                 "reflection",
             )
-            from .generate_handler import GenerateHandler
 
             gen_handler = GenerateHandler()
             yield from gen_handler.execute(
@@ -559,8 +562,6 @@ class FeatureHandler(BaseHandler):
 
         Note: This is NOT a generator - returns a dict directly.
         """
-        import json
-
         prompt = FEATURE_ANALYSIS_PROMPT.format(
             user_message=user_message,
             app_structure=app_structure,
@@ -576,8 +577,6 @@ class FeatureHandler(BaseHandler):
             )
 
             # Parse JSON
-            import re
-
             json_match = re.search(r"\{.*\}", response, re.DOTALL)
             if json_match:
                 return json.loads(json_match.group())
@@ -615,16 +614,12 @@ class FeatureHandler(BaseHandler):
             # Truncate large files (line numbers are preserved for visible lines)
             code_context += f"\n### {path}\n```\n{numbered_content}\n```\n"
 
-        import json
-
         feature_analysis_str = json.dumps(feature_analysis, indent=2)
 
         # Build reusable components section
         reusable_components = ""
         codebase_style = ""
         if context:
-            from vector_app.services.context_analyzer import get_context_analyzer
-
             analyzer = get_context_analyzer()
 
             # Find reusable components

@@ -167,9 +167,6 @@ class GenerateHandler(BaseHandler):
 
         # Generate types.ts from existing tables if no data phase but tables exist
         if not data_steps and app and code_steps:
-            from vector_app.models import AppDataTable
-            from vector_app.services import generate_typescript_types
-
             tables = AppDataTable.objects.filter(internal_app=app).order_by('name')
             if tables.exists():
                 logger.info(f"📝 [PRE-CODE] No data steps but {tables.count()} table(s) exist - generating types.ts")
@@ -389,9 +386,6 @@ class GenerateHandler(BaseHandler):
         model: str,
     ) -> List[PlanStep]:
         """Create an execution plan for the app generation."""
-        from vector_app.prompts.agentic import build_plan_prompt
-        import re
-
         plan_prompt = build_plan_prompt(user_message, context)
 
         # Use Opus for planning - better reasoning for complex plan generation
@@ -563,8 +557,6 @@ class GenerateHandler(BaseHandler):
 
     def _build_tables_summary_for_system_prompt(self, app: 'InternalApp') -> str:
         """Build concise table schema summary for system prompt."""
-        from vector_app.models import AppDataTable
-
         tables = AppDataTable.objects.filter(internal_app=app).order_by('name')
         if not tables.exists():
             return "No tables defined."
@@ -982,6 +974,7 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
             final = self._validate_typescript(generated_files)
             validation_passed = final["passed"]
 
+        return (validation_passed, fix_attempts)
 
     def _validate_typescript(self, files: List[FileChange]) -> Dict[str, Any]:
         """

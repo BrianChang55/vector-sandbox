@@ -16,11 +16,12 @@ from typing import Any, Dict, Generator, List, Optional, Set, TYPE_CHECKING
 from django.conf import settings
 import httpx
 
+from vector_app.services.error_fix_service import get_error_fix_service
+from vector_app.services.planning_service import PlanStep
 from vector_app.services.types import (
     FileChange,
     AgentEvent,
 )
-from vector_app.services.planning_service import PlanStep
 from vector_app.services.validation_service import get_validation_service
 
 if TYPE_CHECKING:
@@ -660,8 +661,6 @@ class BaseHandler(ABC):
         Returns:
             Tuple of (validation_passed, fix_attempts)
         """
-        from vector_app.services.error_fix_service import get_error_fix_service
-
         validation_service = get_validation_service()
         validation_passed = False
         fix_attempts = 0
@@ -783,7 +782,6 @@ class BaseHandler(ABC):
 
     def _validate_typescript_syntax(self, code_blocks: Dict[str, str]) -> List[Dict[str, str]]:
         """Validate TypeScript syntax for common errors."""
-        import re
         errors = []
 
         for file_path, content in code_blocks.items():
@@ -818,8 +816,6 @@ class BaseHandler(ABC):
 
     def _extract_all_table_schemas(self, data_store_context: str) -> Dict[str, List[str]]:
         """Extract table names and their fields from data_store_context."""
-        import re
-
         tables = {}
 
         # Parse data_store_context for table definitions
@@ -839,8 +835,6 @@ class BaseHandler(ABC):
         all_tables: Dict[str, List[str]]
     ) -> str:
         """Build guidance showing if missing fields exist on other tables."""
-        import re
-
         guidance_parts = []
 
         for error in errors:

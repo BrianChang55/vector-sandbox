@@ -11,7 +11,11 @@ import time
 from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
 from .base_handler import BaseHandler, AgentEvent, FileChange
+from .generate_handler import GenerateHandler
 from ..datastore import TableDefinitionParser
+from vector_app.models import AppDataTable
+from vector_app.prompts.agentic import DESIGN_STYLE_PROMPT
+from vector_app.services.app_data_service import AppDataService
 from vector_app.services.planning_service import PlanStepStatus
 
 if TYPE_CHECKING:
@@ -79,10 +83,6 @@ Then output any code files that need updating:
 ```filepath:src/components/DataDisplay.tsx
 // Updated component code
 ```"""
-
-
-# Import design style from prompts
-from vector_app.prompts.agentic import DESIGN_STYLE_PROMPT
 
 
 CODE_UPDATE_PROMPT = f"""Update the existing code to use the new/modified data schema.
@@ -160,8 +160,6 @@ class SchemaHandler(BaseHandler):
                 "reflection",
             )
             # Fallback to generate handler
-            from .generate_handler import GenerateHandler
-
             gen_handler = GenerateHandler()
             yield from gen_handler.execute(
                 intent,
@@ -401,9 +399,6 @@ class SchemaHandler(BaseHandler):
         version: "AppVersion",
     ) -> Generator[AgentEvent, None, Optional[Dict[str, Any]]]:
         """Create or update a table based on definition."""
-        from vector_app.models import AppDataTable
-        from vector_app.services.app_data_service import AppDataService
-
         slug = table_def["slug"]
 
         # Check if table exists

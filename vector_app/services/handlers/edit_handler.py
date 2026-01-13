@@ -10,6 +10,7 @@ import time
 from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
 from .base_handler import BaseHandler, AgentEvent, FileChange
+from vector_app.services.context_analyzer import get_context_analyzer
 from vector_app.services.diff import parse_diffs, apply_diff, format_with_line_numbers
 from vector_app.services.planning_service import PlanStepStatus
 
@@ -435,8 +436,6 @@ class EditHandler(BaseHandler):
 
         if target_files:
             # Use cascade detection to find additional affected files
-            from vector_app.services.context_analyzer import get_context_analyzer
-
             analyzer = get_context_analyzer()
 
             cascade_affected = set()
@@ -496,8 +495,6 @@ class EditHandler(BaseHandler):
             return {}
 
         try:
-            from vector_app.services.context_analyzer import get_context_analyzer
-
             analyzer = get_context_analyzer()
             return analyzer.get_file_contents(version, file_paths)
         except Exception as e:
