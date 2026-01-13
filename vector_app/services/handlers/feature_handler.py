@@ -454,7 +454,7 @@ class FeatureHandler(BaseHandler):
         
         # Merge and validate with error fixing
         all_files = self._merge_with_existing(version, context, generated_files)
-        
+
         validation_passed, fix_attempts = yield from self.validate_and_fix(
             generated_files=all_files,
             model=model,

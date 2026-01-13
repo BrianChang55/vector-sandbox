@@ -8,7 +8,7 @@ import json
 import logging
 import re
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 from enum import StrEnum
 
@@ -16,6 +16,7 @@ from django.conf import settings
 import httpx
 
 from vector_app.prompts.agentic import build_plan_prompt
+from vector_app.utils.enum_utils import safe_str_enum
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,16 @@ class PlanStepStatus(StrEnum):
     ERROR = "error"
 
 
+class PlanOperationType(StrEnum):
+    """Operation types for PlanStep execution."""
+    GENERATE = "generate"
+    EDIT = "edit"
+    ADD_FEATURE = "add_feature"
+    SCHEMA = "schema"
+    FIX = "fix"
+    REFACTOR = "refactor"
+
+
 @dataclass
 class PlanStep:
     """A single step in the execution plan."""
@@ -35,6 +46,8 @@ class PlanStep:
     title: str
     description: str
     step_order: int = 0  # Wave number for parallel execution (0 = first)
+    target_files: List[str] = field(default_factory=list)  # Files to create/modify
+    operation_type: PlanOperationType = PlanOperationType.GENERATE
     status: PlanStepStatus = PlanStepStatus.PENDING
     duration: Optional[int] = None
     output: Optional[str] = None
@@ -126,6 +139,12 @@ class PlanningService:
                         title=s.get("title", "Generate Code"),
                         description=s.get("description", ""),
                         step_order=s.get("step_order", 0),
+                        target_files=s.get("target_files", []),
+                        operation_type=safe_str_enum(
+                            s.get("operation_type", PlanOperationType.GENERATE.value),
+                            PlanOperationType.GENERATE,
+                            PlanOperationType
+                        ),
                         status=PlanStepStatus.PENDING,
                         duration=s.get("duration", None),
                         output=s.get("output", None),
@@ -151,6 +170,11 @@ class PlanningService:
                 for i, step in enumerate(steps, 1):
                     logger.debug(f"Step {i}: [{step.type}] {step.title} (Order: {step.step_order})")
                     logger.debug(f"  Description: {step.description}")
+                    logger.debug(f"  Operation Type: {step.operation_type}")
+                    if step.target_files:
+                        logger.debug(f"  Target Files: {', '.join(step.target_files)}")
+                    if step.output:
+                        logger.debug(f"  Output: {step.output}")
                 logger.debug("=" * 80)
                 
                 return plan
@@ -206,16 +230,51 @@ class PlanningService:
             goal=user_message,
             reasoning="Building a React app based on your request.",
             steps=[
-                PlanStep(str(uuid.uuid4()), "design", "Design App Structure", 
-                        "Plan the component hierarchy and data flow"),
-                PlanStep(str(uuid.uuid4()), "component", "Create Main Component", 
-                        "Build the primary app component"),
-                PlanStep(str(uuid.uuid4()), "component", "Build UI Components", 
-                        "Create reusable UI components"),
-                PlanStep(str(uuid.uuid4()), "integration", "Connect Data Layer", 
-                        "Integrate with the runtime API"),
-                PlanStep(str(uuid.uuid4()), "styling", "Apply Styling", 
-                        "Add professional styling with Tailwind"),
+                PlanStep(
+                    id=str(uuid.uuid4()),
+                    type="design",
+                    title="Design App Structure",
+                    description="Plan the component hierarchy and data flow",
+                    step_order=0,
+                    target_files=["src/App.tsx"],
+                    operation_type=PlanOperationType.GENERATE,
+                ),
+                PlanStep(
+                    id=str(uuid.uuid4()),
+                    type="component",
+                    title="Create Main Component",
+                    description="Build the primary app component",
+                    step_order=1,
+                    target_files=["src/components/Main.tsx"],
+                    operation_type=PlanOperationType.GENERATE,
+                ),
+                PlanStep(
+                    id=str(uuid.uuid4()),
+                    type="component",
+                    title="Build UI Components",
+                    description="Create reusable UI components",
+                    step_order=1,
+                    target_files=["src/components/ui/Button.tsx", "src/components/ui/Card.tsx"],
+                    operation_type=PlanOperationType.GENERATE,
+                ),
+                PlanStep(
+                    id=str(uuid.uuid4()),
+                    type="integration",
+                    title="Connect Data Layer",
+                    description="Integrate with the runtime API",
+                    step_order=2,
+                    target_files=["src/App.tsx"],
+                    operation_type=PlanOperationType.EDIT,
+                ),
+                PlanStep(
+                    id=str(uuid.uuid4()),
+                    type="styling",
+                    title="Apply Styling",
+                    description="Add professional styling with Tailwind",
+                    step_order=3,
+                    target_files=["src/App.tsx", "src/components/Main.tsx"],
+                    operation_type=PlanOperationType.EDIT,
+                ),
             ],
             estimated_duration=25000,
         )
