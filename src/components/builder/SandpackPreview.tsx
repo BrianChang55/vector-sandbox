@@ -1981,8 +1981,12 @@ export function SandpackPreview({
         files={filesToUse}
         customSetup={{
           dependencies: {
+            typescript: 'latest',
+            '@types/react': 'latest',
+            '@types/react-dom': 'latest',
             'lucide-react': 'latest',
             'framer-motion': 'latest',
+            'react-router-dom': '^6.22.0',
           },
         }}
         options={{
