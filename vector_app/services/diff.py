@@ -11,7 +11,7 @@ import re
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import Any, Dict, Generator, Iterator, List, Optional, Tuple
 
 import whatthepatch
 
