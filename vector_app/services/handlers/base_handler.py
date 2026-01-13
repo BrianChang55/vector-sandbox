@@ -781,6 +781,114 @@ class BaseHandler(ABC):
             "warnings": warnings,
         }
 
+    def _validate_typescript_syntax(self, code_blocks: Dict[str, str]) -> List[Dict[str, str]]:
+        """Validate TypeScript syntax for common errors."""
+        import re
+        errors = []
+
+        for file_path, content in code_blocks.items():
+            # Error 1: Inline import in indexed access
+            if re.search(r'Database\[import\([\'"]', content):
+                errors.append({
+                    'file': file_path,
+                    'error': 'Invalid syntax: Cannot use inline import() in indexed access type',
+                    'pattern': 'Database[import(...).TableSlug.X]',
+                    'fix': 'Import TableSlug first, then use: Database[TableSlug.X]'
+                })
+
+            # Error 2: Stray quotes at line end
+            if re.search(r';[\s]*[\'"][\s]*$', content, re.MULTILINE):
+                errors.append({
+                    'file': file_path,
+                    'error': 'Stray quote at end of line',
+                    'pattern': ";' or ;\"",
+                    'fix': 'Remove the extra quote - line should end with just ;'
+                })
+
+            # Error 3: Using extends with indexed access (INVALID TypeScript - ts(2499))
+            if re.search(r'interface\s+\w+\s+extends\s+Database\[', content):
+                errors.append({
+                    'file': file_path,
+                    'error': 'Invalid TypeScript: interface cannot extend indexed access type (ts(2499))',
+                    'pattern': 'interface Foo extends Database[TableSlug.X]',
+                    'fix': 'Use type alias instead: type Foo = Database[TableSlug.X] & { extra: string }'
+                })
+
+        return errors
+
+    def _extract_all_table_schemas(self, data_store_context: str) -> Dict[str, List[str]]:
+        """Extract table names and their fields from data_store_context."""
+        import re
+
+        tables = {}
+
+        # Parse data_store_context for table definitions
+        # Format: Table 'table-name': [field1, field2, ...]
+        table_pattern = r"Table '([^']+)'[^\[]*\[([^\]]+)\]"
+        for match in re.finditer(table_pattern, data_store_context):
+            table_name = match.group(1)
+            fields_str = match.group(2)
+            fields = [f.strip().strip("'\"") for f in fields_str.split(',')]
+            tables[table_name] = fields
+
+        return tables
+
+    def _build_cross_table_guidance(
+        self,
+        errors: List[str],
+        all_tables: Dict[str, List[str]]
+    ) -> str:
+        """Build guidance showing if missing fields exist on other tables."""
+        import re
+
+        guidance_parts = []
+
+        for error in errors:
+            # Parse error: "filter references unknown field 'X' for table 'Y'"
+            match = re.search(r"unknown field '([^']+)' for table '([^']+)'", error)
+            if not match:
+                continue
+
+            field_name = match.group(1)
+            table_name = match.group(2)
+
+            # Search for this field in OTHER tables
+            tables_with_field = [
+                tbl for tbl, fields in all_tables.items()
+                if field_name in fields and tbl != table_name
+            ]
+
+            if tables_with_field:
+                guidance_parts.append(
+                    f"⚠️  Field '{field_name}' doesn't exist on '{table_name}' table\n"
+                    f"   BUT it EXISTS on these tables: {', '.join(tables_with_field)}\n"
+                    f"   → You may be querying the WRONG table!\n"
+                    f"   → Consider: Should you query one of these tables instead?\n"
+                )
+            else:
+                valid_fields = all_tables.get(table_name, [])
+                if valid_fields:
+                    guidance_parts.append(
+                        f"⚠️  Field '{field_name}' doesn't exist ANYWHERE in your schema\n"
+                        f"   → This is field hallucination - you invented a field that doesn't exist\n"
+                        f"   → Use one of these fields from '{table_name}': {', '.join(valid_fields[:5])}\n"
+                    )
+
+        return "\n".join(guidance_parts) if guidance_parts else "See errors above for details."
+
+    def _build_full_schema_section(self, all_tables: Dict[str, List[str]]) -> str:
+        """Build a section showing ALL tables and their fields."""
+        if not all_tables:
+            return "No schema information available."
+
+        lines = []
+        for table_name, fields in sorted(all_tables.items()):
+            lines.append(f"📋 Table '{table_name}':")
+            lines.append(f"   Fields: {', '.join(fields)}")
+            lines.append("")
+
+        return "\n".join(lines)
+
     def _build_field_fix_prompt(
         self, original_content: str, errors: List[str], data_store_context: Optional[str] = None
     ) -> str:
@@ -792,9 +900,19 @@ class BaseHandler(ABC):
             "non-existent table" in error or "not found" in error.lower() for error in errors
         )
 
-        # Include data_store_context so Claude sees the current schema
-        schema_section = ""
+        # NEW: Extract ALL table schemas and build cross-table guidance
+        all_tables_schema = {}
+        cross_table_guidance = ""
+        full_schema_section = ""
+
         if data_store_context:
+            all_tables_schema = self._extract_all_table_schemas(data_store_context)
+            cross_table_guidance = self._build_cross_table_guidance(errors, all_tables_schema)
+            full_schema_section = self._build_full_schema_section(all_tables_schema)
+
+        # Legacy schema section (keep for backwards compatibility if no tables extracted)
+        schema_section = ""
+        if data_store_context and not full_schema_section:
             schema_section = f"\n\n**CURRENT DATABASE SCHEMA:**\n{data_store_context}\n"
 
         missing_table_instructions = ""
@@ -819,34 +937,93 @@ Some errors indicate you're trying to use tables that don't exist yet. To fix th
 **IMPORTANT:** If you need to create tables, output the TABLE_DEFINITION blocks FIRST, then the code blocks.
 """
 
-        return f"""Your previous code generation had field name validation errors. You used incorrect field names that don't match the database schema.
+        # Use enhanced sections if available, otherwise fall back to legacy
+        understanding_section = cross_table_guidance if cross_table_guidance else ""
+        schema_display = full_schema_section if full_schema_section else schema_section
 
-**ERRORS FOUND:**
+        return f"""
+🚨🚨🚨 YOUR CODE HAS CRITICAL FIELD ERRORS 🚨🚨🚨
+
+You generated code with field validation errors. You MUST fix ALL of them.
+
+{'='*80}
+ERRORS FOUND:
+{'='*80}
 {error_list}
-{schema_section}
+
+{'='*80}
+UNDERSTANDING THE ERRORS:
+{'='*80}
+{understanding_section if understanding_section else "See the schema below to find correct field names."}
+
+{'='*80}
+COMPLETE DATABASE SCHEMA (SOURCE OF TRUTH):
+{'='*80}
+{schema_display}
 {missing_table_instructions}
-**🚨 CRITICAL RULES TO FIX THESE ERRORS:**
 
-1. **EACH TABLE HAS ITS OWN FIELDS** - You CANNOT use fields from one table when querying another!
-   - Example: `sprint_number` belongs to the `sprints` table, NOT the `projects` table
-   - You MUST check the schema above to see which fields belong to which table
+{'='*80}
+HOW TO FIX - FOLLOW THESE EXACT STEPS:
+{'='*80}
 
-2. **USE EXACT FIELD NAMES** - Do NOT rename or transform field names
-   - If schema defines `title`, use `title` (not `taskTitle`, `task_title`, or `titleText`)
-   - If schema defines `total_story_points`, use `total_story_points` (not `totalStoryPoints`)
+1. READ THE ERROR CAREFULLY
+   - If it says "field 'X' doesn't exist on table 'Y'"
+   - Check: Does field 'X' exist on a DIFFERENT table?
+   - Ask: Am I querying the RIGHT table for what I'm trying to do?
 
-3. **CHECK WHICH TABLE YOU'RE QUERYING** - Before using a field, verify it exists in THAT specific table
-   - When calling `dataStore.query('projects', ...)`, you can ONLY use fields from the `projects` table
-   - Look at the schema above - each table lists its available fields
+2. COMMON MISTAKE - QUERYING WRONG TABLE
+   ❌ WRONG: dataStore.query('projects', {{ filters: [{{ field: 'project_id', op: 'eq', value: 'x' }}] }})
+   ⚠️  Problem: 'projects' table doesn't have 'project_id' field
+   ⚠️  Why: 'project_id' is used by OTHER tables to REFERENCE projects, not by projects themselves
 
-**YOUR TASK:**
-Please regenerate the ENTIRE code fixing ALL field name errors. Pay special attention to:
-- Creating any missing tables FIRST (if errors mention "non-existent table") using TABLE_DEFINITION blocks
-- Which table you're querying (the first parameter to dataStore.query/insert/update)
-- Which fields are available in THAT specific table (check the schema above)
-- Using exact field names as defined in the schema
+   ✅ CORRECT: Query the table that HAS the field:
+   - If you want "tasks for a specific project" → Query 'tasks' table, filter by 'project_id'
+   - If you want "comments for a task" → Query 'comments' table, filter by 'task_id'
+   - If you want "projects owned by someone" → Query 'projects' table, filter by 'owner_id'
 
-**PREVIOUS CODE (WITH ERRORS):**
+3. EXAMINE YOUR CODE'S INTENT
+   - What data are you trying to fetch?
+   - Look at the component name, variable names, UI context
+   - Match your intent to the RIGHT table
+
+4. USE THE SCHEMA ABOVE
+   - Find the table that has the field you need
+   - Use ONLY fields that exist on that table
+   - If no suitable field exists, redesign your query logic
+
+5. EXAMPLE FIX FOR RELATIONSHIP ERRORS:
+   ```typescript
+   // ❌ WRONG - trying to filter projects by project_id
+   const result = await dataStore.query('projects', {{
+     filters: [{{ field: 'project_id', op: 'eq', value: projectId }}]
+   }});
+
+   // ✅ CORRECT - fetch a specific project by its ID
+   const result = await dataStore.query('projects', {{
+     filters: [{{ field: 'id', op: 'eq', value: projectId }}]
+   }});
+
+   // OR if you actually wanted tasks for a project:
+   // ✅ CORRECT - query tasks table with project_id filter
+   const result = await dataStore.query('tasks', {{
+     filters: [{{ field: 'project_id', op: 'eq', value: projectId }}]
+   }});
+   ```
+
+VERIFICATION CHECKLIST:
+□ Check which table you're accessing (first parameter to dataStore call)
+□ Find that table in the schema above
+□ Verify EVERY field you use exists in that table's definition
+□ Use EXACT field names as defined (no renaming or transforming)
+□ If field exists on OTHER tables, consider if you're querying the wrong table
+
+{'='*80}
+
+NOW REGENERATE THE COMPLETE, CORRECTED CODE.
+- Fix the table selection AND/OR field names
+- Ensure semantic correctness (are you fetching the right data?)
+- DO NOT output explanations - ONLY output the fixed code blocks
+
+Previous code with errors:
 {original_content}
-
-Generate the complete corrected code now."""
+"""

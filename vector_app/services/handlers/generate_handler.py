@@ -165,6 +165,29 @@ class GenerateHandler(BaseHandler):
                     file_paths = [str(f.path) for f in data_phase_files]
                     logger.info(f"📁 [DATA PHASE] Generated {len(data_phase_files)} file(s) for code phase: {', '.join(file_paths)}")
 
+        # Generate types.ts from existing tables if no data phase but tables exist
+        if not data_steps and app and code_steps:
+            from vector_app.models import AppDataTable
+            from vector_app.services import generate_typescript_types
+            from vector_app.services.types import FileChange
+
+            tables = AppDataTable.objects.filter(internal_app=app).order_by('name')
+            if tables.exists():
+                logger.info(f"📝 [PRE-CODE] No data steps but {tables.count()} table(s) exist - generating types.ts")
+
+                ts_types_content = generate_typescript_types(list(tables))
+                types_file = FileChange(
+                    path='src/lib/types.ts',
+                    action='create',
+                    language='typescript',
+                    content=ts_types_content,
+                    lines_added=ts_types_content.count('\n') + 1,
+                )
+
+                data_phase_files.append(types_file)
+                yield self.emit_file_generated(types_file)
+                logger.info(f"✅ [PRE-CODE] Generated src/lib/types.ts from existing tables")
+
         # PHASE 2b: Execute code steps in parallel (NO DB changes allowed)
         if code_steps:
             logger.info(f"💻 [CODE PHASE] Executing {len(code_steps)} code step(s) in parallel with {len(data_phase_files)} existing file(s)")
@@ -367,13 +390,19 @@ class GenerateHandler(BaseHandler):
         model: str,
     ) -> List[PlanStep]:
         """Create an execution plan for the app generation."""
+        from vector_app.prompts.agentic import build_plan_prompt
+        import re
+
         plan_prompt = build_plan_prompt(user_message, context)
+
+        # Use Opus for planning - better reasoning for complex plan generation
+        plan_model = "anthropic/claude-opus-4"
 
         try:
             response = self.call_llm(
                 system_prompt="You are an expert at planning app development tasks.",
                 user_prompt=plan_prompt,
-                model=model,
+                model=plan_model,
                 temperature=0.3,
             )
 
@@ -533,6 +562,77 @@ class GenerateHandler(BaseHandler):
                 yield self.emit_file_generated(types_file)
                 logger.info(f"✅ [TYPESCRIPT] Generated src/lib/types.ts ({len(ts_types_content)} chars)")
 
+    def _build_tables_summary_for_system_prompt(self, app: 'InternalApp') -> str:
+        """Build concise table schema summary for system prompt."""
+        from vector_app.models import AppDataTable
+
+        tables = AppDataTable.objects.filter(internal_app=app).order_by('name')
+        if not tables.exists():
+            return "No tables defined."
+
+        lines = []
+        for table in tables:
+            schema = table.schema_json or {}
+            columns = schema.get('columns', [])
+            field_names = [col['name'] for col in columns]
+            lines.append(f"- '{table.slug}': {', '.join(field_names)}")
+
+        return "\n".join(lines)
+
+    def _build_syntax_fix_prompt(self, original_content: str, syntax_errors: List[Dict]) -> str:
+        """Build prompt to fix TypeScript syntax errors."""
+        error_list = "\n".join(f"- {err['file']}: {err['error']}\n  Fix: {err['fix']}" for err in syntax_errors)
+
+        return f"""🚨 YOUR CODE HAS TYPESCRIPT SYNTAX ERRORS 🚨
+
+{'='*80}
+SYNTAX ERRORS FOUND:
+{'='*80}
+{error_list}
+
+{'='*80}
+HOW TO FIX THESE ERRORS:
+{'='*80}
+
+1. INLINE IMPORTS IN TYPES (ts(2499)):
+   ❌ WRONG: Database[import('./types').TableSlug.Projects]
+   ✅ CORRECT:
+   ```typescript
+   import type {{ Database, TableSlug }} from './lib/types';
+   // ... then use:
+   const items: Database[TableSlug.Projects]['row'][] = result.rows;
+   ```
+
+2. INTERFACE EXTENDS WITH INDEXED ACCESS (ts(2499)):
+   ❌ WRONG: interface Foo extends Database[TableSlug.Projects]['row']
+   ✅ CORRECT: Use type alias instead:
+   ```typescript
+   type FooBase = Database[TableSlug.Projects]['row'];
+   interface Foo extends FooBase {{
+     extraField: string;
+   }}
+   ```
+   OR use intersection types:
+   ```typescript
+   type Foo = Database[TableSlug.Projects]['row'] & {{
+     extraField: string;
+   }};
+   ```
+
+3. STRAY QUOTES:
+   ❌ WRONG: const foo = 'bar';'
+   ✅ CORRECT: const foo = 'bar';
+
+{'='*80}
+
+NOW REGENERATE THE COMPLETE, CORRECTED CODE.
+Include ALL files, not just the ones with errors.
+DO NOT output explanations - ONLY output the fixed code blocks.
+
+Original code that needs fixing:
+{original_content}
+"""
+
     def _validate_and_fix_fields(
         self,
         files: List[FileChange],
@@ -545,6 +645,40 @@ class GenerateHandler(BaseHandler):
         if not (app and files):
             return files
 
+        # NEW: Check TypeScript syntax FIRST
+        code_blocks = {f.path: f.content for f in files}
+        syntax_errors = self._validate_typescript_syntax(code_blocks)
+        if syntax_errors:
+            logger.error(f"🚨 [SYNTAX VALIDATION] Found {len(syntax_errors)} syntax errors")
+            for err in syntax_errors:
+                logger.error(f"   {err['file']}: {err['error']}")
+
+            yield self.emit_thinking(
+                f"❌ TypeScript syntax errors found. Requesting fix from Claude...",
+                "reflection",
+            )
+
+            # Build fix prompt for syntax errors
+            fix_prompt = self._build_syntax_fix_prompt(full_content, syntax_errors)
+
+            # Request fix
+            fixed_content = ""
+            for chunk in self.stream_llm_response(
+                system_prompt="You are a code generation assistant. Fix TypeScript syntax errors.",
+                user_prompt=fix_prompt,
+                model=model,
+                temperature=0.3,
+            ):
+                fixed_content += chunk
+
+            # Re-parse and update files
+            files = self.parse_code_blocks(fixed_content)
+            files = exclude_protected_files(files, PROTECTED_FILES)
+            full_content = fixed_content  # Update for field validation below
+
+            yield self.emit_thinking("✅ TypeScript syntax fixed", "observation")
+
+        # Continue with EXISTING field validation logic
         validation_result = self._validate_datastore_field_names(files, app)
         if validation_result["passed"]:
             return files
@@ -565,10 +699,21 @@ class GenerateHandler(BaseHandler):
             data_store_context=data_store_context,
         )
 
+        # Build data-aware system prompt
+        all_tables_summary = self._build_tables_summary_for_system_prompt(app)
+        system_prompt = f"""You are a code generation assistant fixing field validation errors.
+
+DATABASE SCHEMA CONTEXT:
+{all_tables_summary}
+
+Your task: Fix field errors by using ONLY fields that exist in the schema above.
+Common issue: Code queries the WRONG table - check if the field exists on a different table.
+"""
+
         # Request fix from Claude
         fixed_content = ""
         for chunk in self.stream_llm_response(
-            system_prompt="You are a code generation assistant. Fix the code based on validation errors.",
+            system_prompt=system_prompt,
             user_prompt=fix_prompt,
             model=model,
             temperature=0.3,

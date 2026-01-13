@@ -265,7 +265,34 @@ export function Toast({{ id, message, type, onClose }}: ToastData & {{ onClose: 
 import {{ Toast, ToastData }} from './Toast';
 ```
 
-### 13. ALWAYS Export Types That Other Files Need (CRITICAL)
+### 13. Type Syntax - Avoid Malformed Type Declarations & Prefer TableSlug
+Always ensure TypeScript syntax is clean and well-formed. **Prefer TableSlug enum for type safety:**
+
+```typescript
+// ❌ WRONG - Stray quotes or malformed syntax
+owner: Database['projects']['row'];'  // Extra quote at end!
+status: string";  // Extra quote!
+
+// ✅ CORRECT - Clean, well-formed syntax
+owner: Database['projects']['row'];
+status: string;
+
+// ✅✅ PREFERRED - Import and use TableSlug enum (algorithmically generated, zero typos)
+import type {{ Database, TableSlug }} from './lib/types';
+interface ExtendedTask extends Database[TableSlug.Tasks]['row'] {{
+  extraField: string;
+}}
+const tasks: Database[TableSlug.Tasks]['row'][] = result.rows;
+
+// ⚠️ ALSO VALID - String literal keys work but prone to typos
+interface ExtendedTask extends Database['tasks']['row'] {{
+  extraField: string;
+}}
+```
+
+**Why prefer TableSlug?** It's auto-generated from your schema, so it's always correct and provides IDE autocomplete.
+
+### 14. ALWAYS Export Types That Other Files Need (CRITICAL)
 If you define a type/interface that ANY other file will import, you MUST use `export`:
 
 ```typescript
@@ -869,6 +896,8 @@ Has Existing Spec: {has_existing_spec}
 🚨 **CRITICAL PLANNING RULES:**
 
 ## 1. Data Storage Rule
+
+### For NEW apps (no existing tables):
 If the app needs to store/manage ANY data, you MUST:
 - **First Step MUST be type="data" with step_order=0**: Define ALL table schemas needed for the ENTIRE application
 - Think through EVERY entity that needs to be stored upfront
@@ -911,12 +940,15 @@ Each step description must be self-contained and specific enough that an AI exec
 
 **"component" steps:**
 - Specify EXACT file path(s) this step creates
+- **ONLY reference tables that YOU DEFINED in the data step** - if you didn't create a table in step_order=0, don't reference it here!
 - Describe what data the component fetches (which table slug, what filters)
 - List key UI elements: tables, forms, modals, buttons, filters
 - Specify user interactions: click handlers, form submissions, navigation
+- ⚠️ If a feature needs a table you forgot to create, either add it to the data step OR remove that feature from this step description
 - ✅ "Create src/components/ProjectBoard.tsx: Fetches tasks from 'tasks' table filtered by project_id. Displays a 3-column Kanban board (To Do, In Progress, Done). Each task card shows title, assignee avatar, and due date. Clicking a card opens edit modal. Include 'Add Task' button per column that opens TaskForm with pre-set status."
 - ✅ "Create src/components/TaskForm.tsx: A modal form for creating/editing tasks. Fields: title (required, min 3 chars), description (optional textarea), status (select: todo/in_progress/done), priority (1-5 slider), due_date (date picker), assignee_id (select from team_members). Props: task?: Task for edit mode, onSave callback, onClose callback."
 - ❌ "Build the task UI" (no file paths, no specifics)
+- ❌ "Create TeamManagement.tsx: Fetches from 'team_members'" (if 'team_members' is not in Available Resources)
 
 **"integration" steps:**
 - List ALL files being MODIFIED (not created)
@@ -1070,7 +1102,10 @@ Then use the table slug in dataStore calls: `dataStore.query('your-table-slug')`
 
 ### 🎯 CRITICAL: Import TypeScript Types for Type Safety
 
-**If tables exist, `src/lib/types.ts` is AUTO-GENERATED with ALL table types.**
+**🚨 DO NOT CREATE OR EDIT `src/lib/types.ts` - IT IS THE DATABASE SOURCE OF TRUTH!**
+
+The file `src/lib/types.ts` reflects the ACTUAL database schema - the ONLY fields and attributes that exist.
+**THIS IS READ-ONLY - YOU CAN ONLY IMPORT IT, NEVER CREATE OR MODIFY IT!**
 
 ✅ **ALWAYS import and use these types to ensure correct field names:**
 
@@ -1128,11 +1163,38 @@ import {{ dataStore }} from '../lib/dataStore';
 ```
 
 Requirements:
+- **🚨 DO NOT HALLUCINATE FIELDS 🚨**: Before using ANY field in a dataStore call, CHECK types.ts above to verify it exists
+- **COMMON MISTAKE**: Do NOT invent fields like `is_active`, `isActive`, `active_status` - use ONLY the exact field names shown in types.ts
+- **VERIFICATION STEP**: For each dataStore.query/insert/update call:
+  1. Look at types.ts above
+  2. Find the table you're accessing
+  3. Check that EVERY field you use is listed in that table's type definition
+  4. If a field doesn't exist, DON'T USE IT - change your approach or add it to the schema first
 - Use TypeScript with proper types
+- **🚨 CRITICAL - CHECK YOUR CODE FOR STRAY QUOTES 🚨**: Every line must end cleanly with semicolon `;` NOT `;'` or `;"` - these cause parse errors!
+- **CRITICAL**: Ensure all TypeScript syntax is valid - no stray quotes, unclosed brackets, or malformed type declarations
 - **MANDATORY**: If a file uses dataStore, it MUST import `type {{ Database }} from '../lib/types'`
 - **MANDATORY**: Use `Database['table-slug']['insert']` types for ALL insert operations
 - **MANDATORY**: Use `Database['table-slug']['row']` types for ALL query results
+- **CRITICAL - AVOID SYNTAX ERRORS**:
+  ```typescript
+  // ❌ WRONG - Stray quotes cause parse errors
+  owner: Database['projects']['row'];'  // Extra quote at end!
+  status: string";  // Malformed!
+
+  // ✅ CORRECT - Clean syntax, use string literal keys
+  owner: Database['projects']['row'];
+  status: string;
+  interface Foo extends Database['projects']['row'] {{ extra: string; }}
+
+  // ✅ ALSO CORRECT - Import and use TableSlug enum
+  import type {{ Database, TableSlug }} from '../lib/types';
+  interface Foo extends Database[TableSlug.Projects]['row'] {{ extra: string; }}
+  ```
 - Use Tailwind CSS for all styling (available via CDN)
+- **AVAILABLE NPM PACKAGES**: Only use `react`, `react-dom`, `lucide-react`, `framer-motion`, `react-router-dom`
+- **DO NOT import**: Any other npm packages not listed above
+- For navigation between views, use `react-router-dom` (BrowserRouter, Routes, Route, Link, useNavigate)
 - For apps with data, ALWAYS create tables and use dataStore - NO hardcoded mock data
 - Create a complete, functional UI that looks professional
 - Include proper loading states and error handling
@@ -1160,11 +1222,33 @@ CRITICAL REQUIREMENTS:
 2. Import and USE all the generated components
 3. Include proper state management for the app
 4. Add a professional header/layout
-5. Include realistic mock data for demonstration
+5. Use dataStore to fetch and display real data from the database
 6. Make it look polished and production-ready
 7. Use Tailwind CSS for all styling
 8. Handle loading and error states
 9. Make it interactive (search, filters, etc. as appropriate)
+10. **🚨 DO NOT HALLUCINATE FIELDS 🚨**: Before using ANY field in a dataStore call, CHECK types.ts to verify it exists - Do NOT invent fields like `is_active`, `isActive`, `active_status`
+11. **FIELD VERIFICATION**: For each dataStore.query/insert/update call, verify EVERY field you use is listed in types.ts for that specific table
+12. **🚨 CRITICAL - CHECK YOUR CODE FOR STRAY QUOTES 🚨**: Every line must end cleanly with semicolon `;` NOT `;'` or `;"` - these cause parse errors!
+13. **CRITICAL**: Ensure all TypeScript syntax is valid - no stray quotes, unclosed brackets, or malformed type declarations
+14. **ONLY import from**: react, react-dom, lucide-react, framer-motion, react-router-dom
+15. **DO NOT use**: Any other npm packages not listed above
+16. For navigation, use react-router-dom (BrowserRouter, Routes, Route, Link, useNavigate)
+17. **CRITICAL - AVOID SYNTAX ERRORS**:
+    ```typescript
+    // ❌ WRONG - Stray quotes cause parse errors
+    owner: Database['projects']['row'];'  // Extra quote at end!
+    status: string";  // Malformed!
+
+    // ✅ CORRECT - Clean syntax, use string literal keys
+    owner: Database['projects']['row'];
+    status: string;
+    interface Foo extends Database['projects']['row'] {{ extra: string; }}
+
+    // ✅ ALSO CORRECT - Import and use TableSlug enum
+    import type {{ Database, TableSlug }} from './lib/types';
+    interface Foo extends Database[TableSlug.Projects]['row'] {{ extra: string; }}
+    ```
 
 OUTPUT FORMAT - Generate ONLY the App.tsx file:
 ```src/App.tsx
@@ -1187,13 +1271,16 @@ FINAL_APP_SYSTEM_PROMPT = (
 DATA_STORE_PROMPT_TEMPLATE = """
 ## App Data Store
 
-You can create and use data tables for this app. The data store provides persistent storage for your application data.
+The data store provides persistent storage for your application data.
 
 {data_store_context}
 
-### Creating New Tables
+### Creating New Tables (DATA STEPS ONLY)
 
-To create a new data table, include a TABLE_DEFINITION block in your response:
+⚠️ **Tables can ONLY be created in "data" type steps (step_order=0).**
+In component/code steps, you can ONLY use existing tables shown in types.ts.
+
+To create a table in a DATA STEP, include a TABLE_DEFINITION block:
 
 ```table:table-slug
 name: Display Name
@@ -1225,88 +1312,28 @@ columns:
 
 ### Using Tables in Code
 
-Always use the dataStore API - it's available at `./lib/dataStore`:
+Import types from `src/lib/types.ts` for type safety:
 
 ```typescript
 import {{ dataStore }} from './lib/dataStore';
+import type {{ Database }} from './lib/types';
 
-// Query rows with filtering and sorting
+// Type your operations
+const item: Database['customers']['insert'] = {{ name: 'John', email: 'john@example.com' }};
+await dataStore.insert('customers', item);
+
 const result = await dataStore.query('customers', {{
-  filters: [{{ field: 'status', op: 'eq', value: 'active' }}],
-  orderBy: [{{ field: 'name', dir: 'asc' }}],
-  limit: 50
+  filters: [{{ field: 'status', op: 'eq', value: 'active' }}]
 }});
+const customers: Database['customers']['row'][] = result.rows;
 
-// IMPORTANT: Query response structure
-// result = {{
-//   rows: [
-//     {{
-//       id: "row-uuid",           // Row ID for updates/deletes
-//       row_index: 1,             // Row order
-//       created_at: "...",
-//       updated_at: "...",
-//       data: {{                   // <-- YOUR FIELDS ARE NESTED IN data!
-//         name: "John Doe",
-//         email: "john@example.com",
-//         status: "active"
-//       }}
-//     }}
-//   ],
-//   total_count: 100,
-//   has_more: true
-// }}
+// Access fields via row.data:
+result.rows.map(row => <div key={{row.id}}>{{row.data.name}}</div>);
 
-// CORRECT way to access row data:
-result.rows.map(row => (
-  <div key={{row.id}}>
-    <h3>{{row.data.name}}</h3>       // Access fields via row.data.fieldName
-    <p>{{row.data.email}}</p>
-  </div>
-));
-
-// WRONG - this won't work:
-// row.name    // undefined! Fields are in row.data
-// row.email   // undefined! Use row.data.email
-
-// Insert a new row
-const newCustomer = await dataStore.insert('customers', {{
-  name: 'John Doe',
-  email: 'john@example.com',
-  status: 'active'
-}});
-// Returns: {{ id: 'row-uuid', data: {{name: '...', email: '...'}}, row_index: 1, created_at: '...' }}
-
-// ⚠️ CRITICAL: For update/delete, use row.id (NOT row.data.id!)
-// row.id = system UUID for CRUD operations
-// row.data.id = your schema's id field (if any) - DO NOT use this for update/delete!
-
-// Update an existing row - MUST use row.id
-await dataStore.update('customers', row.id, {{
-  status: 'inactive'
-}});
-
-// Delete a row - MUST use row.id
+// Update/delete uses row.id (NOT row.data.id):
+await dataStore.update('customers', row.id, {{ status: 'inactive' }});
 await dataStore.delete('customers', row.id);
-
-// ❌ WRONG - This will cause "Row not found" error:
-// await dataStore.update('customers', row.data.id, {{ ... }});  // WRONG!
-// await dataStore.delete('customers', row.data.id);  // WRONG!
-
-// ✅ CORRECT - Always use row.id for update/delete:
-// await dataStore.update('customers', row.id, {{ ... }});  // CORRECT!
-// await dataStore.delete('customers', row.id);  // CORRECT!
-
-// Bulk operations
-await dataStore.bulkInsert('customers', [
-  {{ name: 'User 1', email: 'user1@example.com' }},
-  {{ name: 'User 2', email: 'user2@example.com' }}
-]);
-await dataStore.bulkDelete('customers', ['row-uuid-1', 'row-uuid-2']);
 ```
-
-**⚠️ CRITICAL: Row ID for Update/Delete**
-- `row.id` = The system-generated UUID that identifies the row. USE THIS for update/delete operations.
-- `row.data.id` = Your schema's `id` field (if you defined one). DO NOT use this for update/delete - it will cause "Row not found" errors!
 
 **Filter Operators:** `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `not_in`, `contains`, `icontains`, `is_null`
 
@@ -1688,37 +1715,47 @@ const items: Database['{first_table}']['row'][] = result.rows;
 """
 
         typescript_types_section = f"""
-## 🎯 CRITICAL: TypeScript Types File Available
+{'='*80}
+🚨🚨🚨 STOP - READ THESE CONSTRAINTS FIRST 🚨🚨🚨
+{'='*80}
 
-The file `src/lib/types.ts` has been generated with ALL table types.
-**YOU MUST import and use these types to ensure correct field names!**
+AVAILABLE TABLES: {table_list}
+{f"⚠️  MISSING/UNAVAILABLE: (any tables not listed above)" if table_slugs else "No tables available yet"}
 
-**AVAILABLE TABLES:** {table_list}
-🚨 **YOU CAN ONLY USE THESE TABLES** - DO NOT reference any other tables!
-🚨 **DO NOT CREATE NEW TABLES** - all tables are already defined!
+{'='*80}
+CRITICAL RULES - YOU MUST FOLLOW THESE
+{'='*80}
 
-Full content of src/lib/types.ts:
+1. ONLY USE TABLES LISTED ABOVE
+   ❌ If step mentions 'team_members' but it's not in the list → Skip that feature
+   ❌ If step mentions 'users' but it's not in the list → Skip that feature
+   ✅ Only generate code for tables that EXIST in the list above
+
+2. ONLY USE FIELDS SHOWN IN types.ts BELOW
+   ❌ Do NOT invent fields like 'is_active', 'isActive', 'active'
+   ❌ Do NOT assume common fields exist
+   ✅ CHECK the type definition for EXACT field names
+
+3. DO NOT USE INLINE IMPORTS IN TYPES
+   ❌ WRONG: Database[import('./types').TableSlug.Projects]
+   ✅ CORRECT: Import TableSlug first, then use Database[TableSlug.Projects]
+
+4. DO NOT USE EXTENDS WITH INDEXED ACCESS (TypeScript Error ts(2499))
+   ❌ WRONG: interface Foo extends Database[TableSlug.Projects]['row']
+   ✅ CORRECT: type Foo = Database[TableSlug.Projects]['row'] & {{ extra: string }}
+
+5. IF STEP CANNOT BE COMPLETED → SKIP IT
+   If the step requires missing tables, DON'T generate broken code
+   Instead, focus only on features that CAN work with available tables
+
+{'='*80}
+
+Full types.ts content (THIS IS THE SOURCE OF TRUTH):
 ```typescript
 {content}
 ```
+
 {concrete_examples}
-
-**MANDATORY INSTRUCTIONS:**
-1. **ALWAYS import the Database type** in EVERY file that uses dataStore:
-   `import type {{ Database }} from '../lib/types'` (or '../lib/types' from src/)
-
-2. **ALWAYS type your insert objects** using Database['table-slug']['insert']:
-   ❌ WRONG: `await dataStore.insert('tasks', {{ name: 'Do thing' }})`
-   ✅ CORRECT: `const item: Database['tasks']['insert'] = {{ title: 'Do thing' }}; await dataStore.insert('tasks', item)`
-
-3. **ALWAYS type your query results** using Database['table-slug']['row']:
-   ❌ WRONG: `const items = result.rows`
-   ✅ CORRECT: `const items: Database['tasks']['row'][] = result.rows`
-
-4. **Look at the database.ts content above** to see EXACT field names - don't guess!
-
-5. **If you use a wrong field name**, validation will FAIL and you'll have to fix it!
-
 """
 
     # Show other existing files (last 3, truncated)
@@ -1769,16 +1806,23 @@ Full content of src/lib/types.ts:
 
 🚨 **THIS IS A DATA DEFINITION STEP - CRITICAL INSTRUCTIONS:**
 
-1. **Define EVERY TABLE needed for the ENTIRE application** - not just some tables!
-   - Review the user's request and think about ALL features
-   - Think about ALL entities that need to be stored
-   - Include tables for: main entities, join tables, history/audit tables, snapshots, etc.
+1. **READ THE STEP DESCRIPTION CAREFULLY** - It lists EVERY table you must create!
+   - The step description above contains the COMPLETE list of tables needed
+   - Count how many tables are mentioned in the description
+   - Create a TABLE_DEFINITION block for EACH AND EVERY table listed
+   - **DO NOT SKIP ANY TABLES** - if the description mentions 4 tables, create 4 TABLE_DEFINITION blocks!
    - **YOU CANNOT CREATE TABLES LATER** - this is your ONLY chance to define tables!
 
-2. **ONLY generate TABLE_DEFINITION blocks** - DO NOT generate any TypeScript/React code
-3. **DO NOT use dataStore** API in this step - that will be done in the next step
-4. **DO NOT define 'id', 'created_at', 'updated_at'** - these are AUTO-GENERATED by the system!
-5. **Your output should ONLY contain TABLE_DEFINITION blocks** like this:
+2. **VERIFY YOU CREATED ALL TABLES** before finishing:
+   - Count your TABLE_DEFINITION blocks
+   - Compare against the tables mentioned in the step description
+   - If the description mentions "projects, tasks, team_members, comments", you MUST create 4 blocks
+   - Missing even ONE table will break the entire application!
+
+3. **ONLY generate TABLE_DEFINITION blocks** - DO NOT generate any TypeScript/React code
+4. **DO NOT use dataStore** API in this step - that will be done in the next step
+5. **DO NOT define 'id', 'created_at', 'updated_at'** - these are AUTO-GENERATED by the system!
+6. **Your output should ONLY contain TABLE_DEFINITION blocks** like this:
 
 ```table:users
 name: Users
@@ -1800,8 +1844,9 @@ columns:
 
 **System automatically adds to every table:** `id` (UUID), `created_at`, `updated_at`
 
-6. **DO NOT generate App.tsx, components, or any UI code** - this step is ONLY for defining the data schema
-7. The next step will generate code that uses these tables - make sure you create ALL tables they'll need!
+7. **DO NOT generate App.tsx, components, or any UI code** - this step is ONLY for defining the data schema
+8. **The next step will generate code that uses these tables** - make sure you create ALL tables they'll need!
+9. **FINAL CHECK**: Before submitting, count your TABLE_DEFINITION blocks and verify it matches the number of tables in the step description!
 
 """
 
