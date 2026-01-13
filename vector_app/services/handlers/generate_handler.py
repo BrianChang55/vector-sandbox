@@ -19,7 +19,7 @@ from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 from .base_handler import BaseHandler, AgentEvent, FileChange, exclude_protected_files
 from .parallel_executor import create_parallel_executor, ParallelStepExecutor
 from ..datastore import TableDefinitionParser, build_data_store_context, get_system_columns
-from vector_app.models import AppDataTable
+from vector_app.models import AppDataTable, VersionFile
 from vector_app.prompts.agentic import (
     apply_design_style_prompt,
     build_codegen_system_prompt,
@@ -214,8 +214,16 @@ class GenerateHandler(BaseHandler):
         # ===== PHASE 3: VALIDATE =====
         yield self.emit_phase_change("validating", "Validating generated code...")
 
+        # Fetch context files for validation (data phase files + existing version files)
+        context_files = self._fetch_context_files(
+            data_phase_files=data_phase_files,
+            generated_files=generated_files,
+            version=version,
+        )
+
         validation_passed, fix_attempts = yield from self._validate_and_fix(
             generated_files=generated_files,
+            context_files=context_files,
             model=model,
         )
 
@@ -1080,9 +1088,55 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
             else:
                 logger.warning(f"Failed to create table {slug}: {errors}")
     
+    def _fetch_context_files(
+        self,
+        data_phase_files: List[FileChange],
+        generated_files: List[FileChange],
+        version: Optional["AppVersion"] = None,
+    ) -> List[FileChange]:
+        """
+        Fetch context files for validation and error fixing.
+        
+        Includes:
+        - Data phase files (e.g., types.ts)
+        - Existing version files that weren't regenerated
+        
+        Args:
+            data_phase_files: Files generated during the data phase
+            generated_files: Files being generated in this run
+            version: App version to fetch existing files from
+            
+        Returns:
+            List of FileChange objects to use as context
+        """
+        context_files: List[FileChange] = list(data_phase_files)
+        
+        # Add existing version files that weren't regenerated (provides full context for validation)
+        if version:
+            generated_paths = {f.path for f in generated_files}
+            context_paths = {f.path for f in context_files}
+            
+            existing_files = VersionFile.objects.filter(app_version=version)
+            for vf in existing_files:
+                if vf.path not in generated_paths and vf.path not in context_paths:
+                    # Determine language from extension
+                    ext = vf.path.split('.')[-1] if '.' in vf.path else 'tsx'
+                    lang_map = {'tsx': 'tsx', 'ts': 'ts', 'css': 'css', 'json': 'json'}
+                    context_files.append(FileChange(
+                        path=vf.path,
+                        action='existing',
+                        language=lang_map.get(ext, 'tsx'),
+                        content=vf.content,
+                    ))
+            
+            if context_files:
+                logger.info(f"📁 [VALIDATION] Added {len(context_files)} context file(s): {', '.join([f.path for f in context_files])}")
+        return context_files
+
     def _validate_and_fix(
         self,
         generated_files: List[FileChange],
+        context_files: List[FileChange],
         model: str,
     ) -> Generator[AgentEvent, None, tuple]:
         """
@@ -1096,7 +1150,7 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
 
         for attempt in range(1, MAX_FIX_ATTEMPTS + 1):
             # Run TypeScript validation
-            validation = self._validate_typescript(generated_files)
+            validation = self._validate_typescript(generated_files + context_files)
 
             if validation["passed"]:
                 validation_passed = True
@@ -1142,7 +1196,6 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
 
             # Run fix service
             fixed_files_by_path = {}
-
             fix_gen = fix_service.fix_errors(
                 files=agentic_files,
                 errors=errors,
@@ -1182,7 +1235,7 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
 
         # Final validation check
         if not validation_passed:
-            final = self._validate_typescript(generated_files)
+            final = self._validate_typescript(generated_files + context_files)
             validation_passed = final["passed"]
 
         return (validation_passed, fix_attempts)
@@ -1196,7 +1249,5 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
         has_types = 'src/lib/types.ts' in file_paths
         logger.debug(f"[VALIDATION DEBUG] Files being validated: {file_paths}")
         logger.debug(f"[VALIDATION DEBUG] src/lib/types.ts included: {has_types}")
-        if not has_types:
-            logger.warning("[VALIDATION DEBUG] ⚠️ src/lib/types.ts NOT in files list - imports will fail with TS2307")
-        
+
         return get_validation_service().validate_typescript(files).to_dict()

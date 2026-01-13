@@ -120,7 +120,7 @@ class ValidationService:
         Returns:
             ValidationResult with passed status, errors, and warnings
         """
-        ts_files = [f for f in files if f.language in ('tsx', 'ts')]
+        ts_files = [f for f in files if f.language in ('tsx', 'ts', "typescript")]
         
         if not ts_files:
             return ValidationResult(passed=True)
@@ -162,6 +162,7 @@ class ValidationService:
             self._write_lucide_stub(temp_dir)
             self._write_node_stub(temp_dir)
             self._write_datastore_stub(temp_dir)
+            self._write_react_router_stub(temp_dir)
             
             # Run tsc
             result = subprocess.run(
@@ -1009,6 +1010,124 @@ export interface DataStore {
 
 export const dataStore: DataStore = {} as DataStore;
 ''')
+    
+    def _write_react_router_stub(self, temp_dir: str) -> None:
+        """Write react-router-dom type stubs."""
+        router_dir = os.path.join(temp_dir, 'node_modules', 'react-router-dom')
+        os.makedirs(router_dir, exist_ok=True)
+        with open(os.path.join(router_dir, 'index.d.ts'), 'w') as f:
+            f.write('''declare module "react-router-dom" {
+    import { FC, ReactNode } from "react";
+    
+    // Router components
+    export const BrowserRouter: FC<{ children?: ReactNode; basename?: string }>;
+    export const HashRouter: FC<{ children?: ReactNode; basename?: string }>;
+    export const MemoryRouter: FC<{ children?: ReactNode; initialEntries?: string[]; initialIndex?: number }>;
+    export const Router: FC<{ children?: ReactNode; location: any; navigator: any }>;
+    export const RouterProvider: FC<{ router: any; fallbackElement?: ReactNode }>;
+    
+    // Route components
+    export const Routes: FC<{ children?: ReactNode; location?: any }>;
+    export const Route: FC<{
+        path?: string;
+        index?: boolean;
+        element?: ReactNode;
+        children?: ReactNode;
+        caseSensitive?: boolean;
+        loader?: () => Promise<any>;
+        action?: () => Promise<any>;
+        errorElement?: ReactNode;
+    }>;
+    export const Outlet: FC<{ context?: any }>;
+    
+    // Navigation components
+    export const Link: FC<{
+        to: string | { pathname?: string; search?: string; hash?: string };
+        replace?: boolean;
+        state?: any;
+        reloadDocument?: boolean;
+        preventScrollReset?: boolean;
+        relative?: "route" | "path";
+        children?: ReactNode;
+        className?: string;
+        style?: React.CSSProperties;
+        onClick?: (e: any) => void;
+        [key: string]: any;
+    }>;
+    export const NavLink: FC<{
+        to: string | { pathname?: string; search?: string; hash?: string };
+        replace?: boolean;
+        state?: any;
+        end?: boolean;
+        caseSensitive?: boolean;
+        className?: string | ((props: { isActive: boolean; isPending: boolean }) => string);
+        style?: React.CSSProperties | ((props: { isActive: boolean; isPending: boolean }) => React.CSSProperties);
+        children?: ReactNode | ((props: { isActive: boolean; isPending: boolean }) => ReactNode);
+        [key: string]: any;
+    }>;
+    export const Navigate: FC<{
+        to: string | { pathname?: string; search?: string; hash?: string };
+        replace?: boolean;
+        state?: any;
+        relative?: "route" | "path";
+    }>;
+    
+    // Hooks
+    export function useNavigate(): (to: string | number, options?: { replace?: boolean; state?: any }) => void;
+    export function useLocation(): { pathname: string; search: string; hash: string; state: any; key: string };
+    export function useParams<T extends Record<string, string | undefined> = Record<string, string | undefined>>(): T;
+    export function useSearchParams(): [URLSearchParams, (nextInit: URLSearchParams | ((prev: URLSearchParams) => URLSearchParams)) => void];
+    export function useMatch(pattern: string | { path: string; caseSensitive?: boolean; end?: boolean }): { params: Record<string, string>; pathname: string; pathnameBase: string; pattern: any } | null;
+    export function useOutlet(context?: any): ReactNode;
+    export function useOutletContext<T = any>(): T;
+    export function useRoutes(routes: any[], location?: any): ReactNode;
+    export function useHref(to: string): string;
+    export function useInRouterContext(): boolean;
+    export function useNavigationType(): "POP" | "PUSH" | "REPLACE";
+    export function useResolvedPath(to: string): { pathname: string; search: string; hash: string };
+    export function useRouteLoaderData(routeId: string): any;
+    export function useLoaderData(): any;
+    export function useActionData(): any;
+    export function useNavigation(): { state: "idle" | "loading" | "submitting"; location?: any; formMethod?: string; formAction?: string; formEncType?: string; formData?: FormData };
+    export function useSubmit(): (target: any, options?: { method?: string; action?: string; encType?: string; replace?: boolean; state?: any }) => void;
+    export function useFetcher<T = any>(): { state: "idle" | "loading" | "submitting"; data: T | undefined; load: (href: string) => void; submit: (target: any, options?: any) => void; Form: FC<any> };
+    export function useFetchers(): Array<{ state: string; data: any }>;
+    export function useBeforeUnload(callback: (e: BeforeUnloadEvent) => void): void;
+    
+    // Utility functions
+    export function createBrowserRouter(routes: any[], opts?: { basename?: string }): any;
+    export function createHashRouter(routes: any[], opts?: { basename?: string }): any;
+    export function createMemoryRouter(routes: any[], opts?: { basename?: string; initialEntries?: string[]; initialIndex?: number }): any;
+    export function createRoutesFromElements(children: ReactNode): any[];
+    export function generatePath(path: string, params?: Record<string, string>): string;
+    export function matchPath(pattern: string | { path: string; caseSensitive?: boolean; end?: boolean }, pathname: string): { params: Record<string, string>; pathname: string; pathnameBase: string; pattern: any } | null;
+    export function matchRoutes(routes: any[], location: string | { pathname: string }): Array<{ route: any; pathname: string; params: Record<string, string> }> | null;
+    export function resolvePath(to: string, fromPathname?: string): { pathname: string; search: string; hash: string };
+    
+    // Form component
+    export const Form: FC<{
+        method?: "get" | "post" | "put" | "patch" | "delete";
+        action?: string;
+        encType?: string;
+        replace?: boolean;
+        state?: any;
+        preventScrollReset?: boolean;
+        relative?: "route" | "path";
+        reloadDocument?: boolean;
+        children?: ReactNode;
+        onSubmit?: (e: any) => void;
+        [key: string]: any;
+    }>;
+    
+    // ScrollRestoration
+    export const ScrollRestoration: FC<{ getKey?: (location: any, matches: any) => string }>;
+    
+    // Await component for Suspense
+    export const Await: FC<{ resolve: Promise<any>; errorElement?: ReactNode; children: ReactNode | ((data: any) => ReactNode) }>;
+}
+''')
+        with open(os.path.join(router_dir, 'package.json'), 'w') as f:
+            f.write('{"name": "react-router-dom", "types": "index.d.ts"}')
     
     # ===== DataStore Field Validation Methods =====
     
