@@ -75,15 +75,11 @@ function hashFiles(files: FileChange[]): string {
 
 function hashSandpackRuntimeFiles(sandpackFiles: Record<string, unknown>): string {
   // Hash the live editor state so we can trigger runs on any code edit.
-  const filePaths = Object.keys(sandpackFiles)
-  console.log('[RefreshDebug][hashSandpackRuntimeFiles] Hashing files:', filePaths)
   const parts = Object.entries(sandpackFiles)
     .map(([path, file]) => `${path}\n${(file as { code?: string }).code || ''}`)
     .sort()
     .join('\n---\n')
-  const hash = hashString(parts)
-  console.log('[RefreshDebug][hashSandpackRuntimeFiles] Result hash:', hash)
-  return hash
+  return hashString(parts)
 }
 
 // Default files for a React app
@@ -1081,47 +1077,62 @@ function UnifiedLoadingOverlay({
 /**
  * Reports bundler ready state to parent component
  * Lives inside SandpackProvider, calls onReady when bundling completes
+ * 
+ * Uses debouncing to prevent rapid re-renders from bundler start/done cycles
+ * during dependency resolution and initial compilation.
  */
 function BundlerReadyReporter({ onReady }: { onReady: (ready: boolean) => void }) {
   const { sandpack, listen } = useSandpack()
-  
-  console.log('[RefreshDebug][BundlerReadyReporter] Render, sandpack.status:', sandpack.status)
+  const doneTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const startTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   
   useEffect(() => {
-    console.log('[RefreshDebug][BundlerReadyReporter] Setting up listener')
-    // Listen for Sandpack messages to detect when bundling is done
     const unsubscribe = listen((message) => {
       const msg = message as { type: string }
-      console.log('[RefreshDebug][BundlerReadyReporter] Message received:', msg.type)
       
       if (msg.type === 'start') {
-        console.log('[RefreshDebug][BundlerReadyReporter] Calling onReady(false)')
-        onReady(false)
+        // Clear any pending "done" timeout - we're starting again
+        if (doneTimeoutRef.current) {
+          clearTimeout(doneTimeoutRef.current)
+          doneTimeoutRef.current = null
+        }
+        // Debounce the "not ready" state to avoid flicker
+        if (!startTimeoutRef.current) {
+          startTimeoutRef.current = setTimeout(() => {
+            onReady(false)
+            startTimeoutRef.current = null
+          }, 100)
+        }
       }
       
-      // 'done' means bundling is complete and preview is ready
       if (msg.type === 'done') {
-        console.log('[RefreshDebug][BundlerReadyReporter] Calling onReady(true)')
-        onReady(true)
+        // Clear any pending "start" timeout
+        if (startTimeoutRef.current) {
+          clearTimeout(startTimeoutRef.current)
+          startTimeoutRef.current = null
+        }
+        // Debounce the "ready" state to ensure bundler has stabilized
+        if (doneTimeoutRef.current) {
+          clearTimeout(doneTimeoutRef.current)
+        }
+        doneTimeoutRef.current = setTimeout(() => {
+          onReady(true)
+          doneTimeoutRef.current = null
+        }, 200)
       }
     })
     
     return () => {
-      console.log('[RefreshDebug][BundlerReadyReporter] Cleaning up listener')
+      if (doneTimeoutRef.current) clearTimeout(doneTimeoutRef.current)
+      if (startTimeoutRef.current) clearTimeout(startTimeoutRef.current)
       unsubscribe()
     }
   }, [listen, onReady])
   
   // Also check sandpack status as backup
   useEffect(() => {
-    console.log('[RefreshDebug][BundlerReadyReporter] Status effect, status:', sandpack.status)
     if (sandpack.status === 'idle') {
-      // Small delay to ensure iframe has rendered
-      console.log('[RefreshDebug][BundlerReadyReporter] Status idle, scheduling onReady(true)')
-      const t = setTimeout(() => {
-        console.log('[RefreshDebug][BundlerReadyReporter] Timeout fired, calling onReady(true)')
-        onReady(true)
-      }, 100)
+      const t = setTimeout(() => onReady(true), 100)
       return () => clearTimeout(t)
     }
   }, [sandpack.status, onReady])
@@ -1185,12 +1196,9 @@ function AutoRunPreview({ filesKey }: { filesKey: string }) {
   const { sandpack } = useSandpack()
   const lastRunKeyRef = useRef<string | null>(null)
 
-  console.log('[RefreshDebug][AutoRunPreview] Render, filesKey:', filesKey)
-
   useEffect(() => {
     // Skip if we already ran for this key
     if (lastRunKeyRef.current === filesKey) {
-      console.log('[RefreshDebug][AutoRunPreview] Skipping, already ran for:', filesKey)
       return
     }
 
@@ -1198,11 +1206,8 @@ function AutoRunPreview({ filesKey }: { filesKey: string }) {
     const timer = setTimeout(() => {
       // Only run if not already bundling
       if (sandpack.status !== 'running') {
-        console.log('[RefreshDebug][AutoRunPreview] Running sandpack for:', filesKey)
         lastRunKeyRef.current = filesKey
         sandpack.runSandpack()
-      } else {
-        console.log('[RefreshDebug][AutoRunPreview] Skipping, sandpack already running')
       }
     }, 300) // 300ms debounce
 
@@ -1215,12 +1220,8 @@ function AutoRunPreview({ filesKey }: { filesKey: string }) {
 function AutoRunOnTab({ viewMode }: { viewMode: ViewMode }) {
   const { sandpack } = useSandpack()
 
-  console.log('[RefreshDebug][AutoRunOnTab] Render, viewMode:', viewMode)
-
   useEffect(() => {
-    console.log('[RefreshDebug][AutoRunOnTab] Effect triggered, viewMode:', viewMode)
     if (viewMode === 'code' || viewMode === 'split' || viewMode === 'preview') {
-      console.log('[RefreshDebug][AutoRunOnTab] Calling runSandpack()')
       sandpack.runSandpack()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1753,21 +1754,15 @@ export function SandpackPreview({
   enableAutoFix = false,
   isStreaming = false,
 }: SandpackPreviewProps) {
-  console.log('[RefreshDebug][SandpackPreview] Render, versionId:', versionId, 'isStreaming:', isStreaming, 'files.length:', files.length)
-  
   const [viewMode, setViewMode] = useState<ViewMode>('preview')
   const [showConsole, setShowConsole] = useState(false)
   
   // Track when Sandpack is ready (used for overlay outside SandpackProvider)
   const [isBundlerReady, setIsBundlerReadyState] = useState(false)
   
-  // Wrapper to log state changes
   const setIsBundlerReady = useCallback((ready: boolean) => {
-    console.log('[RefreshDebug][SandpackPreview] setIsBundlerReady called with:', ready)
     setIsBundlerReadyState(ready)
   }, [])
-  
-  console.log('[RefreshDebug][SandpackPreview] isBundlerReady:', isBundlerReady)
   
   // Track when Sandpack is remounting to prevent immediate error detection
   const [isRemounting, setIsRemounting] = useState(false)
@@ -1801,11 +1796,7 @@ export function SandpackPreview({
     // This keeps the previous preview (or generating overlay) stable
   }, [files, isStreaming])
   
-  const filesKey = useMemo(() => {
-    const key = hashFiles(committedFiles)
-    console.log('[RefreshDebug][SandpackPreview] filesKey computed:', key, 'committedFiles.length:', committedFiles.length)
-    return key
-  }, [committedFiles])
+  const filesKey = useMemo(() => hashFiles(committedFiles), [committedFiles])
   
   // Use total character count for sandpack key to detect content changes
   // (file count alone missed content-only updates, causing stale previews)

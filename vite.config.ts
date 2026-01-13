@@ -14,8 +14,6 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
-      // Enable React DevTools Profiler in production builds
-      'react-dom/client': 'react-dom/profiling',
     },
   },
   server: {
