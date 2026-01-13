@@ -1077,6 +1077,7 @@ class AgenticService:
                                 lines_removed=0,
                             )
                         )
+                        
                     elif step.type == "component":
                         # Try to extract component name
                         name_match = re.search(r"(?:function|const)\s+(\w+)", largest_block)
