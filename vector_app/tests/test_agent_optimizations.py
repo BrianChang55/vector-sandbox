@@ -30,13 +30,11 @@ from vector_app.prompts.agentic import (
 )
 from vector_app.prompts.intent_classification import (
     build_intent_classification_prompt,
-    INTENT_CLASSIFICATION_PROMPT,
 )
 from vector_app.services.context_analyzer import (
     ContextAnalyzer,
     AppContext,
     FileInfo,
-    TableInfo,
     CodebaseStyle,
     get_context_analyzer,
 )
@@ -44,7 +42,6 @@ from vector_app.services.intent_classifier import (
     IntentClassifier,
     UserIntent,
     IntentResult,
-    get_intent_classifier,
 )
 from vector_app.services.intent_router import (
     IntentRouter,
@@ -52,9 +49,6 @@ from vector_app.services.intent_router import (
 )
 from vector_app.services.handlers.base_handler import (
     StreamingValidator,
-    AgentEvent,
-    FileChange,
-    PlanStep,
 )
 
 

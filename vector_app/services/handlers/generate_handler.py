@@ -6,17 +6,30 @@ This handler is used when the user intent is GENERATE_NEW.
 
 OPTIMIZED: Uses parallel execution for independent plan steps when possible.
 """
+
 import json
 import logging
+import re
 import time
 import uuid
 from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
-from .base_handler import BaseHandler, AgentEvent, FileChange, PlanStep, exclude_protected_files
+from .base_handler import BaseHandler, AgentEvent, FileChange, exclude_protected_files
 from .parallel_executor import create_parallel_executor, ParallelStepExecutor
-from ..datastore import TableDefinitionParser, get_system_columns
+from ..datastore import TableDefinitionParser, build_data_store_context, get_system_columns
 from vector_app.models import AppDataTable
+from vector_app.prompts.agentic import (
+    apply_design_style_prompt,
+    build_codegen_system_prompt,
+    build_plan_prompt,
+    build_step_prompt,
+)
 from vector_app.services.typescript_types_generator import generate_typescript_types
+from vector_app.services.app_data_service import AppDataService
+from vector_app.services.error_fix_service import get_error_fix_service
+from vector_app.services.planning_service import PlanStep, PlanStepStatus
+from vector_app.services.types import CompilationError
+from vector_app.services.validation_service import get_validation_service
 
 if TYPE_CHECKING:
     from vector_app.models import InternalApp, AppVersion
@@ -34,59 +47,51 @@ PROTECTED_FILES = {
 class GenerateHandler(BaseHandler):
     """
     Handler for full app generation from scratch.
-    
+
     This is the default handler used when:
     - No existing app exists
     - User explicitly asks to build/create/generate
     - Intent is classified as GENERATE_NEW
-    
+
     OPTIMIZED: Uses parallel execution for independent plan steps.
     """
-    
+
     def __init__(self):
         super().__init__()
         # Create parallel executor for step execution (max 5 concurrent steps)
         self._parallel_executor: Optional[ParallelStepExecutor] = None
-    
+
     @property
     def parallel_executor(self) -> ParallelStepExecutor:
         """Lazy-load the parallel executor."""
         if self._parallel_executor is None:
             self._parallel_executor = create_parallel_executor(max_workers=5)
         return self._parallel_executor
-    
+
     def execute(
         self,
-        intent: 'IntentResult',
-        context: 'AppContext',
+        intent: "IntentResult",
+        context: "AppContext",
         user_message: str,
         current_spec: Optional[Dict[str, Any]],
         registry_surface: Dict[str, Any],
         app_name: str,
         model: str,
-        app: Optional['InternalApp'] = None,
-        version: Optional['AppVersion'] = None,
+        app: Optional["InternalApp"] = None,
+        version: Optional["AppVersion"] = None,
         **kwargs,
     ) -> Generator[AgentEvent, None, List[FileChange]]:
         """
         Execute full app generation.
-        
+
         Follows the Research → Plan → Execute → Validate flow.
         """
         start_time = time.time()
         generated_files: List[FileChange] = []
-        
+
         # Get additional context
         data_store_context = kwargs.get('data_store_context')
         mcp_tools_context = kwargs.get('mcp_tools_context')
-        
-        # Import prompts
-        from vector_app.prompts.agentic import (
-            build_plan_prompt,
-            build_step_prompt,
-            build_codegen_system_prompt,
-            apply_design_style_prompt,
-        )
         
         # Apply design style to user message
         styled_user_message = apply_design_style_prompt(
@@ -94,11 +99,11 @@ class GenerateHandler(BaseHandler):
             data_store_context,
             mcp_tools_context,
         )
-        
+
         # ===== PHASE 1: PLANNING =====
         yield self.emit_phase_change("planning", "Creating implementation plan...")
         yield self.emit_thinking("Breaking down the task into executable steps...", "decision")
-        
+
         # Build context for planning
         plan_context = self._build_plan_context(
             app_name=app_name,
@@ -107,10 +112,10 @@ class GenerateHandler(BaseHandler):
             context=context,
             mcp_tools_context=mcp_tools_context,
         )
-        
+
         # Generate plan
         plan_steps = self._create_plan(styled_user_message, plan_context, model)
-        
+
         yield self.emit_plan_created(
             steps=plan_steps,
             explored_dirs=3,
@@ -126,7 +131,7 @@ class GenerateHandler(BaseHandler):
         code_steps = [s for s in plan_steps if s.type != "data"]
 
         # Track files generated in data phase (including TypeScript types)
-        data_phase_files = []
+        data_phase_files: List[FileChange] = []
 
         # PHASE 2a: Execute data steps sequentially (create DB + TypeScript types)
         if data_steps:
@@ -146,20 +151,18 @@ class GenerateHandler(BaseHandler):
                 if hasattr(event, 'type') and event.type == 'file_generated':
                     file_data = event.data.get('file')
                     if file_data:
-                        from ..types import FileChange
                         data_phase_files.append(FileChange(**file_data))
                         logger.info(f"📁 [DATA PHASE] Captured file: {file_data.get('path', 'unknown')}")
                 yield event
 
             # Refresh data store context after data phase
             if app:
-                from ..datastore import build_data_store_context
                 data_store_context = build_data_store_context(app)
                 logger.info(f"🔄 [DATA PHASE COMPLETE] Schema frozen, TypeScript types generated")
 
                 # Log which files will be available to code phase
                 if data_phase_files:
-                    file_paths = [f.path for f in data_phase_files]
+                    file_paths = [str(f.path) for f in data_phase_files]
                     logger.info(f"📁 [DATA PHASE] Generated {len(data_phase_files)} file(s) for code phase: {', '.join(file_paths)}")
 
         # Generate types.ts from existing tables if no data phase but tables exist
@@ -206,41 +209,41 @@ class GenerateHandler(BaseHandler):
         
         # ===== PHASE 3: VALIDATE =====
         yield self.emit_phase_change("validating", "Validating generated code...")
-        
+
         validation_passed, fix_attempts = yield from self._validate_and_fix(
             generated_files=generated_files,
             model=model,
         )
-        
+
         yield self.emit_validation_result(
             passed=validation_passed,
             fix_attempts=fix_attempts,
         )
-        
+
         return generated_files
-    
+
     def _build_plan_context(
         self,
         app_name: str,
         current_spec: Optional[Dict[str, Any]],
         registry_surface: Dict[str, Any],
-        context: 'AppContext',
+        context: "AppContext",
         mcp_tools_context: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Build context dictionary for planning."""
         resources = registry_surface.get("resources", [])
-        
+
         # Build data store summary
         data_store_summary = ""
         if context.existing_tables:
             table_names = [t.name for t in context.existing_tables]
             data_store_summary = f"Tables: {', '.join(table_names)}"
-        
+
         # Build MCP tools summary
         mcp_summary = ""
         if mcp_tools_context:
             mcp_summary = "MCP integrations available"
-        
+
         return {
             "app_name": app_name,
             "has_existing_spec": current_spec is not None,
@@ -294,17 +297,17 @@ class GenerateHandler(BaseHandler):
                 ):
                     yield event
 
-                step.status = "complete"
+                step.status = PlanStepStatus.COMPLETE
                 step.duration = int((time.time() - step_start) * 1000)
 
-                yield self.emit_step_completed(step, step_index, step.duration)
-                yield self.emit_step_complete(step_index, "complete", step.duration)
+                yield self.emit_step_completed(step, step_index)
+                yield self.emit_step_complete(step_index, PlanStepStatus.COMPLETE.value, step.duration)
 
             except Exception as e:
                 logger.error(f"Data step execution error: {e}")
-                step.status = "error"
+                step.status = PlanStepStatus.ERROR
                 step.duration = int((time.time() - step_start) * 1000)
-                yield self.emit_step_complete(step_index, "error", step.duration)
+                yield self.emit_step_complete(step_index, PlanStepStatus.ERROR.value, step.duration)
                 raise
 
     def _execute_steps_parallel(
@@ -314,8 +317,8 @@ class GenerateHandler(BaseHandler):
         context: Dict[str, Any],
         registry_surface: Dict[str, Any],
         model: str,
-        app: Optional['InternalApp'] = None,
-        version: Optional['AppVersion'] = None,
+        app: Optional["InternalApp"] = None,
+        version: Optional["AppVersion"] = None,
         data_store_context: Optional[str] = None,
         mcp_tools_context: Optional[str] = None,
         allow_table_creation: bool = True,
@@ -358,17 +361,17 @@ class GenerateHandler(BaseHandler):
                 ):
                     yield event
 
-                step.status = "complete"
+                step.status = PlanStepStatus.COMPLETE
                 step.duration = int((time.time() - step_start) * 1000)
 
-                yield self.emit_step_completed(step, step_index, step.duration)
-                yield self.emit_step_complete(step_index, "complete", step.duration)
+                yield self.emit_step_completed(step, step_index)
+                yield self.emit_step_complete(step_index, PlanStepStatus.COMPLETE.value, step.duration)
 
             except Exception as e:
                 logger.error(f"Step execution error: {e}")
-                step.status = "error"
+                step.status = PlanStepStatus.ERROR
                 step.duration = int((time.time() - step_start) * 1000)
-                yield self.emit_step_complete(step_index, "error", step.duration)
+                yield self.emit_step_complete(step_index, PlanStepStatus.ERROR.value, step.duration)
                 raise
 
         # Use the parallel executor to run steps
@@ -379,7 +382,7 @@ class GenerateHandler(BaseHandler):
         )
 
         return generated_files
-    
+
     def _create_plan(
         self,
         user_message: str,
@@ -388,6 +391,7 @@ class GenerateHandler(BaseHandler):
     ) -> List[PlanStep]:
         """Create an execution plan for the app generation."""
         from vector_app.prompts.agentic import build_plan_prompt
+        import re
 
         plan_prompt = build_plan_prompt(user_message, context)
 
@@ -401,21 +405,20 @@ class GenerateHandler(BaseHandler):
                 model=plan_model,
                 temperature=0.3,
             )
-            
+
             # Parse JSON from response
-            import re
             json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response, re.DOTALL)
             if json_match:
                 response = json_match.group(1)
-            
+
             # Clean up content
             response = response.strip()
-            if not response.startswith('{'):
-                start = response.find('{')
-                end = response.rfind('}')
+            if not response.startswith("{"):
+                start = response.find("{")
+                end = response.rfind("}")
                 if start >= 0 and end > start:
-                    response = response[start:end+1]
-            
+                    response = response[start : end + 1]
+
             plan_data = json.loads(response)
             
             reasoning = plan_data.get("reasoning", "Building the requested app.")
@@ -466,13 +469,9 @@ class GenerateHandler(BaseHandler):
                                 "Add professional styling with Tailwind to all components",
                                 step_order=3),
             ]
-    
+
     def _stream_llm_with_validation(
-        self,
-        system_prompt: str,
-        user_prompt: str,
-        model: str,
-        step_index: int
+        self, system_prompt: str, user_prompt: str, model: str, step_index: int
     ) -> Generator[tuple, None, str]:
         """Stream LLM response with real-time validation. Yields (warnings, content_so_far), returns full_content."""
         validator = self.create_streaming_validator()
@@ -546,10 +545,6 @@ class GenerateHandler(BaseHandler):
 
         # Generate TypeScript types file after tables are created
         if app:
-            from vector_app.models import AppDataTable
-            from vector_app.services import generate_typescript_types
-            from vector_app.services.types import FileChange
-
             tables = AppDataTable.objects.filter(internal_app=app).order_by('name')
             if tables.exists():
                 logger.info(f"📝 [TYPESCRIPT] Generating types file for {tables.count()} table(s)")
@@ -642,9 +637,9 @@ Original code that needs fixing:
         self,
         files: List[FileChange],
         full_content: str,
-        app: Optional['InternalApp'],
-        version: Optional['AppVersion'],
-        model: str
+        app: Optional["InternalApp"],
+        version: Optional["AppVersion"],
+        model: str,
     ) -> Generator[AgentEvent, None, List[FileChange]]:
         """Validate field names and request fix if needed. Returns final files."""
         if not (app and files):
@@ -696,7 +691,6 @@ Original code that needs fixing:
         logger.error(f"🚨 [FIELD VALIDATION] BLOCKING generation due to field errors")
 
         # Build fix prompt with fresh schema context
-        from vector_app.services.data_store_context import build_data_store_context
         data_store_context = build_data_store_context(app)
 
         fix_prompt = self._build_field_fix_prompt(
@@ -761,30 +755,31 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
         existing_files: List[FileChange],
         registry_surface: Dict[str, Any],
         model: str,
-        app: Optional['InternalApp'] = None,
-        version: Optional['AppVersion'] = None,
+        app: Optional["InternalApp"] = None,
+        version: Optional["AppVersion"] = None,
         data_store_context: Optional[str] = None,
         mcp_tools_context: Optional[str] = None,
         allow_table_creation: bool = True,
     ) -> Generator[AgentEvent, None, None]:
         """Execute a single plan step and yield progress events."""
-        from vector_app.prompts.agentic import build_step_prompt, build_codegen_system_prompt
-
         has_data_store = context.get('has_data_store', False)
 
         # Build prompts
         prompt = build_step_prompt(
-            step, step_index, user_message, context,
-            existing_files, registry_surface, data_store_context,
+            step,
+            step_index,
+            user_message,
+            context,
+            existing_files,
+            registry_surface,
+            data_store_context,
             connectors_context=mcp_tools_context,
         )
         system_prompt = build_codegen_system_prompt(registry_surface, has_data_store)
 
         try:
             # Stream LLM response with validation
-            generator = self._stream_llm_with_validation(
-                system_prompt, prompt, model, step_index
-            )
+            generator = self._stream_llm_with_validation(system_prompt, prompt, model, step_index)
             full_content = ""
             try:
                 while True:
@@ -793,7 +788,9 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
                     for warning in warnings:
                         yield self.emit_streaming_warning(warning)
                     if not warnings:  # Progress signal
-                        yield self.emit_step_progress(step_index, min(90, len(full_content) // 50), "Generating code...")
+                        yield self.emit_step_progress(
+                            step_index, min(90, len(full_content) // 50), "Generating code..."
+                        )
             except StopIteration as e:
                 # Capture the return value from the generator
                 full_content = e.value if e.value is not None else full_content
@@ -823,7 +820,7 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
             logger.error(f"Step execution error: {e}")
             yield self.emit_thinking(f"Error during step: {str(e)}", "reflection")
             raise
-    
+
     def _parse_table_definitions(self, content: str) -> List[Dict[str, Any]]:
         """Parse TABLE_DEFINITION blocks from agent output."""
         return TableDefinitionParser.parse_table_definitions(content)
@@ -831,22 +828,19 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
     def _apply_table_definitions(
         self,
         table_defs: List[Dict[str, Any]],
-        app: 'InternalApp',
-        version: 'AppVersion',
+        app: "InternalApp",
+        version: "AppVersion",
     ) -> Generator[AgentEvent, None, None]:
         """Apply table definitions to the app's data store."""
-        from vector_app.models import AppDataTable
-        from vector_app.services.app_data_service import AppDataService
-        
         for table_def in table_defs:
-            slug = table_def['slug']
-            
+            slug = table_def["slug"]
+
             # Check if table exists
             existing = AppDataTable.objects.filter(
                 internal_app=app,
                 slug=slug,
             ).first()
-            
+
             if existing:
                 logger.info(f"Table {slug} already exists, skipping")
                 continue
@@ -854,8 +848,6 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
             # 🚨 CRITICAL: Add system columns (id, created_at, updated_at)
             # The parser filters these out if LLM defines them
             # We add them here before validation so they're part of the schema
-            from ..datastore import get_system_columns
-
             # Start with user-defined columns
             columns = table_def['columns'].copy()
 
@@ -872,16 +864,16 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
             table, errors = AppDataService.create_table_versioned(
                 app=app,
                 version=version,
-                name=table_def['name'],
+                name=table_def["name"],
                 schema=schema,
-                description=table_def.get('description', ''),
+                description=table_def.get("description", ""),
             )
-            
+
             if table:
                 yield self.emit_table_created(
                     slug=table.slug,
                     name=table.name,
-                    columns=len(table_def['columns']),
+                    columns=len(table_def["columns"]),
                 )
             else:
                 logger.warning(f"Failed to create table {slug}: {errors}")
@@ -893,39 +885,36 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
     ) -> Generator[AgentEvent, None, tuple]:
         """
         Validate generated code and attempt to fix errors.
-        
+
         Returns (validation_passed, fix_attempts)
         """
-        from vector_app.services.error_fix_service import get_error_fix_service
-        
         MAX_FIX_ATTEMPTS = 2
         validation_passed = False
         fix_attempts = 0
-        
+
         for attempt in range(1, MAX_FIX_ATTEMPTS + 1):
             # Run TypeScript validation
             validation = self._validate_typescript(generated_files)
-            
-            if validation['passed']:
+
+            if validation["passed"]:
                 validation_passed = True
                 break
-            
+
             # Attempt to fix
             fix_attempts = attempt
-            error_count = len(validation.get('errors', []))
-            
+            error_count = len(validation.get("errors", []))
+
             yield self.emit_thinking(
                 f"Found {error_count} compilation error(s), attempting fix ({attempt}/{MAX_FIX_ATTEMPTS})",
                 "observation",
             )
-            
+
             fix_service = get_error_fix_service()
-            
+
             # Convert FileChange to the format expected by fix service
-            from vector_app.services.agentic_service import FileChange as AgenticFileChange
-            
+            # Note: FileChange from types.py is compatible with agentic_service
             agentic_files = [
-                AgenticFileChange(
+                FileChange(
                     path=f.path,
                     action=f.action,
                     language=f.language,
@@ -936,31 +925,29 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
                 )
                 for f in generated_files
             ]
-            
+
             # Create CompilationError objects
-            from vector_app.services.agentic_service import CompilationError
-            
             errors = [
                 CompilationError(
-                    file=e.get('file', ''),
-                    line=e.get('line', 0),
-                    column=e.get('column', 0),
-                    message=e.get('message', ''),
-                    code=e.get('code'),
+                    file=e.get("file", ""),
+                    line=e.get("line", 0),
+                    column=e.get("column", 0),
+                    message=e.get("message", ""),
+                    code=e.get("code"),
                 )
-                for e in validation.get('errors', [])
+                for e in validation.get("errors", [])
             ]
-            
+
             # Run fix service
             fixed_files_by_path = {}
-            
+
             fix_gen = fix_service.fix_errors(
                 files=agentic_files,
                 errors=errors,
                 model=model,
                 attempt=attempt,
             )
-            
+
             while True:
                 try:
                     event = next(fix_gen)
@@ -979,7 +966,7 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
                             )
                 except StopIteration:
                     break
-            
+
             # Apply fixed files
             if fixed_files_by_path:
                 updated = []
@@ -990,20 +977,15 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
                         updated.append(f)
                 generated_files.clear()
                 generated_files.extend(updated)
-        
+
         # Final validation check
         if not validation_passed:
             final = self._validate_typescript(generated_files)
-            validation_passed = final['passed']
-        
-        return (validation_passed, fix_attempts)
+            validation_passed = final["passed"]
 
 
     def _validate_typescript(self, files: List[FileChange]) -> Dict[str, Any]:
         """
         Validate TypeScript files using ValidationService.
         """
-        from vector_app.services.validation_service import ValidationService
-        service = ValidationService()
-        result = service.validate_typescript(files)
-        return result.to_dict()
+        return get_validation_service().validate_typescript(files).to_dict()

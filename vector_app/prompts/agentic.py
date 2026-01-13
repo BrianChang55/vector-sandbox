@@ -639,7 +639,8 @@ Remember: Generic = forgettable. Make intentional design choices.
 
 
 # Shared style guide injected into all design-aware prompts.
-DESIGN_STYLE_PROMPT = """This base style guide (enterprise, light theme, minimal):
+DESIGN_STYLE_PROMPT = (
+    """This base style guide (enterprise, light theme, minimal):
 
 ## Typography
 - CRITICAL: Avoid excessive bolding. Use font-medium for most text, font-semibold sparingly and only for truly important headings.
@@ -744,7 +745,9 @@ DESIGN_STYLE_PROMPT = """This base style guide (enterprise, light theme, minimal
 - Skeleton: animate-pulse with bg-gray-200 rounded blocks
 - Disabled during loading: opacity-60 pointer-events-none
 
-""" + ANTI_AI_SLOP_GUIDE
+"""
+    + ANTI_AI_SLOP_GUIDE
+)
 
 # Base system prompt for codegen; design style is injected dynamically.
 CODEGEN_SYSTEM_PROMPT_TEMPLATE = """You are an expert React/TypeScript developer building internal business applications.
@@ -911,6 +914,10 @@ Rules for parallel steps (same step_order):
 - They MUST NOT depend on each other's output
 - Each step's description MUST explicitly list the files it will create
 
+Integration/styling steps that hook up components in App.tsx should have a HIGHER step_order \
+than the component steps they depend on - they cannot run in parallel with \
+steps that create the components they need to import.
+
 ## 3. Explicit File Ownership in Descriptions
 Each step description MUST clearly state which files it will create or modify:
 - ❌ BAD: "Build UI components"
@@ -972,6 +979,17 @@ Each step description must be self-contained and specific enough that an AI exec
 1. **Exact file paths** - Every step must list files it creates or modifies
 2. **Data dependencies** - Reference table slugs for any data access
 3. **Self-contained** - Another AI should be able to execute this step with ONLY its description
+
+
+### 5. Go Back and Confirm Everything was added to the Data Step
+
+After drafting all steps, **REVIEW YOUR PLAN** and verify:
+- Did you include ALL tables needed by EVERY component and feature?
+- Look at each component step - what data will it need? Is that table in the data step?
+- Check integration steps - do they reference tables that exist?
+- If a component needs to store/fetch data that's not in your data step, **ADD IT NOW**
+
+This is your ONLY chance to define tables - you CANNOT add tables in later steps!
 
 Generate a plan with 2-5 steps. Return JSON:
 {{
@@ -1546,34 +1564,30 @@ const handleCreateTask = async () => {{
 
 
 def apply_design_style_prompt(
-    message: str, 
+    message: str,
     data_store_context: Optional[str] = None,
     connectors_context: Optional[str] = None,
 ) -> str:
     """Append the shared design/style guide, data store context, and connectors context to a user message."""
     base_message = (message or "").strip()
     design_prompt = f"------ Design & Style Requirements ------\n\n{DESIGN_STYLE_PROMPT}"
-    
+
     parts = []
     if base_message:
         parts.append(base_message)
-    
+
     # Add data store context if provided
     if data_store_context:
-        data_store_prompt = DATA_STORE_PROMPT_TEMPLATE.format(
-            data_store_context=data_store_context
-        )
+        data_store_prompt = DATA_STORE_PROMPT_TEMPLATE.format(data_store_context=data_store_context)
         parts.append(data_store_prompt)
-    
+
     # Add connectors context if provided
     if connectors_context:
-        connectors_prompt = CONNECTORS_PROMPT_TEMPLATE.format(
-            connectors_context=connectors_context
-        )
+        connectors_prompt = CONNECTORS_PROMPT_TEMPLATE.format(connectors_context=connectors_context)
         parts.append(connectors_prompt)
-    
+
     parts.append(design_prompt)
-    
+
     return "\n\n".join(parts)
 
 
@@ -1582,23 +1596,21 @@ def build_plan_prompt(user_message: str, context: Dict[str, Any]) -> str:
     data_store_summary = context.get("data_store_summary", "")
     connectors_summary = context.get("connectors_summary", "")
     available_resources = context.get("available_resources", ["none"])
-    
+
     # Include data store tables in available resources if present
     if data_store_summary:
         available_resources = list(available_resources) + [f"Data Store: {data_store_summary}"]
-    
+
     # Include connectors in available resources if present
     if connectors_summary:
         available_resources = list(available_resources) + [f"Connectors: {connectors_summary}"]
-    
+
     return PLAN_PROMPT_TEMPLATE.format(
         user_message=user_message,
         app_name=context.get("app_name", "App"),
         available_resources=", ".join(available_resources) if available_resources else "none",
         has_existing_spec=context.get("has_existing_spec", False),
     )
-
-
 
 
 def build_step_prompt(
@@ -1728,11 +1740,11 @@ Full types.ts content (THIS IS THE SOURCE OF TRUTH):
     resources_info = ""
     for r in registry_surface.get("resources", []):
         resources_info += f"- {r['resource_id']}: fields={r.get('exposed_fields', [])}\n"
-    
+
     # Add data store context to resources info
     if data_store_context:
         resources_info += f"\n\n{data_store_context}"
-    
+
     # Add connectors/MCP tools context to resources info
     if connectors_context:
         # Check if this is already a complete MCP context (from mcp_context.py)
@@ -1742,11 +1754,9 @@ Full types.ts content (THIS IS THE SOURCE OF TRUTH):
             resources_info += f"\n\n{connectors_context}"
         else:
             # Legacy connectors context - wrap in template
-            connectors_prompt = CONNECTORS_PROMPT_TEMPLATE.format(
-                connectors_context=connectors_context
-            )
+            connectors_prompt = CONNECTORS_PROMPT_TEMPLATE.format(connectors_context=connectors_context)
             resources_info += f"\n\n{connectors_prompt}"
-    
+
     if not resources_info.strip():
         resources_info = "No data resources available - you can create tables using TABLE_DEFINITION blocks"
 
@@ -1754,10 +1764,10 @@ Full types.ts content (THIS IS THE SOURCE OF TRUTH):
     step_type = getattr(step, "type", "code")
     step_title_lower = getattr(step, "title", "").lower()
     is_data_step = (
-        step_type == "data" or
-        "table" in step_title_lower or
-        "schema" in step_title_lower or
-        "data model" in step_title_lower
+        step_type == "data"
+        or "table" in step_title_lower
+        or "schema" in step_title_lower
+        or "data model" in step_title_lower
     )
 
     # Add specific instructions for data steps
@@ -1828,25 +1838,22 @@ columns:
 
 
 
-def build_codegen_system_prompt(
-    registry_surface: Dict[str, Any],
-    has_data_store: bool = False
-) -> str:
+def build_codegen_system_prompt(registry_surface: Dict[str, Any], has_data_store: bool = False) -> str:
     """Return the system prompt for code generation with injected design style and guards."""
     if has_data_store:
         prompt = CODEGEN_SYSTEM_PROMPT_WITH_DATASTORE.replace("{design_style}", DESIGN_STYLE_PROMPT)
     else:
         prompt = CODEGEN_SYSTEM_PROMPT_TEMPLATE.replace("{design_style}", DESIGN_STYLE_PROMPT)
-    
+
     # Inject over-eagerness guard
     prompt = prompt.replace("{over_eagerness_guard}", OVER_EAGERNESS_GUARD)
-    
+
     # Inject TypeScript safety rules to prevent common compilation errors
     prompt = prompt.replace("{typescript_safety_rules}", TYPESCRIPT_SAFETY_RULES)
-    
+
     # Inject template context (pre-built components and hooks)
     prompt = prompt.replace("{template_context}", TEMPLATE_CONTEXT)
-    
+
     return prompt
 
 
@@ -1863,6 +1870,3 @@ def build_final_app_prompt(
         components_info=components_info,
         other_files=[getattr(f, "path", f) for f in other_files],
     )
-
-
-

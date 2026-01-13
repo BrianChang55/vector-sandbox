@@ -13,7 +13,7 @@ class OrgMemberSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(source='user.email', read_only=True)
     first_name = serializers.CharField(source='user.first_name', read_only=True)
     last_name = serializers.CharField(source='user.last_name', read_only=True)
-    profile_image_url = serializers.URLField(source='user.profile_image_url', read_only=True, allow_null=True)
+    profile_image_url = serializers.SerializerMethodField()
     joined_at = serializers.DateTimeField(source='created_at', read_only=True)
     role_display = serializers.CharField(source='get_role_display', read_only=True)
     
@@ -31,6 +31,15 @@ class OrgMemberSerializer(serializers.ModelSerializer):
             'joined_at',
         ]
         read_only_fields = ['id', 'user_id', 'email', 'first_name', 'last_name', 'profile_image_url', 'joined_at']
+    
+    def get_profile_image_url(self, obj):
+        """
+        Get the user's profile image URL.
+        
+        Uses the model's get_profile_image_url method which handles
+        both uploaded images (cloud/local) and OAuth provider URLs.
+        """
+        return obj.user.get_profile_image_url()
 
 
 class OrgMemberUpdateSerializer(serializers.Serializer):
