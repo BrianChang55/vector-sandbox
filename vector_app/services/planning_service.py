@@ -173,8 +173,6 @@ class PlanningService:
                     logger.debug(f"  Operation Type: {step.operation_type}")
                     if step.target_files:
                         logger.debug(f"  Target Files: {', '.join(step.target_files)}")
-                    if step.output:
-                        logger.debug(f"  Output: {step.output}")
                 logger.debug("=" * 80)
                 
                 return plan
