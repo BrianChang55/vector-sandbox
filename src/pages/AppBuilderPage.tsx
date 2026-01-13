@@ -24,7 +24,8 @@ import {
   Plug,
 } from 'lucide-react'
 
-import { useApp, useAppVersions, usePublishApp, useRollback } from '../hooks/useApps'
+import { useApp, useAppVersions, usePublishApp, useRollback, useUpdateApp } from '../hooks/useApps'
+import { aiApi } from '../services/apiService'
 import { useOrgMembers } from '../hooks/useMembers'
 import { useAppSelector, useAppDispatch } from '../store/hooks'
 import { setSelectedVersion } from '../store/slices/uiSlice'
@@ -62,8 +63,13 @@ export function AppBuilderPage() {
   
   const publishApp = usePublishApp()
   const rollbackMutation = useRollback()
+  const updateApp = useUpdateApp()
   const { addToast } = useToast()
   const toastHelpers = toast(addToast)
+  
+  // Title generation state
+  const [isGeneratingTitle, setIsGeneratingTitle] = useState(false)
+  const hasStartedTitleGeneration = useRef(false)
   
   const selectedVersionId = useAppSelector((state) => state.ui.selectedVersionId)
   
@@ -151,6 +157,40 @@ export function AppBuilderPage() {
     localStorage.removeItem('pending_hidden_prompt')
     setPendingHiddenPrompt(null)
   }, [])
+  
+  // Auto-generate title for user-typed prompts (not template prompts which already have titles)
+  useEffect(() => {
+    // Only generate for user-typed prompts, not templates (which have hidden prompts)
+    if (!pendingPrompt || pendingHiddenPrompt) return
+    // Only run once
+    if (hasStartedTitleGeneration.current) return
+    // Need app to be loaded
+    if (!app || !appId) return
+    
+    hasStartedTitleGeneration.current = true
+    setIsGeneratingTitle(true)
+    
+    const generateTitle = async () => {
+      try {
+        const result = await aiApi.generateAppTitle(pendingPrompt)
+        
+        // Only update if we got a real title (not fallback)
+        if (!result.fallback && result.title) {
+          await updateApp.mutateAsync({
+            appId,
+            data: { name: result.title }
+          })
+        }
+      } catch (error) {
+        console.error('Failed to generate app title:', error)
+        // Silently fail - user still has the truncated prompt as title
+      } finally {
+        setIsGeneratingTitle(false)
+      }
+    }
+    
+    generateTitle()
+  }, [pendingPrompt, pendingHiddenPrompt, app, appId, updateApp])
   const [streamingFiles, setStreamingFiles] = useState<FileChange[]>([]) // Files from active generation
   const [isActivelyGenerating, setIsActivelyGenerating] = useState(false) // Track if generation is in progress
   const [publishError, setPublishError] = useState<string | null>(null)
@@ -390,7 +430,13 @@ export function AppBuilderPage() {
               <Layers className="h-4 w-4 text-gray-500" />
             </div>
             <div>
-              <h1 className="text-sm font-semibold text-gray-900">{app.name}</h1>
+              {isGeneratingTitle ? (
+                <div className="flex items-center gap-2">
+                  <div className="h-4 w-32 bg-gray-200 rounded animate-pulse" />
+                </div>
+              ) : (
+                <h1 className="text-sm font-semibold text-gray-900">{app.name}</h1>
+              )}
               <div className="flex items-center gap-2">
                 <span className={cn(
                   'text-[10px] px-1.5 py-0.5 rounded-full font-medium',
