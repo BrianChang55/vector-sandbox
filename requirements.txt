@@ -26,6 +26,8 @@ postgrest>=0.13.0  # Supabase PostgREST client
 jsonschema>=4.20.0  # JSON schema validation
 python-jsonschema-objects>=0.5.0  # JSON schema objects
 whatthepatch==1.0.7  # Unified diff parsing and application
+django-extensions>=3.2.0  # Enhanced shell_plus and other development tools
+ipython>=8.12.0  # Interactive Python shell with syntax highlighting and line numbers
 # Note: esbuild is a Node.js tool, install via npm if needed
 supabase>=2.0.0  # Supabase Python client
 PyMySQL>=1.1.0  # MySQL database connector
