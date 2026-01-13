@@ -308,7 +308,7 @@ export function startAgenticGeneration(
                 }
                 options.onEvent(event)
               } catch (e) {
-                // Failed to parse SSE data
+                console.warn('[SSE] Failed to parse SSE data:', { eventType, eventData, error: e })
               }
               eventType = ''
               eventData = ''
@@ -418,7 +418,7 @@ export function reconnectToJob(
                 }
                 options.onEvent(event)
               } catch (e) {
-                // Failed to parse SSE data
+                console.warn('[SSE:reconnect] Failed to parse SSE data:', { eventType, eventData, error: e })
               }
               eventType = ''
               eventData = ''
@@ -545,7 +545,7 @@ export function startFixErrors(
                 }
                 options.onEvent(event)
               } catch (e) {
-                // Failed to parse SSE data
+                console.warn('[SSE:fixErrors] Failed to parse SSE data:', { eventType, eventData, error: e })
               }
               eventType = ''
               eventData = ''
