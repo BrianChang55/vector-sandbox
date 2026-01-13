@@ -75,11 +75,15 @@ function hashFiles(files: FileChange[]): string {
 
 function hashSandpackRuntimeFiles(sandpackFiles: Record<string, unknown>): string {
   // Hash the live editor state so we can trigger runs on any code edit.
+  const filePaths = Object.keys(sandpackFiles)
+  console.log('[RefreshDebug][hashSandpackRuntimeFiles] Hashing files:', filePaths)
   const parts = Object.entries(sandpackFiles)
     .map(([path, file]) => `${path}\n${(file as { code?: string }).code || ''}`)
     .sort()
     .join('\n---\n')
-  return hashString(parts)
+  const hash = hashString(parts)
+  console.log('[RefreshDebug][hashSandpackRuntimeFiles] Result hash:', hash)
+  return hash
 }
 
 // Default files for a React app
@@ -1081,29 +1085,43 @@ function UnifiedLoadingOverlay({
 function BundlerReadyReporter({ onReady }: { onReady: (ready: boolean) => void }) {
   const { sandpack, listen } = useSandpack()
   
+  console.log('[RefreshDebug][BundlerReadyReporter] Render, sandpack.status:', sandpack.status)
+  
   useEffect(() => {
+    console.log('[RefreshDebug][BundlerReadyReporter] Setting up listener')
     // Listen for Sandpack messages to detect when bundling is done
     const unsubscribe = listen((message) => {
       const msg = message as { type: string }
+      console.log('[RefreshDebug][BundlerReadyReporter] Message received:', msg.type)
       
       if (msg.type === 'start') {
+        console.log('[RefreshDebug][BundlerReadyReporter] Calling onReady(false)')
         onReady(false)
       }
       
       // 'done' means bundling is complete and preview is ready
       if (msg.type === 'done') {
+        console.log('[RefreshDebug][BundlerReadyReporter] Calling onReady(true)')
         onReady(true)
       }
     })
     
-    return () => unsubscribe()
+    return () => {
+      console.log('[RefreshDebug][BundlerReadyReporter] Cleaning up listener')
+      unsubscribe()
+    }
   }, [listen, onReady])
   
   // Also check sandpack status as backup
   useEffect(() => {
+    console.log('[RefreshDebug][BundlerReadyReporter] Status effect, status:', sandpack.status)
     if (sandpack.status === 'idle') {
       // Small delay to ensure iframe has rendered
-      const t = setTimeout(() => onReady(true), 100)
+      console.log('[RefreshDebug][BundlerReadyReporter] Status idle, scheduling onReady(true)')
+      const t = setTimeout(() => {
+        console.log('[RefreshDebug][BundlerReadyReporter] Timeout fired, calling onReady(true)')
+        onReady(true)
+      }, 100)
       return () => clearTimeout(t)
     }
   }, [sandpack.status, onReady])
@@ -1166,7 +1184,10 @@ function ConsoleLogForwarder() {
 function AutoRunPreview({ filesKey }: { filesKey: string }) {
   const { sandpack } = useSandpack()
 
+  console.log('[RefreshDebug][AutoRunPreview] Render, filesKey:', filesKey)
+
   useEffect(() => {
+    console.log('[RefreshDebug][AutoRunPreview] Effect triggered, calling runSandpack(). filesKey:', filesKey)
     sandpack.runSandpack()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filesKey])
@@ -1176,12 +1197,16 @@ function AutoRunPreview({ filesKey }: { filesKey: string }) {
 
 function AutoRunOnEdit() {
   const { sandpack } = useSandpack()
+  
+  console.log('[RefreshDebug][AutoRunOnEdit] Render, computing editKey...')
   const editKey = useMemo(
     () => hashSandpackRuntimeFiles(sandpack.files as Record<string, unknown>),
     [sandpack.files]
   )
+  console.log('[RefreshDebug][AutoRunOnEdit] editKey:', editKey)
 
   useEffect(() => {
+    console.log('[RefreshDebug][AutoRunOnEdit] Effect triggered, calling runSandpack(). editKey:', editKey)
     sandpack.runSandpack()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editKey])
@@ -1192,8 +1217,12 @@ function AutoRunOnEdit() {
 function AutoRunOnTab({ viewMode }: { viewMode: ViewMode }) {
   const { sandpack } = useSandpack()
 
+  console.log('[RefreshDebug][AutoRunOnTab] Render, viewMode:', viewMode)
+
   useEffect(() => {
+    console.log('[RefreshDebug][AutoRunOnTab] Effect triggered, viewMode:', viewMode)
     if (viewMode === 'code' || viewMode === 'split' || viewMode === 'preview') {
+      console.log('[RefreshDebug][AutoRunOnTab] Calling runSandpack()')
       sandpack.runSandpack()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1726,11 +1755,21 @@ export function SandpackPreview({
   enableAutoFix = false,
   isStreaming = false,
 }: SandpackPreviewProps) {
+  console.log('[RefreshDebug][SandpackPreview] Render, versionId:', versionId, 'isStreaming:', isStreaming, 'files.length:', files.length)
+  
   const [viewMode, setViewMode] = useState<ViewMode>('preview')
   const [showConsole, setShowConsole] = useState(false)
   
   // Track when Sandpack is ready (used for overlay outside SandpackProvider)
-  const [isBundlerReady, setIsBundlerReady] = useState(false)
+  const [isBundlerReady, setIsBundlerReadyState] = useState(false)
+  
+  // Wrapper to log state changes
+  const setIsBundlerReady = useCallback((ready: boolean) => {
+    console.log('[RefreshDebug][SandpackPreview] setIsBundlerReady called with:', ready)
+    setIsBundlerReadyState(ready)
+  }, [])
+  
+  console.log('[RefreshDebug][SandpackPreview] isBundlerReady:', isBundlerReady)
   
   // Track when Sandpack is remounting to prevent immediate error detection
   const [isRemounting, setIsRemounting] = useState(false)
@@ -1764,7 +1803,11 @@ export function SandpackPreview({
     // This keeps the previous preview (or generating overlay) stable
   }, [files, isStreaming])
   
-  const filesKey = useMemo(() => hashFiles(committedFiles), [committedFiles])
+  const filesKey = useMemo(() => {
+    const key = hashFiles(committedFiles)
+    console.log('[RefreshDebug][SandpackPreview] filesKey computed:', key, 'committedFiles.length:', committedFiles.length)
+    return key
+  }, [committedFiles])
   
   // Use total character count for sandpack key to detect content changes
   // (file count alone missed content-only updates, causing stale previews)
@@ -1776,7 +1819,9 @@ export function SandpackPreview({
   
   // Convert committed files to Sandpack format - only updates when committed files change
   const sandpackFiles = useMemo(() => {
+    console.log('[RefreshDebug][SandpackPreview] sandpackFiles useMemo running')
     const converted = convertToSandpackFiles(committedFiles, appId, versionId, appName)
+    console.log('[RefreshDebug][SandpackPreview] sandpackFiles converted, file count:', Object.keys(converted).length)
     return converted
   }, [committedFiles, appId, versionId, appName])
   
@@ -1784,7 +1829,9 @@ export function SandpackPreview({
   // This preserves user edits when just switching tabs, but ensures new version loads after generation
   useEffect(() => {
     const newKey = `${versionId}-${getTotalChars(committedFiles)}`
+    console.log('[RefreshDebug][SandpackPreview] Checking sandpackKey, current:', sandpackKey, 'new:', newKey)
     if (newKey !== sandpackKey) {
+      console.log('[RefreshDebug][SandpackPreview] sandpackKey changed! Remounting SandpackProvider')
       setSandpackKey(newKey)
       setInitializedFiles(sandpackFiles)
       // Reset persisted snapshot when the generation baseline changes
@@ -1817,6 +1864,7 @@ export function SandpackPreview({
   
   // Use initializedFiles if set, otherwise use sandpackFiles
   const filesToUse = Object.keys(initializedFiles).length > 0 ? initializedFiles : sandpackFiles
+  console.log('[RefreshDebug][SandpackPreview] filesToUse selected, using:', Object.keys(initializedFiles).length > 0 ? 'initializedFiles' : 'sandpackFiles', 'count:', Object.keys(filesToUse).length)
   const defaultEntryFile = useMemo(() => {
     if (filesToUse['/App.tsx']) return '/App.tsx'
     const keys = Object.keys(filesToUse)
@@ -1967,6 +2015,8 @@ export function SandpackPreview({
       window.removeEventListener('message', handleMessage)
     }
   }, [appId, versionId])
+
+  console.log('[RefreshDebug][SandpackPreview] Rendering with sandpackKey:', sandpackKey)
 
   return (
     <div
