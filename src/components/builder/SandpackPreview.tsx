@@ -1195,25 +1195,6 @@ function AutoRunPreview({ filesKey }: { filesKey: string }) {
   return null
 }
 
-function AutoRunOnEdit() {
-  const { sandpack } = useSandpack()
-  
-  console.log('[RefreshDebug][AutoRunOnEdit] Render, computing editKey...')
-  const editKey = useMemo(
-    () => hashSandpackRuntimeFiles(sandpack.files as Record<string, unknown>),
-    [sandpack.files]
-  )
-  console.log('[RefreshDebug][AutoRunOnEdit] editKey:', editKey)
-
-  useEffect(() => {
-    console.log('[RefreshDebug][AutoRunOnEdit] Effect triggered, calling runSandpack(). editKey:', editKey)
-    sandpack.runSandpack()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editKey])
-
-  return null
-}
-
 function AutoRunOnTab({ viewMode }: { viewMode: ViewMode }) {
   const { sandpack } = useSandpack()
 
@@ -2054,7 +2035,6 @@ export function SandpackPreview({
         <ConsoleLogForwarder />
         {/* Auto-run preview - files are already deferred during streaming so this is safe */}
         <AutoRunPreview filesKey={filesKey} />
-        <AutoRunOnEdit />
         <AutoRunOnTab viewMode={viewMode} />
         {versionId && (
           <SandpackErrorHandler
