@@ -56,8 +56,10 @@ def exclude_protected_files(
         f for f in files if f.path in protected
     ]
     if skipped_protected:
+        # Defensive: ensure paths are strings
+        protected_paths = [str(f.path) if hasattr(f, 'path') else str(f) for f in skipped_protected]
         logger.warning(
-            f"[PROTECTED] Blocked LLM from overwriting protected file: {', '.join(f.path for f in skipped_protected)}"
+            f"[PROTECTED] Blocked LLM from overwriting protected file: {', '.join(protected_paths)}"
         )
 
     return filtered
