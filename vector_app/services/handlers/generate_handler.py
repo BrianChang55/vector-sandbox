@@ -232,7 +232,7 @@ class GenerateHandler(BaseHandler):
         # Build data store summary
         data_store_summary = ""
         if context.existing_tables:
-            table_names = [t.name for t in context.existing_tables]
+            table_names = [str(t.name) for t in context.existing_tables]
             data_store_summary = f"Tables: {', '.join(table_names)}"
 
         # Build MCP tools summary
@@ -565,7 +565,7 @@ class GenerateHandler(BaseHandler):
         for table in tables:
             schema = table.schema_json or {}
             columns = schema.get('columns', [])
-            field_names = [col['name'] for col in columns]
+            field_names = [str(col.get('name')) for col in columns]
             lines.append(f"- '{table.slug}': {', '.join(field_names)}")
 
         return "\n".join(lines)
