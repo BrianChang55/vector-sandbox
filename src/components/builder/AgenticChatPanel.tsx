@@ -1829,7 +1829,7 @@ export function AgenticChatPanel({
     }
   }, [waitingOnSessionData, waitingOnMessages])
 
-  // Pre-fill input with initial prompt from landing page when session is ready
+  // Auto-submit initial prompt from landing page when session is ready
   useEffect(() => {
     // Only process once per component instance
     if (hasAutoSubmittedInitialPrompt.current) return
@@ -1837,23 +1837,22 @@ export function AgenticChatPanel({
     if (!sessionId || !initialPrompt) return
     // Wait for session to be hydrated and ready
     if (waitingOnSessionData || waitingOnMessages) return
+    // Don't submit if already loading
+    if (isLoading) return
     
     // Mark as processed immediately to prevent double-processing
     hasAutoSubmittedInitialPrompt.current = true
     
-    // Pre-fill the input with the prompt (don't auto-submit)
-    setInput(initialPrompt)
-    
-    // Focus the input after a small delay
-    const focusTimeout = setTimeout(() => {
-      inputRef.current?.focus()
+    // Auto-submit the prompt after a brief delay for smooth UX
+    const submitTimeout = setTimeout(() => {
+      handleSubmit(initialPrompt)
       // Notify parent that we've consumed the initial prompt
       onInitialPromptConsumed?.()
-    }, 200)
+    }, 300)
     
-    return () => clearTimeout(focusTimeout)
+    return () => clearTimeout(submitTimeout)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, initialPrompt, waitingOnSessionData, waitingOnMessages])
+  }, [sessionId, initialPrompt, waitingOnSessionData, waitingOnMessages, isLoading])
 
   // Auto-submit hidden prompt from templates (NEVER display to user)
   useEffect(() => {
