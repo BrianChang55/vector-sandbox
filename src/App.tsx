@@ -75,7 +75,7 @@ function App() {
               }
             />
             <Route
-              path="/preview/apps/:appId"
+              path="/preview/apps/:appId/"
               element={
                 <AuthGuard>
                   <AppPreviewPage />
