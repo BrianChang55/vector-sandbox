@@ -57,7 +57,7 @@ def exclude_protected_files(
     ]
     if skipped_protected:
         logger.warning(
-            f"[PROTECTED] Blocked LLM from overwriting protected file: {', '.join(skipped_protected)}"
+            f"[PROTECTED] Blocked LLM from overwriting protected file: {', '.join(f.path for f in skipped_protected)}"
         )
 
     return filtered
@@ -838,8 +838,11 @@ class BaseHandler(ABC):
         guidance_parts = []
 
         for error in errors:
+            # Defensive: ensure error is a string
+            error_str = str(error) if not isinstance(error, str) else error
+
             # Parse error: "filter references unknown field 'X' for table 'Y'"
-            match = re.search(r"unknown field '([^']+)' for table '([^']+)'", error)
+            match = re.search(r"unknown field '([^']+)' for table '([^']+)'", error_str)
             if not match:
                 continue
 
@@ -855,7 +858,7 @@ class BaseHandler(ABC):
             if tables_with_field:
                 guidance_parts.append(
                     f"⚠️  Field '{field_name}' doesn't exist on '{table_name}' table\n"
-                    f"   BUT it EXISTS on these tables: {', '.join(tables_with_field)}\n"
+                    f"   BUT it EXISTS on these tables: {', '.join(str(tbl) for tbl in tables_with_field)}\n"
                     f"   → You may be querying the WRONG table!\n"
                     f"   → Consider: Should you query one of these tables instead?\n"
                 )
@@ -865,7 +868,7 @@ class BaseHandler(ABC):
                     guidance_parts.append(
                         f"⚠️  Field '{field_name}' doesn't exist ANYWHERE in your schema\n"
                         f"   → This is field hallucination - you invented a field that doesn't exist\n"
-                        f"   → Use one of these fields from '{table_name}': {', '.join(valid_fields[:5])}\n"
+                        f"   → Use one of these fields from '{table_name}': {', '.join(str(f) for f in valid_fields[:5])}\n"
                     )
 
         return "\n".join(guidance_parts) if guidance_parts else "See errors above for details."
@@ -878,7 +881,7 @@ class BaseHandler(ABC):
         lines = []
         for table_name, fields in sorted(all_tables.items()):
             lines.append(f"📋 Table '{table_name}':")
-            lines.append(f"   Fields: {', '.join(fields)}")
+            lines.append(f"   Fields: {', '.join(str(f) for f in fields)}")
             lines.append("")
 
         return "\n".join(lines)
@@ -887,11 +890,16 @@ class BaseHandler(ABC):
         self, original_content: str, errors: List[str], data_store_context: Optional[str] = None
     ) -> str:
         """Build a prompt to ask Claude to fix field name errors."""
-        error_list = "\n".join(f"- {error}" for error in errors)
+        # Defensive: ensure errors are strings (not FileChange objects)
+        non_string_errors = [e for e in errors if not isinstance(e, str)]
+        if non_string_errors:
+            logger.error(f"🚨 [BUG] _build_field_fix_prompt received {len(non_string_errors)} non-string errors: {type(non_string_errors[0])}")
+        error_strings = [str(e) if not isinstance(e, str) else e for e in errors]
+        error_list = "\n".join(f"- {error}" for error in error_strings)
 
         # Check if any errors are about missing tables
         has_missing_tables = any(
-            "non-existent table" in error or "not found" in error.lower() for error in errors
+            "non-existent table" in str(error) or "not found" in str(error).lower() for error in errors
         )
 
         # NEW: Extract ALL table schemas and build cross-table guidance
