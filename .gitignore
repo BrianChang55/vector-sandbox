@@ -296,3 +296,5 @@ downloads/
 temp/
 cache/
 
+# GSD Planning
+.planning/
