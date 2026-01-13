@@ -959,16 +959,45 @@ After drafting all steps, **REVIEW YOUR PLAN** and verify:
 
 This is your ONLY chance to define tables - you CANNOT add tables in later steps!
 
+## 6. Operation Types and Target Files
+
+Each step must specify:
+- **target_files**: Array of file paths this step will create or modify
+- **operation_type**: The type of operation being performed
+
+**Operation Types:**
+- `generate` - Create new files from scratch (new components, new utilities)
+- `edit` - Modify existing files (integration, styling changes)
+- `add_feature` - Add new functionality to existing code
+- `schema` - Create or modify data schemas (data steps)
+- `fix` - Fix issues or bugs
+- `refactor` - Reorganize or restructure code
+
+**Default operation_type by step type:**
+- `data` steps → `schema`
+- `component` steps → `generate` (new) or `edit` (modifying existing)
+- `integration` steps → `edit`
+- `styling` steps → `edit`
+- `code` steps → `generate` or `add_feature`
+- `validation` steps → `add_feature`
+
 Generate a plan with 2-5 steps. Return JSON:
 {{
     "reasoning": "<string: Your analysis of what needs to be built. LIST ALL DATA TABLES NEEDED.>",
     "steps": [
-        {{"type": "<step_type>", "step_order": <int>, "title": "<string>", "description": "<detailed description following guidelines above>"}}
+        {{
+            "type": "<step_type>",
+            "step_order": <int>,
+            "title": "<string>",
+            "description": "<detailed description following guidelines above>",
+            "target_files": ["<file_path>", ...],
+            "operation_type": "<generate|edit|add_feature|schema|fix|refactor>"
+        }}
     ]
 }}
 
 Step types: research, design, data, code, component, styling, integration, validation
-**REMEMBER**: Data steps are always step_order=0. Steps with the same step_order run in parallel and must not conflict!"""
+**REMEMBER**: Data steps are always step_order=0 with operation_type="schema". Steps with the same step_order run in parallel and must not conflict!"""
 
 STEP_PROMPT_TEMPLATE = """Step {step_number}: {step_title}
 Description: {step_description}

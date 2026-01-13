@@ -378,7 +378,7 @@ class ErrorFixService:
         diffs = parse_diffs(content)
         
         if not diffs:
-            logger.debug("No unified diffs found in LLM response")
+            logger.debug("[ERROR FIX] No unified diffs found in LLM response")
             return []
         
         logger.info(f"Parsed {len(diffs)} diff(s) from LLM response")

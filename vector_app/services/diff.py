@@ -17,6 +17,8 @@ import whatthepatch
 
 logger = logging.getLogger(__name__)
 
+MAX_HUNKS_TO_APPLY_WITH_PATCH = 5
+
 
 def format_with_line_numbers(content: str) -> str:
     """
@@ -174,7 +176,7 @@ def _parse_diff_block(block: str) -> List[FileDiff]:
     return diffs
 
 
-def _apply_with_subprocess_patch(original_content: str, diff_text: str) -> str:
+def _apply_with_subprocess_patch(original_content: str, diff_text: str, fuzz: int = 3) -> str:
     """
     Apply patch using subprocess, with proper error handling.
     
@@ -201,11 +203,15 @@ def _apply_with_subprocess_patch(original_content: str, diff_text: str) -> str:
         with open(patch_file, 'w') as f:
             f.write(diff_text)
         
-        result = subprocess.run(
-            ['patch', '--fuzz=3', '-o', out_file, orig_file, '-i', patch_file],
-            capture_output=True,
-            text=True
-        )
+        try:
+            result = subprocess.run(
+                ['patch', f'--fuzz={fuzz}', "--batch", "--posix", '-o', out_file, orig_file, '-i', patch_file],
+                capture_output=True,
+                text=True,
+                timeout=2.0  # 2 second timeout to prevent hanging
+            )
+        except subprocess.TimeoutExpired:
+            raise Exception("patch command timed out after 10 seconds")
         
         # Check return code BEFORE reading output (fixes whatthepatch bug)
         if result.returncode != 0:
@@ -236,33 +242,79 @@ def apply_diff(original_content: str, diff: FileDiff) -> str:
     # Reconstruct full diff with all hunks - patch handles offsets internally
     diff_text = _reconstruct_diff(diff)
     
-    try:
-        # Use our own subprocess patch implementation (with proper error handling)
-        # patch command has fuzz matching and handles multi-hunk offsets automatically
-        result = _apply_with_subprocess_patch(original_content, diff_text)
-        return result
-    except Exception as e:
-        logger.warning(f"Subprocess patch failed for {diff.path}: {e}, falling back to whatthepatch. Hunk: {diff_text}")
+    optional_result = _maybe_apply_with_subprocess_patch(original_content, diff)
+    if optional_result:
+        return optional_result
+
+    # Fallback to whatthepatch - apply hunks one by one backwards
+    # Applying backwards (highest line numbers first) prevents line number shifts
+    # from affecting subsequent hunk applications
+    return _apply_hunks_backwards(original_content, diff)
+
+
+def _apply_hunks_backwards(original_content: str, diff: FileDiff) -> str:
+    """
+    Apply hunks one by one in reverse order (highest line numbers first).
     
-    # Fallback to whatthepatch for systems without patch command
-    try:
-        parsed_diffs = list(whatthepatch.parse_patch(diff_text))
-        if not parsed_diffs:
-            logger.warning(f"[DIFF] whatthepatch could not parse diff for {diff.path}")
-            return original_content
+    This prevents line number shifts from earlier hunks affecting later ones.
+    When applying from bottom to top, line numbers for earlier hunks remain valid.
+    
+    Args:
+        original_content: The original file content
+        diff: FileDiff containing hunks to apply
         
-        parsed_diff = parsed_diffs[0]
-        current_lines = original_content.split('\n')
-        result = whatthepatch.apply_diff(parsed_diff, current_lines)
-        new_lines = list(result)
+    Returns:
+        The modified file content
+    """
+    if not diff.hunks:
+        return original_content
+    
+    # Sort hunks by starting line number in descending order
+    sorted_hunks = sorted(diff.hunks, key=_get_hunk_start_line, reverse=True)
+    
+    current_content = original_content
+    applied_count = 0
+    failed_hunks = []
+    
+    for hunk in sorted_hunks:
+        start_line = _get_hunk_start_line(hunk)
         
-        if new_lines is None:
-            logger.warning(f"[DIFF] whatthepatch returned None for {diff.path}")
-            return original_content
+        # Create a single-hunk diff for this hunk
+        single_hunk_diff = f"--- {diff.path}\n+++ {diff.path}\n{_fix_hunk_header(hunk)}"
         
-        return '\n'.join(new_lines)
-    except Exception as e2:
-        logger.error(f"[DIFF] Both patch methods failed for {diff.path}: {e2}")
+        try:
+            parsed_diffs = list(whatthepatch.parse_patch(single_hunk_diff))
+            if not parsed_diffs:
+                logger.warning(f"[DIFF] whatthepatch could not parse hunk at line {start_line}")
+                failed_hunks.append(start_line)
+                continue
+            
+            parsed_diff = parsed_diffs[0]
+            current_lines = current_content.split('\n')
+            result = whatthepatch.apply_diff(parsed_diff, current_lines)
+            new_lines = list(result)
+            
+            if new_lines is None:
+                logger.warning(f"[DIFF] whatthepatch returned None for hunk at line {start_line}")
+                failed_hunks.append(start_line)
+                continue
+            
+            current_content = '\n'.join(new_lines)
+            applied_count += 1
+            
+        except Exception as e:
+            logger.warning(f"[DIFF] Failed to apply hunk at line {start_line}: {e}")
+            failed_hunks.append(start_line)
+            continue
+    
+    if failed_hunks:
+        logger.warning(f"[DIFF] {len(failed_hunks)} hunk(s) failed to apply for {diff.path}: lines {failed_hunks}")
+    
+    if applied_count > 0:
+        logger.info(f"[DIFF] Applied {applied_count}/{len(diff.hunks)} hunks for {diff.path}")
+        return current_content
+    else:
+        logger.error(f"[DIFF] All hunks failed to apply for {diff.path}")
         return original_content
 
 
@@ -406,3 +458,18 @@ def _count_lines_from_hunks(hunks: List[str]) -> Tuple[int, int]:
             elif line.startswith('-') and not line.startswith('---'):
                 lines_removed += 1
     return lines_added, lines_removed
+
+
+def _maybe_apply_with_subprocess_patch(original_content: str, diff: FileDiff) -> Optional[str]:
+    if len(diff.hunks) > MAX_HUNKS_TO_APPLY_WITH_PATCH:
+        return None
+
+    diff_text = _reconstruct_diff(diff)
+    try:
+        # Use our own subprocess patch implementation (with proper error handling)
+        # patch command has fuzz matching and handles multi-hunk offsets automatically
+        result = _apply_with_subprocess_patch(original_content, diff_text)
+        return result
+    except Exception as e:
+        logger.warning(f"Subprocess patch failed for {diff.path}: {e}, falling back to whatthepatch. Hunk: {diff_text}")
+        return None

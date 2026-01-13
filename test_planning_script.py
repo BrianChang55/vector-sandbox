@@ -55,6 +55,8 @@ def format_plan(idea: str, plan: AgentPlan) -> str:
     
     for i, step in enumerate(plan.steps, 1):
         lines.append(f"Step {i}: [{step.type}] {step.title} (Order: {step.step_order})")
+        lines.append(f"  Operation: {step.operation_type}")
+        lines.append(f"  Target Files: {step.target_files}")
         lines.append(f"  Description: {step.description}")
     
     lines.extend([BOUNDARY_MAJOR, ""])
