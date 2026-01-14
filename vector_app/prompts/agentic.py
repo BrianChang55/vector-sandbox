@@ -5,7 +5,9 @@ These helpers keep every model call aligned on tone, structure, and required
 runtime constraints so changes can be made in one place.
 """
 
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, TYPE_CHECKING
+
+from vector_app.services.intent_classifier import UserIntent
 
 
 # =============================================================================
@@ -889,16 +891,8 @@ await remove(rowId);
 IMPORTANT: Use these pre-built components instead of writing custom implementations for tables, cards, buttons, forms, and data fetching.
 """
 
-PLAN_PROMPT_TEMPLATE = """You are planning an internal app generation task.
-
-User Request: {user_message}
-App Name: {app_name}
-Available Resources: {available_resources}
-Has Existing Spec: {has_existing_spec}
-
-🚨 **CRITICAL PLANNING RULES:**
-
-
+# Intent-specific instruction sections
+FULL_APP_INTENT_INSTRUCTIONS = """
 ## 1. App.tsx Requirement (MANDATORY!)
 
 🚨 **EVERY PLAN MUST INCLUDE src/App.tsx IN target_files** 🚨
@@ -913,31 +907,9 @@ Examples:
 - ✅ GOOD: Step with target_files: ["src/App.tsx"] and description explaining how it imports components
 - ❌ BAD: No step mentions src/App.tsx - PLAN WILL BE REJECTED
 
+## 2. Full App Example Plan
 
-## 2. Parallel Execution with step_order
-Each step has a `step_order` (integer) that determines when it executes:
-- **step_order=0**: Executes first
-- **step_order=1, 2, 3...**: Higher numbers execute after lower numbers complete
-- **Steps with the SAME step_order run IN PARALLEL** - they must be 100% independent!
-
-Rules for parallel steps (same step_order):
-- They MUST NOT create or modify the same files
-- They MUST NOT depend on each other's output
-- Each step's description MUST explicitly list the files it will create
-
-Integration/styling steps that hook up components in App.tsx should have a HIGHER step_order \
-than the component steps they depend on - they cannot run in parallel with \
-steps that create the components they need to import.
-
-## 3. Detailed Step by Step Descriptions. These are CRUCIAL
-
-Each step description must be self-contained and specific enough that an AI executing \
-ONLY that step can succeed without seeing other steps. Think of this as design document level \
-detail and quality; you must trust that another engineer can execute this step with ONLY its description. \
-This should be meticulously detailed, not a generic and underdeveloped description. This can should be up to 3 paragraphs \
-long.
-
-=== Example Plan: Kanban Board Feature ===
+=== Example Plan: Kanban Board App ===
 
 --- Step 1 of 3 ---
 Title: Create Kanban Card and Form Components
@@ -999,9 +971,165 @@ Loading state: When loading=true, render three skeleton columns with pulsing pla
 
 Error handling: Wrap task operations in try/catch, show toast notification on error. Use optimistic updates where possible (update UI immediately, rollback on failure).
 
-=== End Example Plan ===
+--- Step 4 of 4 ---
+Title: Integrate Kanban Board into App
+step_order: 3
+type: integration
+operation_type: generate
+target_files: [src/App.tsx]
 
-## 4. Go Back and Double Check Your Steps
+Description:
+Create the main App.tsx entry point that imports and renders the KanbanBoard component. Fetch tasks from dataStore using the 'tasks' table slug. Handle task CRUD operations through dataStore API calls. Wrap the app with proper error boundaries and loading states.
+
+=== End Example Plan ===
+"""
+
+FEATURE_INTENT_INSTRUCTIONS = """
+## 1. Feature Planning Rules
+
+**CRITICAL**: You are adding to an EXISTING app. Do NOT recreate the entire app.
+
+1. **Work with existing code** - Do NOT recreate files that already exist
+2. **Modify or extend** - Update existing components when possible
+3. **Create new components only when needed** - Place in src/components/ directory
+4. **Keep changes minimal** - Only touch files necessary for the feature
+5. **App.tsx already exists** - Only modify it if you need to add routing or layout changes
+
+## Existing Files in App
+{existing_files}
+
+## Step Guidelines for Features
+
+- **1-3 steps** typical for features
+- Each step should modify OR create specific files (not both unless necessary)
+- Focus on the minimal set of changes needed
+
+## Operation Types for Features
+
+- `edit` - Modify an existing file (most common for features)
+- `add_feature` - Add new functionality to existing code
+- `generate` - Create a completely new file (new component)
+
+## Feature Examples
+
+=== Example Feature Plan: Add Email Notification for Overdue Tasks ===
+(Building on the Kanban Board app)
+
+--- Step 1 of 2 ---
+Title: Create Overdue Task Notification Service
+step_order: 0
+type: code
+operation_type: generate
+target_files: [src/services/overdueNotifications.ts]
+
+Description:
+Create src/services/overdueNotifications.ts with a function checkOverdueTasks(tasks: Task[]) that filters tasks where dueDate < today and status !== 'done'. Export sendOverdueReminder(task: Task) that uses the connectors API to send email via the configured email connector. Include helper getOverdueTasks(tasks: Task[]) to return all overdue tasks sorted by due date (oldest first).
+
+--- Step 2 of 2 ---
+Title: Add Overdue Notification Button to Board
+step_order: 1
+type: integration
+operation_type: edit
+target_files: [src/components/KanbanBoard.tsx]
+
+Description:
+Modify src/components/KanbanBoard.tsx to import the notification service. Add a 'Send Overdue Reminders' button in the header that appears when overdue tasks exist. Show overdue count badge on the button. On click, iterate overdue tasks and call sendOverdueReminder for each. Show toast with success/failure count. Add visual indicator (red border) on overdue task cards.
+
+=== End Example Feature Plan ===
+
+=== Example Feature Plan: Add Task Search and Filter to Kanban Board ===
+(Building on the Kanban Board app)
+
+--- Step 1 of 1 ---
+Title: Add Search and Priority Filter
+step_order: 0
+type: component
+operation_type: edit
+target_files: [src/components/KanbanBoard.tsx]
+
+Description:
+Modify src/components/KanbanBoard.tsx to add a search bar and priority filter dropdown above the columns. Add useState for searchTerm and priorityFilter. Filter tasks before passing to columns: match searchTerm against title/description (case-insensitive), and filter by priority if not 'all'. Show 'No matching tasks' message when filters result in empty columns. Add clear filters button when filters are active.
+
+=== End Example Feature Plan ===
+
+=== Example Feature Plan: Add Task Assignee Avatars with Tooltip ===
+(Building on the Kanban Board app)
+
+--- Step 1 of 1 ---
+Title: Enhance Task Cards with Assignee Display
+step_order: 0
+type: component
+operation_type: edit
+target_files: [src/components/KanbanCard.tsx]
+
+Description:
+Modify src/components/KanbanCard.tsx to display assignee avatar in the bottom-right corner of each card. If assigneeAvatar URL exists, show circular image (24x24px). If no avatar but assigneeName exists, show initials in a colored circle. On hover, show tooltip with full assignee name. If unassigned, show a muted 'Unassigned' placeholder icon. Add subtle hover animation to the avatar.
+
+=== End Example Feature Plan ===
+
+=== Example Feature Plan: Add Task Statistics Dashboard Header ===
+(Building on the Kanban Board app)
+
+--- Step 1 of 2 ---
+Title: Create Task Statistics Component
+step_order: 0
+type: component
+operation_type: generate
+target_files: [src/components/TaskStats.tsx]
+
+Description:
+Create src/components/TaskStats.tsx that accepts tasks: Task[] prop. Display four stat cards in a row: Total Tasks (count), Completed (done status count with percentage), In Progress (in_progress count), Overdue (past due date and not done, show in red). Use existing StatCard component if available, otherwise create inline styled cards. Include progress bar showing overall completion percentage.
+
+--- Step 2 of 2 ---
+Title: Add Statistics to Kanban Board Header
+step_order: 1
+type: integration
+operation_type: edit
+target_files: [src/components/KanbanBoard.tsx]
+
+Description:
+Modify src/components/KanbanBoard.tsx to import and render TaskStats above the columns. Pass the tasks array to TaskStats. Add a collapsible toggle so users can hide/show stats (default: shown). Persist collapse preference in localStorage.
+
+=== End Example Feature Plan ===
+"""
+
+PLAN_PROMPT_TEMPLATE = """You are planning an internal app generation task.
+
+User Request: {user_message}
+App Name: {app_name}
+Available Resources: {available_resources}
+Has Existing Spec: {has_existing_spec}
+
+🚨 **CRITICAL PLANNING RULES:**
+
+# Intent-Specific Instructions
+{intent_specific_instructions}
+
+# General Planning Rules
+## Parallel Execution with step_order
+Each step has a `step_order` (integer) that determines when it executes:
+- **step_order=0**: Executes first
+- **step_order=1, 2, 3...**: Higher numbers execute after lower numbers complete
+- **Steps with the SAME step_order run IN PARALLEL** - they must be 100% independent!
+
+Rules for parallel steps (same step_order):
+- They MUST NOT create or modify the same files
+- They MUST NOT depend on each other's output
+- Each step's description MUST explicitly list the files it will create
+
+Integration/styling steps that hook up components in App.tsx should have a HIGHER step_order \
+than the component steps they depend on - they cannot run in parallel with \
+steps that create the components they need to import.
+
+## Detailed Step by Step Descriptions. These are CRUCIAL
+
+Each step description must be self-contained and specific enough that an AI executing \
+ONLY that step can succeed without seeing other steps. Think of this as design document level \
+detail and quality; you must trust that another engineer can execute this step with ONLY its description. \
+This should be meticulously detailed, not a generic and underdeveloped description. This can should be up to 3 paragraphs \
+long.
+
+## Go Back and Double Check Your Steps
 Read each existing steps and see if any forms, modals, etc. are missing. For any missing items \
 edit the plan to include that as a previous step.
 
@@ -1044,7 +1172,7 @@ edit the plan to include that as a previous step.
 1. **Exact file paths** - Every step must list files it creates or modifies
 2. **Self-contained** - Another AI should be able to execute this step with ONLY its description
 
-## 5. Operation Types and Target Files
+## Operation Types and Target Files
 
 Each step must specify:
 - **target_files**: Array of file paths this step will create or modify
@@ -1064,7 +1192,7 @@ Each step must specify:
 - `code` steps → `generate` or `add_feature`
 - `validation` steps → `edit`
 
-## 7. Form Dependencies and Foreign Key Ordering
+## Form Dependencies and Foreign Key Ordering
 Never assume data will come from a mock data store. Data will either need to be added via form or \
 fetched via integration. Do not allocate any steps for creating the DB, that is done separately, instead \
 allocate steps for Forms that allow the user to enter data.
@@ -1094,22 +1222,24 @@ If the referenced data comes from an external integration/connector (not user-en
 4. Assign higher step_orders to forms for "child" entities (tables with FKs)
 5. Skip forms for tables populated by integrations
 
-Generate a plan with 2-5 steps. Return JSON:
+Generate a plan with {step_count_range}. Return JSON:
 {{
+    "reasoning": "<brief analysis of what needs to be built or changed>",
     "steps": [
         {{
             "title": "<string>",
             "description": "<detailed description following guidelines above>",
             "target_files": ["<file_path>", ...],
-            "operation_type": "<generate|edit|add_feature|fix|refactor>"
+            "operation_type": "<generate|edit|add_feature|fix|refactor>",
             "type": "<step_type>",
             "step_order": <int>,
         }}
     ]
 }}
 
-Step types: research, design, code, component, styling, integration, validation
+Step types: {step_types}
 **REMEMBER**: Steps with the same step_order run in parallel and must not conflict!"""
+
 
 STEP_PROMPT_TEMPLATE = """Step {step_number}: {step_title}
 Description: {step_description}
@@ -1723,8 +1853,27 @@ def apply_design_style_prompt(
     return "\n\n".join(parts)
 
 
-def build_plan_prompt(user_message: str, context: Dict[str, Any]) -> str:
-    """Format the planning prompt with user intent and runtime context."""
+def build_plan_prompt(
+    user_message: str,
+    context: Dict[str, Any],
+    intent_type: Optional["UserIntent"] = None,
+    existing_files: Optional[List[str]] = None,
+) -> str:
+    """Format the planning prompt with user intent and runtime context.
+    
+    Args:
+        user_message: The user's request
+        context: Planning context dictionary
+        intent_type: The classified intent (GENERATE_NEW, ADD_FEATURE, etc.)
+        existing_files: List of existing file paths (for features)
+    
+    Returns:
+        Formatted prompt string using unified template with intent-specific instructions
+    """
+    from vector_app.services.intent_classifier import UserIntent
+    
+    existing_files = existing_files or []
+    
     data_store_summary = context.get("data_store_summary", "")
     connectors_summary = context.get("connectors_summary", "")
     available_resources = context.get("available_resources", ["none"])
@@ -1737,11 +1886,29 @@ def build_plan_prompt(user_message: str, context: Dict[str, Any]) -> str:
     if connectors_summary:
         available_resources = list(available_resources) + [f"Connectors: {connectors_summary}"]
 
+    available_resources_str = ", ".join(available_resources) if available_resources else "none"
+    # Select intent-specific instructions and parameters
+    if intent_type == UserIntent.ADD_FEATURE:
+        # Format existing files for the feature prompt
+        existing_files_str = "\n".join(f"- {f}" for f in existing_files) if existing_files else "None"
+        intent_instructions = FEATURE_INTENT_INSTRUCTIONS.format(existing_files=existing_files_str)
+        step_count_range = "1-3 steps"
+        step_types = "code, component, styling, integration"
+    else:
+        # Default to full app instructions for GENERATE_NEW or None
+        intent_instructions = FULL_APP_INTENT_INSTRUCTIONS
+        step_count_range = "2-5 steps"
+        step_types = "research, design, code, component, styling, integration, validation"
+    
+    # Use unified template with intent-specific instructions inserted
     return PLAN_PROMPT_TEMPLATE.format(
         user_message=user_message,
         app_name=context.get("app_name", "App"),
-        available_resources=", ".join(available_resources) if available_resources else "none",
+        available_resources=available_resources_str,
         has_existing_spec=context.get("has_existing_spec", False),
+        intent_specific_instructions=intent_instructions,
+        step_count_range=step_count_range,
+        step_types=step_types,
     )
 
 

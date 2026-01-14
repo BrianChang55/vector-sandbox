@@ -9,6 +9,8 @@ import json
 import logging
 import re
 import time
+import uuid
+from enum import StrEnum
 from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
 from .base_handler import BaseHandler, AgentEvent, FileChange
@@ -19,7 +21,17 @@ from vector_app.services.diff_application_service import (
     build_diff_prompts,
     DiffApplicationConfig,
 )
-from vector_app.services.planning_service import PlanStepStatus
+from vector_app.services.planning_service import (
+    PlanStep,
+    PlanStepStatus,
+    PlanOperationType,
+    get_planning_service,
+    AgentPlan,
+)
+from vector_app.services.intent_classifier import UserIntent
+from vector_app.services.schema_extraction_service import get_schema_extraction_service
+from vector_app.services.datastore.table_creator import create_tables_from_definitions
+from vector_app.services.datastore import build_data_store_context
 
 if TYPE_CHECKING:
     from vector_app.models import InternalApp, AppVersion
@@ -30,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 
 # Import design style and guards from prompts
-from vector_app.prompts.agentic import DESIGN_STYLE_PROMPT, OVER_EAGERNESS_GUARD
+from vector_app.prompts.agentic import DESIGN_STYLE_PROMPT, OVER_EAGERNESS_GUARD, apply_design_style_prompt
 
 
 FEATURE_SYSTEM_PROMPT = f"""You are an expert React/TypeScript developer adding new features to existing applications.
@@ -93,26 +105,193 @@ Return your analysis as JSON:
 # Handler-specific user message template (diff format instructions added by build_diff_prompts)
 FEATURE_GENERATION_PROMPT = """Add the following feature to the existing application.
 
-## User Request
-{user_message}
+## Step Instructions
+{step_warning}
+{step_description}
 
-## Feature Analysis
-{feature_analysis}
+## Target Files
+{target_files}
 {reusable_components}
 {codebase_style}
 
 ## Instructions
 1. **Check for reusable components first** - extend existing components when possible
 2. Create new components ONLY if no existing component can be reused
-3. Update the main App.tsx to integrate the new feature
-4. Preserve ALL existing functionality
-5. Follow the existing code style exactly
+3. Preserve ALL existing functionality
+4. Follow the existing code style exactly
 
 CRITICAL:
 - Output unified diffs, NOT complete file contents
 - Preserve ALL existing functionality in modified files
 - Match existing code style (naming, patterns, etc.)
-- Do NOT add features that weren't requested"""
+- Do NOT add features that weren't requested
+- ONLY modify files listed in Target Files above"""
+
+
+class DefaultStepType(StrEnum):
+    COMPONENT = "component"
+    INTEGRATION = "integration"
+    CODE = "code"
+    STYLING = "styling"
+    VALIDATION = "validation"
+
+
+# Step-type specific scope restriction warnings
+STEP_TYPE_WARNINGS: Dict[StepType, str] = {
+    StepType.COMPONENT: (
+        "SCOPE RESTRICTION: You are creating/modifying COMPONENTS ONLY.\n"
+        "- DO NOT modify App.tsx or routing\n"
+        "- DO NOT add integration logic\n"
+        "- Focus ONLY on the component files in target_files"
+    ),
+    StepType.INTEGRATION: (
+        "SCOPE RESTRICTION: You are handling INTEGRATION ONLY.\n"
+        "- DO NOT create new component files\n"
+        "- DO NOT refactor existing component internals\n"
+        "- Focus ONLY on wiring up existing components in target_files"
+    ),
+    StepType.CODE: (
+        "SCOPE RESTRICTION: You are writing UTILITY/SERVICE CODE ONLY.\n"
+        "- DO NOT modify UI components\n"
+        "- DO NOT touch App.tsx\n"
+        "- Focus ONLY on the service/utility files in target_files"
+        ),  
+    StepType.STYLING: (
+        "SCOPE RESTRICTION: You are handling STYLING ONLY.\n"
+        "- DO NOT modify component logic\n"
+        "- DO NOT add new functionality\n"
+        "- Focus ONLY on CSS/styling in target_files"
+    ),
+    StepType.VALIDATION: (
+        "SCOPE RESTRICTION: You are VALIDATING existing changes.\n"
+        "- DO NOT add new features\n"
+        "- DO NOT refactor code\n"
+        "- Only fix breaking issues if found"
+    ),
+}
+
+
+# =============================================================================
+# Step Description Templates
+# =============================================================================
+
+COMPONENT_STEP_TEMPLATE = """{warning}
+
+## Feature Context
+Feature: {feature_name}
+User Request: {user_message}
+Reasoning: {reasoning}
+
+## Your Task
+Create the following new component(s):
+{components_list}
+
+Place them in src/components/ directory. Do NOT integrate them into App.tsx yet - that will be done in the next step.
+"""
+
+INTEGRATION_STEP_TEMPLATE = """{warning}
+
+## Feature Context
+Feature: {feature_name}
+User Request: {user_message}
+Integration Point: {integration_point}
+Reasoning: {reasoning}
+
+## Your Task
+{integration_task}
+{components_list}
+
+Modify the following files to complete the integration:
+{files_list}
+
+Ensure the feature is properly wired up and accessible from the UI.
+"""
+
+VALIDATION_STEP_TEMPLATE = """{warning}
+
+## Feature Context
+Feature: {feature_name}
+
+## Your Task
+Validate that the feature implementation is complete and working:
+- Check that all imports are correct
+- Verify TypeScript types are consistent
+- Ensure no existing functionality was broken
+"""
+
+
+def _format_list(items: List[str], prefix: str = "- ") -> str:
+    """Format a list of items as a bulleted string."""
+    if not items:
+        return ""
+    return "\n".join(f"{prefix}{item}" for item in items)
+
+
+def _get_step_warning(step_type: DefaultStepType) -> str:
+    """Get the scope restriction warning for a step type.
+    
+    Args:
+        step_type: The step type as a string (e.g., "component", "integration")
+        
+    Returns:
+        The warning string for the step type, or empty string if unknown
+    """
+    try:
+        return STEP_TYPE_WARNINGS[DefaultStepType(step_type)]
+    except ValueError:
+        return ""
+
+
+def _build_component_step_description(
+    feature_name: str,
+    user_message: str,
+    reasoning: str,
+    new_components: List[str],
+) -> str:
+    """Build the description for a component creation step."""
+    return COMPONENT_STEP_TEMPLATE.format(
+        warning=_get_step_warning(DefaultStepType.COMPONENT),
+        feature_name=feature_name,
+        user_message=user_message,
+        reasoning=reasoning,
+        components_list=_format_list(new_components),
+    )
+
+
+def _build_integration_step_description(
+    feature_name: str,
+    user_message: str,
+    integration_point: str,
+    reasoning: str,
+    new_components: List[str],
+    files_to_modify: List[str],
+) -> str:
+    """Build the description for an integration step."""
+    if new_components:
+        integration_task = "Import and integrate the newly created components:"
+        components_list = _format_list(new_components)
+    else:
+        integration_task = "Implement the feature directly in existing files:"
+        components_list = ""
+    
+    return INTEGRATION_STEP_TEMPLATE.format(
+        warning=_get_step_warning(DefaultStepType.INTEGRATION),
+        feature_name=feature_name,
+        user_message=user_message,
+        integration_point=integration_point,
+        reasoning=reasoning,
+        integration_task=integration_task,
+        components_list=components_list,
+        files_list=_format_list(files_to_modify),
+    )
+
+
+def _build_validation_step_description(feature_name: str) -> str:
+    """Build the description for a validation step."""
+    return VALIDATION_STEP_TEMPLATE.format(
+        warning=_get_step_warning(DefaultStepType.VALIDATION),
+        feature_name=feature_name,
+    )
 
 
 class FeatureHandler(BaseHandler):
@@ -200,46 +379,51 @@ class FeatureHandler(BaseHandler):
             "observation",
         )
 
-        # Analyze how to add the feature
-        feature_analysis = self._analyze_feature(
-            user_message=user_message,
-            app_structure=app_structure,
-            main_app_code=main_app_code,
-            model=model,
-        )
-
-        yield self.emit_thinking(
-            f"Planning to add: {feature_analysis.get('feature_name', 'new feature')}",
-            "decision",
-        )
-
-        # ===== PHASE 2: PLAN =====
+        # ===== PHASE 2: PLAN using Planning Service =====
         yield self.emit_phase_change("planning", "Planning feature implementation...")
+        yield self.emit_thinking("Breaking down the feature into executable steps...", "decision")
 
-        new_components = feature_analysis.get("new_components", [])
-        files_to_modify = feature_analysis.get("files_to_modify", ["src/App.tsx"])
-
-        plan_steps = []
-
-        # Step for each new component
-        if new_components:
-            plan_steps.append(
-                self.create_step(
-                    "component", "Create New Components", f"Create {len(new_components)} new component(s)"
-                )
-            )
-
-        # Step for integration
-        plan_steps.append(
-            self.create_step(
-                "integration", "Integrate Feature", f"Update {len(files_to_modify)} existing file(s)"
-            )
+        # Apply design style to user message
+        styled_user_message = apply_design_style_prompt(
+            user_message,
+            data_store_context,
+            mcp_tools_context,
         )
 
-        # Validation step
-        plan_steps.append(
-            self.create_step("validation", "Validate Changes", "Ensure feature works with existing code")
-        )
+        # Build context for planning
+        plan_context = {
+            "app_name": app_name,
+            "has_existing_spec": current_spec is not None,
+            "available_resources": list(registry_surface.get("resources", [])),
+            "data_store_summary": data_store_context[:500] if data_store_context else "",
+            "connectors_summary": mcp_tools_context[:500] if mcp_tools_context else "",
+        }
+
+        # Get existing file names for the feature planning prompt
+        existing_file_names: List[str] = []
+        if context.existing_files:
+            existing_file_names = [f.path for f in context.existing_files]
+
+        # Generate plan using the planning service with ADD_FEATURE intent
+        plan: Optional[AgentPlan] = None
+        try:
+            planning_service = get_planning_service()
+            plan = planning_service.create_plan(
+                styled_user_message,
+                plan_context,
+                model,
+                intent_type=UserIntent.ADD_FEATURE,
+                existing_files=existing_file_names,
+            )
+            plan_steps = plan.steps
+        except Exception as e:
+            logger.error(f"Planning service failed: {e}, using fallback plan")
+            plan_steps = self._default_feature_planning(
+                user_message=user_message,
+                app_structure=app_structure,
+                main_app_code=main_app_code,
+                model=model,
+            )
 
         yield self.emit_plan_created(
             steps=plan_steps,
@@ -248,8 +432,51 @@ class FeatureHandler(BaseHandler):
             searches=1,
         )
 
+        # ===== SCHEMA EXTRACTION: Create tables from plan if needed =====
+        if app is not None and plan is not None:
+            logger.info("[FeatureHandler] Starting schema extraction from feature plan")
+            schema_extraction_service = get_schema_extraction_service()
+            try:
+                schema_content = schema_extraction_service.extract_schema_from_plan(
+                    plan,
+                    styled_user_message,
+                    model
+                )
+                logger.info(f"[FeatureHandler] Schema extraction complete, content_length={len(schema_content) if schema_content else 0}")
+
+                # Parse and create tables if schema was extracted
+                if schema_content and "NO_TABLES_NEEDED" not in schema_content.upper():
+                    logger.debug("[FeatureHandler] Parsing table definitions from schema")
+
+                    # Extract table definitions from the LLM response
+                    table_definitions = schema_extraction_service.parse_table_definitions(schema_content)
+
+                    if table_definitions:
+                        table_slugs = [t['slug'] for t in table_definitions]
+                        logger.info(f"[FeatureHandler] Creating {len(table_definitions)} tables: {table_slugs}")
+                        # Create tables from the definitions
+                        created_tables = create_tables_from_definitions(app, table_definitions)
+                        logger.info(f"[FeatureHandler] Created {len(created_tables)} tables: {[t.slug for t in created_tables]}")
+
+                        # Refresh data store context after creating tables
+                        data_store_context = build_data_store_context(app)
+                        logger.debug("[FeatureHandler] Refreshed data store context with newly created tables")
+                    else:
+                        logger.debug("[FeatureHandler] No new table definitions found in feature plan")
+                else:
+                    logger.debug("[FeatureHandler] No new database tables needed for this feature")
+            except Exception as e:
+                logger.error(f"[FeatureHandler] Schema extraction failed: {e}", exc_info=True)
+        else:
+            logger.debug("[FeatureHandler] Skipping schema extraction: app or plan not provided")
+
         # ===== PHASE 3: EXECUTE =====
         yield self.emit_phase_change("executing", "Adding new feature...")
+
+        yield self.emit_thinking(
+            f"Executing {len(plan_steps)} plan steps for feature implementation",
+            "decision",
+        )
 
         step_idx = 0
 
@@ -261,11 +488,11 @@ class FeatureHandler(BaseHandler):
             yield self.emit_step_start(step, step_idx)
 
             try:
-                if step.type == "component":
-                    # Generate new components
+                if step.type in (DefaultStepType.COMPONENT, DefaultStepType.CODE):
+                    # Generate new components or code files
                     new_files = yield from self._generate_feature(
                         user_message=user_message,
-                        feature_analysis=feature_analysis,
+                        plan_step=step,
                         existing_code=existing_code,
                         model=model,
                         context=context,
@@ -274,19 +501,31 @@ class FeatureHandler(BaseHandler):
                     )
                     generated_files.extend(new_files)
 
-                elif step.type == "integration":
-                    # If we didn't get files in the component step, generate now
-                    if not generated_files:
-                        new_files = yield from self._generate_feature(
-                            user_message=user_message,
-                            feature_analysis=feature_analysis,
-                            existing_code=existing_code,
-                            model=model,
-                            context=context,
-                            data_store_context=data_store_context,
-                            mcp_tools_context=mcp_tools_context,
-                        )
-                        generated_files.extend(new_files)
+                elif step.type == DefaultStepType.INTEGRATION:
+                    # Generate integration changes
+                    new_files = yield from self._generate_feature(
+                        user_message=user_message,
+                        plan_step=step,
+                        existing_code=existing_code,
+                        model=model,
+                        context=context,
+                        data_store_context=data_store_context,
+                        mcp_tools_context=mcp_tools_context,
+                    )
+                    generated_files.extend(new_files)
+                
+                elif step.type == DefaultStepType.STYLING:
+                    # Generate styling changes
+                    new_files = yield from self._generate_feature(
+                        user_message=user_message,
+                        plan_step=step,
+                        existing_code=existing_code,
+                        model=model,
+                        context=context,
+                        data_store_context=data_store_context,
+                        mcp_tools_context=mcp_tools_context,
+                    )
+                    generated_files.extend(new_files)
                 
                 step.status = PlanStepStatus.COMPLETE
                 step.duration = int((time.time() - step_start) * 1000)
@@ -436,17 +675,126 @@ class FeatureHandler(BaseHandler):
             "reasoning": "Adding feature to main app",
         }
 
+    def _default_feature_planning(
+        self,
+        user_message: str,
+        app_structure: str,
+        main_app_code: str,
+        model: str,
+    ) -> List[PlanStep]:
+        """Create a default feature plan when the planning service fails.
+        
+        Uses feature analysis to generate plan steps with embedded context and warnings.
+        Each step description includes the analysis context and scope restrictions.
+        
+        Args:
+            user_message: The user's feature request
+            app_structure: Description of the app structure
+            main_app_code: Content of the main App.tsx
+            model: LLM model to use for analysis
+            
+        Returns:
+            List of PlanStep objects for the feature
+        """
+        feature_analysis = self._analyze_feature(
+            user_message=user_message,
+            app_structure=app_structure,
+            main_app_code=main_app_code,
+            model=model,
+        )
+        
+        feature_name = feature_analysis.get("feature_name", "New Feature")
+        new_components = feature_analysis.get("new_components", [])
+        files_to_modify = feature_analysis.get("files_to_modify", ["src/App.tsx"])
+        integration_point = feature_analysis.get("integration_point", "Main app component")
+        reasoning = feature_analysis.get("reasoning", "Adding feature to main app")
+        
+        # Build component file paths
+        component_files = [f"src/components/{comp}.tsx" for comp in new_components]
+        
+        plan_steps: List[PlanStep] = []
+        step_order = 0
+        
+        # Component creation step (if new components needed)
+        if new_components:
+            plan_steps.append(
+                PlanStep(
+                    id=str(uuid.uuid4()),
+                    type="component",
+                    title="Create New Components",
+                    description=_build_component_step_description(
+                        feature_name=feature_name,
+                        user_message=user_message,
+                        reasoning=reasoning,
+                        new_components=new_components,
+                    ),
+                    step_order=step_order,
+                    target_files=component_files,
+                    operation_type=PlanOperationType.GENERATE,
+                )
+            )
+            step_order += 1
+        
+        # Integration step
+        plan_steps.append(
+            PlanStep(
+                id=str(uuid.uuid4()),
+                type="integration",
+                title="Integrate Feature",
+                description=_build_integration_step_description(
+                    feature_name=feature_name,
+                    user_message=user_message,
+                    integration_point=integration_point,
+                    reasoning=reasoning,
+                    new_components=new_components,
+                    files_to_modify=files_to_modify,
+                ),
+                step_order=step_order,
+                target_files=files_to_modify,
+                operation_type=PlanOperationType.EDIT,
+            )
+        )
+        step_order += 1
+        
+        # Validation step
+        plan_steps.append(
+            PlanStep(
+                id=str(uuid.uuid4()),
+                type=StepType.VALIDATION,
+                title="Validate Changes",
+                description=_build_validation_step_description(feature_name),
+                step_order=step_order,
+                target_files=component_files + files_to_modify,
+                operation_type=PlanOperationType.FIX,
+            )
+        )
+        
+        return plan_steps
+
     def _generate_feature(
         self,
         user_message: str,
-        feature_analysis: Dict[str, Any],
+        plan_step: PlanStep,
         existing_code: Dict[str, str],
         model: str,
         context: Optional["AppContext"] = None,
         data_store_context: Optional[str] = None,
         mcp_tools_context: Optional[str] = None,
     ) -> Generator[AgentEvent, None, List[FileChange]]:
-        """Generate the new feature code."""
+        """Generate the new feature code for a specific plan step.
+        
+        Args:
+            user_message: The original user request
+            plan_step: The current plan step with description and target_files
+            existing_code: Dict of file paths to their current content
+            model: LLM model to use
+            context: Optional app context for reusable components
+            data_store_context: Optional data store context
+            mcp_tools_context: Optional MCP tools context
+            
+        Returns:
+            List of FileChange objects with generated/modified code
+        """
         # Convert Dict[str, str] to List[FileChange]
         file_changes = []
         for path, content in existing_code.items():
@@ -460,7 +808,11 @@ class FeatureHandler(BaseHandler):
                 previous_content=content,
             ))
 
-        feature_analysis_str = json.dumps(feature_analysis, indent=2)
+        # Get step-type warning (default to empty if unknown type)
+        step_warning = _get_step_warning(plan_step.type)
+        
+        # Format target files list
+        target_files_str = _format_list(plan_step.target_files) if plan_step.target_files else "- (determined by step description)"
 
         # Build reusable components section
         reusable_components = ""
@@ -479,8 +831,9 @@ class FeatureHandler(BaseHandler):
 
         # Build user message using handler-specific template
         user_message_with_feature = FEATURE_GENERATION_PROMPT.format(
-            user_message=user_message,
-            feature_analysis=feature_analysis_str,
+            step_warning=step_warning,
+            step_description=plan_step.description,
+            target_files=target_files_str,
             reusable_components=reusable_components,
             codebase_style=codebase_style,
         )

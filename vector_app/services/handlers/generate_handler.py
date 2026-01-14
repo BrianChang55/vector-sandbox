@@ -35,6 +35,7 @@ from vector_app.services.typescript_types_generator import generate_typescript_t
 from vector_app.services.app_data_service import AppDataService
 from vector_app.services.error_fix_service import get_error_fix_service
 from vector_app.services.planning_service import PlanStep, PlanStepStatus, PlanOperationType, get_planning_service, AgentPlan
+from vector_app.services.intent_classifier import UserIntent
 from vector_app.services.types import CompilationError
 from vector_app.services.validation_service import get_validation_service
 from vector_app.prompts.agentic import build_file_prompt
@@ -163,7 +164,12 @@ class GenerateHandler(BaseHandler):
         # Generate plan using the planning service
         try:
             planning_service = get_planning_service()
-            plan: AgentPlan = planning_service.create_plan(styled_user_message, plan_context, model)
+            plan: AgentPlan = planning_service.create_plan(
+                styled_user_message,
+                plan_context,
+                model,
+                intent_type=UserIntent.GENERATE_NEW,
+            )
             plan_steps = plan.steps
         except Exception as e:
             logger.error(f"Planning service failed: {e}, using default plan")
