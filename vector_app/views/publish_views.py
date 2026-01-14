@@ -9,7 +9,7 @@ from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
 from django.db import transaction
 
-from ..models import InternalApp, AppVersion, ResourceRegistryEntry, Organization
+from ..models import InternalApp, AppVersion, Organization
 from ..services.version_service import VersionService
 from ..serializers import InternalAppSerializer, AppVersionSerializer
 from ..permissions import require_admin
@@ -59,20 +59,8 @@ def publish_app(request, pk=None):
             f"Consider waiting for validation to complete."
         )
     
-    # Create scope snapshot (registry state)
-    registry_entries = ResourceRegistryEntry.objects.filter(
-        backend_connection=app.backend_connection,
-        enabled=True
-    )
-    
+    # No external resource registry in the current backend
     scope_snapshot = []
-    for entry in registry_entries:
-        scope_snapshot.append({
-            'resource_id': entry.resource_id,
-            'resource_name': entry.resource_name,
-            'exposed_fields': entry.exposed_fields_json,
-            'allowed_actions': entry.allowed_actions_json,
-        })
     
     # Get next version number using version service
     next_version_number = VersionService.get_next_version_number(app)

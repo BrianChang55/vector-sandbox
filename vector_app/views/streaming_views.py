@@ -249,7 +249,6 @@ class StreamingGenerateView(View):
         try:
             app = InternalApp.objects.select_related(
                 'organization',
-                'backend_connection'
             ).get(pk=app_id)
         except InternalApp.DoesNotExist:
             return JsonResponse({"error": "App not found"}, status=404)
@@ -362,28 +361,8 @@ class StreamingGenerateView(View):
         if latest_stable_version:
             current_spec = latest_stable_version.spec_json
         
-        # Build registry surface
-        from ..models import ResourceRegistryEntry
-        registry_entries = []
-        if app.backend_connection:
-            registry_entries = ResourceRegistryEntry.objects.filter(
-                backend_connection=app.backend_connection,
-                enabled=True
-            )
-        
-        registry_surface = {
-            "resources": [
-                {
-                    "resource_id": entry.resource_id,
-                    "resource_name": entry.resource_name,
-                    "exposed_fields": entry.exposed_fields_json or [],
-                    "allowed_actions": [
-                        a.get("action_id") for a in (entry.allowed_actions_json or [])
-                    ],
-                }
-                for entry in registry_entries
-            ]
-        }
+        # No external resource registry in the current backend
+        registry_surface = {"resources": []}
         
         # Get chat history
         chat_history = [
@@ -554,7 +533,6 @@ class NonStreamingGenerateView(APIView):
         try:
             app = InternalApp.objects.select_related(
                 'organization',
-                'backend_connection'
             ).get(pk=app_id)
             
             # Verify user is editor or above
@@ -614,25 +592,8 @@ class NonStreamingGenerateView(APIView):
             if latest_version:
                 current_spec = latest_version.spec_json
             
-            # Build registry surface
-            from ..models import ResourceRegistryEntry
-            registry_entries = []
-            if app.backend_connection:
-                registry_entries = ResourceRegistryEntry.objects.filter(
-                    backend_connection=app.backend_connection,
-                    enabled=True
-                )
-            
-            registry_surface = {
-                "resources": [
-                    {
-                        "resource_id": entry.resource_id,
-                        "resource_name": entry.resource_name,
-                        "exposed_fields": entry.exposed_fields_json or [],
-                    }
-                    for entry in registry_entries
-                ]
-            }
+            # No external resource registry in the current backend
+            registry_surface = {"resources": []}
             
             # Generate spec
             service = get_openrouter_service()
@@ -754,7 +715,6 @@ class AgenticGenerateView(View):
         try:
             app = InternalApp.objects.select_related(
                 'organization',
-                'backend_connection'
             ).get(pk=app_id)
         except InternalApp.DoesNotExist:
             return JsonResponse({"error": "App not found"}, status=404)
@@ -819,7 +779,6 @@ class AgenticGenerateView(View):
         try:
             app = InternalApp.objects.select_related(
                 'organization',
-                'backend_connection'
             ).get(pk=app_id)
         except InternalApp.DoesNotExist:
             return JsonResponse({"error": "App not found"}, status=404)

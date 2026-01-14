@@ -28,7 +28,7 @@ def run_agentic_generation(self, job_id: str):
     """
     from vector_app.models import (
         CodeGenerationJob, ChatSession, ChatMessage, AppVersion,
-        VersionFile, VersionAuditLog, ResourceRegistryEntry,
+        VersionFile, VersionAuditLog,
     )
     from vector_app.services.agentic_service import get_agentic_service
     from vector_app.services.version_service import VersionService
@@ -37,7 +37,6 @@ def run_agentic_generation(self, job_id: str):
     try:
         job = CodeGenerationJob.objects.select_related(
             'internal_app',
-            'internal_app__backend_connection',
             'session',
             'created_by',
         ).get(pk=job_id)
@@ -106,27 +105,8 @@ def run_agentic_generation(self, job_id: str):
     if latest_stable_version:
         current_spec = latest_stable_version.spec_json
     
-    # Build registry surface
-    registry_entries = []
-    if app.backend_connection:
-        registry_entries = ResourceRegistryEntry.objects.filter(
-            backend_connection=app.backend_connection,
-            enabled=True
-        )
-    
-    registry_surface = {
-        "resources": [
-            {
-                "resource_id": entry.resource_id,
-                "resource_name": entry.resource_name,
-                "exposed_fields": entry.exposed_fields_json or [],
-                "allowed_actions": [
-                    a.get("action_id") for a in (entry.allowed_actions_json or [])
-                ],
-            }
-            for entry in registry_entries
-        ]
-    }
+    # No external resource registry in the current backend
+    registry_surface = {"resources": []}
     
     # Create draft version
     start_time = time.time()

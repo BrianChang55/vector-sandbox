@@ -112,23 +112,8 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
         latest_stable_version = VersionService.get_latest_stable_version(app)
         current_spec = latest_stable_version.spec_json if latest_stable_version else None
         
-        # Build registry surface for AI
-        from ..models import ResourceRegistryEntry
-        registry_entries = ResourceRegistryEntry.objects.filter(
-            backend_connection=app.backend_connection,
-            enabled=True
-        )
-        registry_surface = {
-            'resources': [
-                {
-                    'resource_id': entry.resource_id,
-                    'resource_name': entry.resource_name,
-                    'exposed_fields': entry.exposed_fields_json or [],
-                    'allowed_actions': [a.get('action_id') for a in (entry.allowed_actions_json or [])],
-                }
-                for entry in registry_entries
-            ]
-        }
+        # No external resource registry in the current backend
+        registry_surface = {'resources': []}
         
         # Generate AppSpec using AI
         try:

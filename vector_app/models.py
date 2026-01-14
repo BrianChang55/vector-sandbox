@@ -12,7 +12,7 @@ from django.db import models
 from django.core.exceptions import ValidationError
 from vector_app.action_classification.types import ActionType
 from internal_apps.utils.base_model import BaseModel
-from .utils.encryption import encrypt_json, decrypt_json, encrypt_string, decrypt_string
+from .utils.encryption import encrypt_string, decrypt_string
 from internal_apps.utils.enum import choices
 
 # ============================================================================
@@ -381,72 +381,6 @@ class OrganizationInvite(BaseModel):
 
 
 # ============================================================================
-# Backend Connection Models
-# ============================================================================
-
-
-class BackendConnection(BaseModel):
-    """
-    Represents a connected backend configured for an organization.
-    Stores encrypted configuration (service role keys, etc.).
-    """
-
-    ADAPTER_SUPABASE = "supabase"
-    ADAPTER_POSTGRESQL = "postgresql"
-    ADAPTER_MYSQL = "mysql"
-
-    ADAPTER_CHOICES = [
-        (ADAPTER_SUPABASE, "Supabase"),
-        (ADAPTER_POSTGRESQL, "PostgreSQL"),
-        (ADAPTER_MYSQL, "MySQL"),
-    ]
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    organization = models.ForeignKey(
-        Organization, on_delete=models.CASCADE, related_name="backend_connections"
-    )
-    adapter_type = models.CharField(max_length=50, choices=ADAPTER_CHOICES, default=ADAPTER_SUPABASE)
-    display_name = models.CharField(max_length=255)
-    config_encrypted = models.TextField(help_text="Encrypted JSON configuration")
-
-    def set_config(self, config: dict):
-        """Set encrypted configuration."""
-        self.config_encrypted = encrypt_json(config)
-
-    def get_config(self) -> dict:
-        """Get decrypted configuration."""
-        if not self.config_encrypted:
-            return {}
-        return decrypt_json(self.config_encrypted)
-
-
-class ProjectUserBackendAuth(BaseModel):
-    """
-    Stores user-specific JWT tokens for backend connections (encrypted).
-    """
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="backend_auths")
-    backend_connection = models.ForeignKey(
-        BackendConnection, on_delete=models.CASCADE, related_name="user_auths"
-    )
-    user_jwt_encrypted = models.TextField(help_text="Encrypted user JWT")
-
-    class Meta:
-        unique_together = ["user", "backend_connection"]
-
-    def set_jwt(self, jwt: str):
-        """Set encrypted JWT."""
-        self.user_jwt_encrypted = encrypt_string(jwt)
-
-    def get_jwt(self) -> str:
-        """Get decrypted JWT."""
-        if not self.user_jwt_encrypted:
-            return ""
-        return decrypt_string(self.user_jwt_encrypted)
-
-
-# ============================================================================
 # Internal App Models
 # ============================================================================
 
@@ -475,14 +409,6 @@ class InternalApp(BaseModel):
     )
     description = models.TextField(blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_DRAFT)
-    backend_connection = models.ForeignKey(
-        BackendConnection,
-        on_delete=models.PROTECT,
-        related_name="internal_apps",
-        null=True,
-        blank=True,
-        help_text="Optional backend connection for data access",
-    )
     published_version = models.ForeignKey(
         "AppVersion",
         on_delete=models.SET_NULL,
@@ -547,37 +473,6 @@ class AppFavorite(BaseModel):
 
     def __str__(self):
         return f"{self.user.email} - {self.app.name}"
-
-
-class ResourceRegistryEntry(BaseModel):
-    """
-    Registry entry for a resource available from a backend connection.
-    Used for safety gates and validation.
-    """
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    organization = models.ForeignKey(
-        Organization, on_delete=models.CASCADE, related_name="resource_registry_entries"
-    )
-    backend_connection = models.ForeignKey(
-        BackendConnection, on_delete=models.CASCADE, related_name="resource_registry_entries"
-    )
-    resource_id = models.CharField(max_length=255)
-    resource_name = models.CharField(max_length=255)
-    schema_json = models.JSONField(help_text="JSON schema for this resource")
-    enabled = models.BooleanField(default=True)
-    exposed_fields_json = models.JSONField(default=list, help_text="List of field names that are exposed")
-    ui_constraints_json = models.JSONField(default=dict, help_text="UI constraints (read_only, etc.)")
-    allowed_actions_json = models.JSONField(default=list, help_text="List of allowed ActionDef JSON objects")
-
-    class Meta:
-        unique_together = ["backend_connection", "resource_id"]
-        indexes = [
-            models.Index(fields=["backend_connection", "resource_id"]),
-        ]
-
-    def __str__(self):
-        return f"{self.resource_id} ({self.backend_connection.display_name})"
 
 
 class AppVersion(BaseModel):
@@ -728,55 +623,6 @@ class VersionFile(BaseModel):
 
     def __str__(self):
         return f"{self.app_version} - {self.path}"
-
-
-class ActionExecutionLog(BaseModel):
-    """
-    Log of action executions for audit and debugging.
-    """
-
-    STATUS_SUCCESS = "success"
-    STATUS_ERROR = "error"
-
-    STATUS_CHOICES = [
-        (STATUS_SUCCESS, "Success"),
-        (STATUS_ERROR, "Error"),
-    ]
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    internal_app = models.ForeignKey(
-        InternalApp,
-        on_delete=models.CASCADE,
-        related_name="action_logs",
-        null=True,
-        blank=True,
-    )
-    app_version = models.ForeignKey(
-        AppVersion, on_delete=models.SET_NULL, null=True, blank=True, related_name="action_logs"
-    )
-    backend_connection = models.ForeignKey(
-        BackendConnection, on_delete=models.SET_NULL, null=True, blank=True, related_name="action_logs"
-    )
-    user = models.ForeignKey(
-        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="action_logs"
-    )
-    action_id = models.CharField(max_length=255)
-    resource_id = models.CharField(max_length=255, default="", blank=True)
-    args_json = models.JSONField(default=dict, help_text="Input arguments payload")
-    result_json = models.JSONField(null=True, blank=True, help_text="Adapter execution result")
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_SUCCESS)
-    error_message = models.TextField(null=True, blank=True)
-
-    class Meta:
-        ordering = ["-created_at"]
-        indexes = [
-            models.Index(fields=["internal_app", "-created_at"]),
-            models.Index(fields=["app_version", "-created_at"]),
-            models.Index(fields=["backend_connection", "-created_at"]),
-        ]
-
-    def __str__(self):
-        return f"{self.action_id} - {self.status}"
 
 
 # ============================================================================
@@ -1566,11 +1412,6 @@ class VersionStateSnapshot(BaseModel):
         default=list, help_text="Array of {id, slug, name, description, schema, row_count} for all tables"
     )
 
-    # Resource registry state at this version
-    resources_json = models.JSONField(
-        default=list, help_text="Array of resource registry entries exposed to this app"
-    )
-
     # Metadata
     total_tables = models.IntegerField(default=0, help_text="Number of data tables at this version")
     total_rows = models.IntegerField(default=0, help_text="Total row count across all tables at this version")
@@ -1591,10 +1432,9 @@ class VersionStateSnapshot(BaseModel):
 
         Captures:
         - All data table schemas
-        - Resource registry entries
         - File counts and metadata
         """
-        from .models import AppDataTable, ResourceRegistryEntry
+        from .models import AppDataTable
 
         app = app_version.internal_app
 
@@ -1616,30 +1456,12 @@ class VersionStateSnapshot(BaseModel):
             )
             total_rows += table.row_count
 
-        # Capture resource registry entries
-        resources_data = []
-        if app.backend_connection:
-            resources = ResourceRegistryEntry.objects.filter(
-                backend_connection=app.backend_connection, enabled=True
-            )
-            for resource in resources:
-                resources_data.append(
-                    {
-                        "id": str(resource.id),
-                        "resource_id": resource.resource_id,
-                        "resource_name": resource.resource_name,
-                        "exposed_fields": resource.exposed_fields_json or [],
-                        "allowed_actions": resource.allowed_actions_json or [],
-                    }
-                )
-
         # Get file count
         file_count = app_version.files.count()
 
         return cls.objects.create(
             app_version=app_version,
             tables_json=tables_data,
-            resources_json=resources_data,
             total_tables=len(tables_data),
             total_rows=total_rows,
             file_count=file_count,
@@ -1657,12 +1479,11 @@ class VersionStateSnapshot(BaseModel):
         Compare this snapshot to another snapshot.
 
         Returns:
-            Dict with 'tables', 'resources', 'files' changes
+            Dict with 'tables' and 'files' changes
         """
         if not other:
             return {
                 "tables": {"added": self.tables_json, "removed": [], "modified": []},
-                "resources": {"added": self.resources_json, "removed": [], "modified": []},
                 "files": {"from_count": 0, "to_count": self.file_count},
             }
 
@@ -1685,34 +1506,11 @@ class VersionStateSnapshot(BaseModel):
                         }
                     )
 
-        # Compare resources
-        self_resources = {r["resource_id"]: r for r in self.resources_json}
-        other_resources = {r["resource_id"]: r for r in other.resources_json}
-
-        resources_added = [r for rid, r in self_resources.items() if rid not in other_resources]
-        resources_removed = [r for rid, r in other_resources.items() if rid not in self_resources]
-        resources_modified = []
-
-        for rid in self_resources:
-            if rid in other_resources and self_resources[rid] != other_resources[rid]:
-                resources_modified.append(
-                    {
-                        "resource_id": rid,
-                        "from": other_resources[rid],
-                        "to": self_resources[rid],
-                    }
-                )
-
         return {
             "tables": {
                 "added": tables_added,
                 "removed": tables_removed,
                 "modified": tables_modified,
-            },
-            "resources": {
-                "added": resources_added,
-                "removed": resources_removed,
-                "modified": resources_modified,
             },
             "files": {
                 "from_count": other.file_count,
@@ -2123,7 +1921,7 @@ class ConnectorToolAction(BaseModel):
 class ConnectorExecutionLog(BaseModel):
     """
     Log of connector tool executions for audit and debugging.
-    Extends the pattern from ActionExecutionLog for connector operations.
+    Uses the same audit-log pattern for connector operations.
     """
 
     STATUS_SUCCESS = "success"

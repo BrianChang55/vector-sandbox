@@ -6,12 +6,8 @@ from rest_framework.routers import DefaultRouter
 
 from .views import (
     organization_views,
-    backend_connection_views,
-    resource_registry_views,
     internal_app_views,
     version_views,
-    runtime_views,
-    action_views,
     publish_views,
     auth_views,
     streaming_views,
@@ -27,16 +23,6 @@ router = DefaultRouter()
 router.register(r'orgs', organization_views.OrganizationViewSet, basename='organization')
 # NOTE: Members endpoint is now handled by member_views.OrgMembersListView
 # (removed old UserOrganizationViewSet registration to avoid conflict)
-router.register(
-    r'orgs/(?P<organization_pk>[^/.]+)/backends',
-    backend_connection_views.BackendConnectionViewSet,
-    basename='backend-connection'
-)
-router.register(
-    r'backends/(?P<backend_connection_pk>[^/.]+)/resources',
-    resource_registry_views.ResourceRegistryEntryViewSet,
-    basename='resource-registry'
-)
 router.register(
     r'orgs/(?P<organization_pk>[^/.]+)/apps',
     internal_app_views.InternalAppViewSet,
@@ -120,22 +106,13 @@ urlpatterns = [
     ),
     
     # Custom action endpoints
-    path('backends/<uuid:pk>/discover/', resource_registry_views.discover_resources, name='backend-discover'),
-    path('backends/<uuid:pk>/test/', backend_connection_views.BackendConnectionViewSet.as_view({'post': 'test'}), name='backend-test'),
-    path('backends/<uuid:pk>/user-auth/', backend_connection_views.BackendConnectionViewSet.as_view({'post': 'user_auth'}), name='backend-user-auth'),
     path('orgs/<uuid:pk>/switch/', organization_views.OrganizationViewSet.as_view({'post': 'switch'}), name='org-switch'),
     path('apps/<uuid:pk>/publish/', publish_views.publish_app, name='app-publish'),
     
     # Published app endpoint (fetch by org/app slug)
     path('published/<slug:org_slug>/<slug:app_slug>/', publish_views.get_published_app, name='published-app'),
     
-    # Action allowlist
-    path('actions/allowlist/', action_views.ActionAllowlistView.as_view(), name='action-allowlist'),
-    path('actions/<str:action_id>/', action_views.ActionAllowlistView.as_view(), name='action-delete'),
-    
     # Runtime proxy
-    path('runtime/query/', runtime_views.RuntimeQueryView.as_view(), name='runtime-query'),
-    path('runtime/action/', runtime_views.RuntimeActionView.as_view(), name='runtime-action'),
     path('runtime/data/', data_runtime_views.RuntimeDataProxyView.as_view(), name='runtime-data'),
     
     # Direct access endpoints (without org prefix)
@@ -153,7 +130,6 @@ urlpatterns = [
     path('versions/<uuid:pk>/save-files/', version_views.AppVersionViewSet.as_view({'post': 'save_files'}), name='version-save-files'),
     path('versions/<uuid:version_id>/cancel/', streaming_views.CancelGenerationView.as_view(), name='version-cancel'),
     path('versions/<uuid:version_id>/fix-errors/', streaming_views.FixErrorsView.as_view(), name='version-fix-errors'),
-    path('resources/<uuid:pk>/', resource_registry_views.ResourceRegistryEntryViewSet.as_view({'get': 'retrieve', 'patch': 'partial_update'}), name='resource-detail'),
     
     # AI/Code Generation endpoints
     path('models/', streaming_views.AvailableModelsView.as_view(), name='available-models'),
