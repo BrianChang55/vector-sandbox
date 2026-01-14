@@ -39,6 +39,8 @@ from vector_app.services.planning_service import PlanStep, PlanStepStatus, PlanO
 from vector_app.services.types import CompilationError
 from vector_app.services.validation_service import get_validation_service
 from vector_app.prompts.agentic import build_file_prompt
+from vector_app.services.schema_extraction_service import get_schema_extraction_service
+from vector_app.services.datastore.table_creator import create_tables_from_definitions
 
 if TYPE_CHECKING:
     from vector_app.models import InternalApp, AppVersion
@@ -174,7 +176,46 @@ class GenerateHandler(BaseHandler):
             explored_files=len(registry_surface.get("resources", [])) + 5,
             searches=1,
         )
-        
+
+        # ===== SCHEMA EXTRACTION: Create tables from plan =====
+        if app is not None:
+            logger.info("🔍 Starting schema extraction from plan...")
+            schema_extraction_service = get_schema_extraction_service()
+            try:
+                schema_content = schema_extraction_service.extract_schema_from_plan(
+                    plan,
+                    styled_user_message,
+                    model
+                )
+                logger.info(f"📋 Schema extraction complete. Content length: {len(schema_content) if schema_content else 0} chars")
+
+                # Parse and create tables if schema was extracted
+                if schema_content and "NO_TABLES_NEEDED" not in schema_content.upper():
+                    logger.info("📊 Parsing table definitions from schema...")
+
+                    # Extract table definitions from the LLM response
+                    table_definitions = schema_extraction_service.parse_table_definitions(schema_content)
+
+                    if table_definitions:
+                        logger.info(f"🏗️  Creating {len(table_definitions)} tables: {[t['slug'] for t in table_definitions]}")
+                        # Create tables from the definitions
+                        created_tables = create_tables_from_definitions(app, table_definitions)
+                        logger.info(f"✅ Created {len(created_tables)} tables from plan: {[t.slug for t in created_tables]}")
+
+                        # Refresh data store context after creating tables
+                        data_store_context = build_data_store_context(app)
+                        logger.info("🔄 Refreshed data store context with newly created tables")
+                    else:
+                        logger.warning("⚠️  No valid table definitions found after parsing")
+                else:
+                    logger.info("ℹ️  No database tables needed for this plan")
+            except Exception as e:
+                logger.error(f"❌ Schema extraction failed: {e}")
+                import traceback
+                traceback.print_exc()
+        else:
+            logger.info("ℹ️  Skipping schema extraction: no app provided")
+
         # ===== PHASE 2: EXECUTE (Two-Phase) =====
         yield self.emit_phase_change("executing", "Building your app...")
 

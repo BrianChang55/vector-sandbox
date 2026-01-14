@@ -25,19 +25,19 @@ def test_simple_plan_generation():
         "choices": [{
             "message": {
                 "content": json.dumps({
-                    "reasoning": "Building a todo app with tasks and categories.",
+                    "reasoning": "Building a todo app with task management UI.",
                     "steps": [
                         {
-                            "type": "data",
+                            "type": "component",
                             "step_order": 0,
-                            "title": "Create Data Tables",
-                            "description": "Create table schemas for: tasks (title, completed, due_date), categories (name, color)"
+                            "title": "Build Task List Component",
+                            "description": "Create src/components/TaskList.tsx: Displays list of tasks with checkboxes for completion."
                         },
                         {
-                            "type": "component",
+                            "type": "integration",
                             "step_order": 1,
-                            "title": "Build Task List Component",
-                            "description": "Create src/components/TaskList.tsx: Fetches tasks from 'tasks' table. Displays list with checkboxes."
+                            "title": "Hook Up App",
+                            "description": "Modify src/App.tsx: Import TaskList and render it with state management."
                         }
                     ]
                 })
@@ -67,29 +67,29 @@ def test_simple_plan_generation():
     assert isinstance(plan, AgentPlan), "Plan should be an AgentPlan instance"
     assert plan.goal == "Create a todo app", f"Plan goal should match: {plan.goal}"
     assert len(plan.steps) == 2, f"Plan should have 2 steps, got {len(plan.steps)}"
-    assert plan.steps[0].type == "data", f"First step should be 'data', got {plan.steps[0].type}"
-    assert plan.steps[1].type == "component", f"Second step should be 'component', got {plan.steps[1].type}"
-    assert plan.reasoning == "Building a todo app with tasks and categories.", f"Reasoning should match: {plan.reasoning}"
+    assert plan.steps[0].type == "component", f"First step should be 'component', got {plan.steps[0].type}"
+    assert plan.steps[1].type == "integration", f"Second step should be 'integration', got {plan.steps[1].type}"
+    assert plan.reasoning == "Building a todo app with task management UI.", f"Reasoning should match: {plan.reasoning}"
 
 
-def test_plan_with_data_tables():
+def test_plan_with_multiple_components():
     """
-    Test: Plan with Data Tables
+    Test: Plan with Multiple Components
     
-    A plan that includes data/table creation step should properly
-    parse the data step with step_order=0.
+    A plan that includes multiple component steps should properly
+    parse all components with their step orders.
     """
     mock_response_data = {
         "choices": [{
             "message": {
                 "content": json.dumps({
-                    "reasoning": "Creating a project management app requires multiple tables.",
+                    "reasoning": "Creating a project management app requires multiple UI components.",
                     "steps": [
                         {
-                            "type": "data",
+                            "type": "component",
                             "step_order": 0,
-                            "title": "Create Database Tables",
-                            "description": "Create table schemas for: projects (name, description, status), tasks (title, project_id FK, assignee_id, due_date), team_members (name, email, role)"
+                            "title": "Create Project Components",
+                            "description": "Create src/components/ProjectList.tsx and src/components/ProjectCard.tsx for displaying projects."
                         }
                     ]
                 })
@@ -116,9 +116,8 @@ def test_plan_with_data_tables():
     
     assert plan is not None, "Plan should not be None"
     assert len(plan.steps) == 1, f"Plan should have 1 step, got {len(plan.steps)}"
-    assert plan.steps[0].type == "data", f"Step type should be 'data', got {plan.steps[0].type}"
-    assert "projects" in plan.steps[0].description.lower(), "Description should mention projects table"
-    assert "tasks" in plan.steps[0].description.lower(), "Description should mention tasks table"
+    assert plan.steps[0].type == "component", f"Step type should be 'component', got {plan.steps[0].type}"
+    assert "project" in plan.steps[0].description.lower(), "Description should mention project components"
 
 
 def test_plan_with_existing_spec():
@@ -337,22 +336,22 @@ def test_plan_step_order_assignment():
                     "reasoning": "Multi-step plan with ordering",
                     "steps": [
                         {
-                            "type": "data",
+                            "type": "component",
                             "step_order": 0,
                             "title": "Step 0",
-                            "description": "First step"
+                            "description": "First step - create components"
                         },
                         {
-                            "type": "component",
+                            "type": "integration",
                             "step_order": 1,
                             "title": "Step 1",
-                            "description": "Second step"
+                            "description": "Second step - hook up app"
                         },
                         {
                             "type": "styling",
                             "step_order": 2,
                             "title": "Step 2",
-                            "description": "Third step"
+                            "description": "Third step - apply styles"
                         }
                     ]
                 })
@@ -379,8 +378,8 @@ def test_plan_step_order_assignment():
     
     assert plan is not None, "Plan should not be None"
     assert len(plan.steps) == 3, f"Plan should have 3 steps, got {len(plan.steps)}"
-    assert plan.steps[0].type == "data", "First step should be data"
-    assert plan.steps[1].type == "component", "Second step should be component"
+    assert plan.steps[0].type == "component", "First step should be component"
+    assert plan.steps[1].type == "integration", "Second step should be integration"
     assert plan.steps[2].type == "styling", "Third step should be styling"
 
 
@@ -548,8 +547,8 @@ if __name__ == '__main__':
     test_simple_plan_generation()
     print("✓ test_simple_plan_generation")
     
-    test_plan_with_data_tables()
-    print("✓ test_plan_with_data_tables")
+    test_plan_with_multiple_components()
+    print("✓ test_plan_with_multiple_components")
     
     test_plan_with_existing_spec()
     print("✓ test_plan_with_existing_spec")

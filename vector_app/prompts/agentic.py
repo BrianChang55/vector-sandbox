@@ -191,15 +191,16 @@ const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
 When defining a type/interface and using it elsewhere, properties MUST match exactly:
 ```typescript
 // ✅ CORRECT - Type definition matches usage
-// In types/item.ts:
-interface Item { id: string; name: string; price: number; }
+// In types/product.ts:
+interface Product { id: string; title: string; price: number; inStock: boolean; }
 
-// In components/ItemList.tsx:
-const items: Item[] = [...];
-items.map(item => <div key={item.id}>{item.name}: ${item.price}</div>)
+// In components/ProductList.tsx:
+const products: Product[] = [...];
+products.map(product => <div key={product.id}>{product.title}: ${product.price}</div>)
 
 // ❌ WRONG - Using properties not in the type definition
-items.map(item => <div>{item.quantity}</div>) // ERROR: 'quantity' doesn't exist on Item
+products.map(product => <div>{product.name}</div>) // ERROR: 'name' doesn't exist on Product (use 'title')
+products.map(product => <div>{product.quantity}</div>) // ERROR: 'quantity' doesn't exist on Product
 ```
 
 If you need additional properties, ADD THEM to the type definition first, then use them.
@@ -865,17 +866,17 @@ You have access to a component library in `/components/ui/`. ALWAYS prefer using
 import { Button, Card, Badge, PageHeader, EmptyState, StatCard, cn } from './components/ui';
 import { useDataQuery, useMutation } from './hooks';
 
-// Fetch data
-const { data: customers, loading, refetch } = useDataQuery('customers', {
-  filters: [{ field: 'status', op: 'eq', value: 'active' }],
+// Fetch data - Example: orders table
+const { data: orders, loading, refetch } = useDataQuery('orders', {
+  filters: [{ field: 'status', op: 'eq', value: 'pending' }],
   orderBy: [{ field: 'created_at', dir: 'desc' }],
   limit: 50,
 });
 
-// Mutations
-const { insert, update, remove, loading: saving } = useMutation('customers');
-await insert({ name: 'John Doe', email: 'john@example.com' });
-await update(rowId, { status: 'inactive' });
+// Mutations - Example: orders table
+const { insert, update, remove, loading: saving } = useMutation('orders');
+await insert({ total: 99.99, customer_email: 'john@example.com', status: 'pending' });
+await update(rowId, { status: 'shipped' });
 await remove(rowId);
 
 // UI Components
@@ -897,6 +898,7 @@ Has Existing Spec: {has_existing_spec}
 
 🚨 **CRITICAL PLANNING RULES:**
 
+
 ## 1. App.tsx Requirement (MANDATORY!)
 
 🚨 **EVERY PLAN MUST INCLUDE src/App.tsx IN target_files** 🚨
@@ -911,17 +913,10 @@ Examples:
 - ✅ GOOD: Step with target_files: ["src/App.tsx"] and description explaining how it imports components
 - ❌ BAD: No step mentions src/App.tsx - PLAN WILL BE REJECTED
 
-## 2. Data Storage Rule
 
-### For NEW apps (no existing tables):
-If the app needs to store/manage ANY data, you MUST:
-- **First Step MUST be type="data" with step_order=0**: Define ALL table schemas needed for the ENTIRE application
-- Think through EVERY entity that needs to be stored upfront
-- **YOU CANNOT CREATE TABLES LATER** - all tables must be defined in this first step!
-
-## 3. Parallel Execution with step_order
+## 2. Parallel Execution with step_order
 Each step has a `step_order` (integer) that determines when it executes:
-- **step_order=0**: Executes first (always use for "data" type steps)
+- **step_order=0**: Executes first
 - **step_order=1, 2, 3...**: Higher numbers execute after lower numbers complete
 - **Steps with the SAME step_order run IN PARALLEL** - they must be 100% independent!
 
@@ -934,37 +929,91 @@ Integration/styling steps that hook up components in App.tsx should have a HIGHE
 than the component steps they depend on - they cannot run in parallel with \
 steps that create the components they need to import.
 
-## 4. Explicit File Ownership in Descriptions
-Each step description MUST clearly state which files it will create or modify:
-- ❌ BAD: "Build UI components"
-- ✅ GOOD: "Create src/components/Header.tsx and src/components/Sidebar.tsx"
-- ❌ BAD: "Create table schemas for core data"
-- ✅ GOOD: "Create table schemas for: projects, tasks, sprints, team_members"
+## 3. Detailed Step by Step Descriptions. These are CRUCIAL
 
-## 5. Detailed Step Descriptions
+Each step description must be self-contained and specific enough that an AI executing \
+ONLY that step can succeed without seeing other steps. Think of this as design document level \
+detail and quality; you must trust that another engineer can execute this step with ONLY its description. \
+This should be meticulously detailed, not a generic and underdeveloped description. This can should be up to 3 paragraphs \
+long.
 
-Each step description must be self-contained and specific enough that an AI executing ONLY that step can succeed without seeing other steps.
+=== Example Plan: Kanban Board Feature ===
+
+--- Step 1 of 3 ---
+Title: Create Kanban Card and Form Components
+step_order: 0
+type: component
+operation_type: generate
+target_files: [src/components/KanbanForm.tsx, src/components/KanbanCard.tsx]
+
+Description:
+Build the foundational leaf components for the Kanban system: the task card and the add/edit form modal. These have no dependencies on other Kanban components and will be imported by higher-level components in subsequent steps.
+
+KanbanCard Component (src/components/KanbanCard.tsx):
+Accepts `task: Task` prop with fields {{id, title, description, status, assigneeId, assigneeName, assigneeAvatar, dueDate, priority}} and `onClick: (task: Task) => void` callback. 
+
+Layout: Compact card with title at top (max 2 lines, truncate with ellipsis), followed by optional description preview (1 line max). Bottom row shows due date with Calendar icon on left (display in red if overdue) and assignee avatar on right (circular, show tooltip with name on hover). Priority indicated by colored left border: high=red, medium=yellow, low=green. Card is draggable with grab cursor. Hover state elevates the card slightly. Export Task type interface from this file for reuse.
+
+KanbanForm Component (src/components/KanbanForm.tsx):
+Modal dialog for creating or editing tasks. Props: `task?: Task` (if provided, form is in edit mode with pre-filled values), `defaultStatus?: 'todo' | 'in_progress' | 'done'` (for new tasks created from a specific column), `onSave: (taskData: Omit<Task, 'id'> | Task) => void`, `onClose: () => void`. 
+
+Structure: Centered modal over dimmed backdrop with blur. Header shows "New Task" or "Edit Task" based on mode, with X close button. Form fields stacked vertically: title (required text input), description (multi-line textarea, optional), status (dropdown with three options), priority (radio buttons with color indicators matching card borders), dueDate (date picker, minimum today), assigneeId (dropdown, "Unassigned" placeholder). Footer with Cancel and Save buttons. Save disabled until title is filled, shows loading spinner during submission. Close on backdrop click or Escape key.
+
+--- Step 2 of 3 ---
+Title: Create Kanban Column Component
+step_order: 1
+type: component
+operation_type: generate
+target_files: [src/components/KanbanColumn.tsx]
+
+Description:
+Build the column container that displays a vertical list of KanbanCard components. This component imports KanbanCard from the previous step and will be imported by KanbanBoard in the next step.
+
+KanbanColumn Component (src/components/KanbanColumn.tsx):
+Props: `status: 'todo' | 'in_progress' | 'done'`, `title: string` (display name like "To Do", "In Progress", "Done"), `tasks: Task[]`, `onCardClick: (task: Task) => void`, `onAddTask: (status: string) => void`, `onDragOver: (e: DragEvent) => void`, `onDrop: (e: DragEvent, status: string) => void`, `isDropTarget?: boolean` (visual highlight when card is being dragged over). 
+
+Structure: Fixed-width column with minimum height, scrollable when content overflows. Sticky header at top with column title and task count badge. Scrollable body area renders KanbanCard for each task. Empty state when no tasks: centered muted icon (Inbox for todo, Clock for in_progress, CheckCircle for done), "No tasks" message, and helper text "Drag here or add new". Footer contains full-width "Add Task" button with Plus icon. When isDropTarget is true, column shows highlighted border to indicate valid drop zone.
+
+--- Step 3 of 3 ---
+Title: Create Kanban Board Parent Component
+step_order: 2
+type: component
+operation_type: generate
+target_files: [src/components/KanbanBoard.tsx]
+
+Description:
+Build the parent orchestrator component that manages state and renders three KanbanColumn children. This component imports KanbanColumn and KanbanForm from previous steps and handles all drag-and-drop logic and task CRUD operations.
+
+KanbanBoard Component (src/components/KanbanBoard.tsx):
+Props: `tasks: Task[]`, `onTaskCreate: (task: Omit<Task, 'id'>) => Promise<void>`, `onTaskUpdate: (taskId: string, updates: Partial<Task>) => Promise<void>`, `onTaskDelete?: (taskId: string) => Promise<void>`, `loading?: boolean`. 
+
+State: `draggedTaskId: string | null` (track which card is being dragged), `dropTargetStatus: string | null` (which column is hovered during drag), `formOpen: boolean`, `formMode: 'create' | 'edit'`, `editingTask: Task | null`, `formDefaultStatus: string | null`, `saving: boolean`.
+
+Layout: Horizontal row of three KanbanColumn instances with status/title pairs: ('todo', 'To Do'), ('in_progress', 'In Progress'), ('done', 'Done'). Filter tasks array by status field for each column. Pass isDropTarget={{dropTargetStatus === status}} to highlight active drop zone.
+
+Drag-and-drop handlers: onDragStart sets draggedTaskId from event.dataTransfer. onDragOver prevents default and sets dropTargetStatus. onDragLeave clears dropTargetStatus. onDrop extracts taskId, calls onTaskUpdate(taskId, {{status: newStatus}}), clears drag state. Escape key cancels drag operation.
+
+Form integration: Clicking a card opens form in edit mode with that task. Clicking "Add Task" in a column opens form in create mode with that status pre-selected. Form onSave calls either onTaskCreate or onTaskUpdate based on mode, shows saving state, closes form on success. Form onClose resets all form state.
+
+Loading state: When loading=true, render three skeleton columns with pulsing placeholder cards instead of real content.
+
+Error handling: Wrap task operations in try/catch, show toast notification on error. Use optimistic updates where possible (update UI immediately, rollback on failure).
+
+=== End Example Plan ===
+
+## 4. Go Back and Double Check Your Steps
+Read each existing steps and see if any forms, modals, etc. are missing. For any missing items \
+edit the plan to include that as a previous step.
 
 ### Step Type Guidelines:
 
-**"data" steps (ALWAYS step_order=0):**
-- List EVERY table that the entire app needs - you cannot add tables later!
-- For each table, specify key columns with their purpose
-- Think through relationships and foreign keys upfront
-- ✅ "Create table schemas for: projects (name, description, status, owner_id, due_date), tasks (title, project_id FK, assignee_id, status, priority, due_date, completed_at), team_members (name, email, role, avatar_url), comments (task_id FK, author_id, content, created_at)"
-- ❌ "Create the database tables" (missing table names and columns)
-
 **"component" steps:**
 - Specify EXACT file path(s) this step creates
-- **ONLY reference tables that YOU DEFINED in the data step** - if you didn't create a table in step_order=0, don't reference it here!
-- Describe what data the component fetches (which table slug, what filters)
 - List key UI elements: tables, forms, modals, buttons, filters
 - Specify user interactions: click handlers, form submissions, navigation
-- ⚠️ If a feature needs a table you forgot to create, either add it to the data step OR remove that feature from this step description
-- ✅ "Create src/components/ProjectBoard.tsx: Fetches tasks from 'tasks' table filtered by project_id. Displays a 3-column Kanban board (To Do, In Progress, Done). Each task card shows title, assignee avatar, and due date. Clicking a card opens edit modal. Include 'Add Task' button per column that opens TaskForm with pre-set status."
-- ✅ "Create src/components/TaskForm.tsx: A modal form for creating/editing tasks. Fields: title (required, min 3 chars), description (optional textarea), status (select: todo/in_progress/done), priority (1-5 slider), due_date (date picker), assignee_id (select from team_members). Props: task?: Task for edit mode, onSave callback, onClose callback."
+- ✅ "Create src/components/ProjectBoard.tsx: Displays a 3-column Kanban board (To Do, In Progress, Done). Each task card shows title, assignee avatar, and due date. Clicking a card opens edit modal. Include 'Add Task' button per column that opens TaskForm with pre-set status."
+- ✅ "Create src/components/TaskForm.tsx: A modal form for creating/editing tasks. Fields: title (required, min 3 chars), description (optional textarea), status (select: todo/in_progress/done), priority (1-5 slider), due_date (date picker). Props: task?: Task for edit mode, onSave callback, onClose callback."
 - ❌ "Build the task UI" (no file paths, no specifics)
-- ❌ "Create TeamManagement.tsx: Fetches from 'team_members'" (if 'team_members' is not in Available Resources)
 
 **"integration" steps:**
 - List ALL files being MODIFIED (not created)
@@ -993,74 +1042,74 @@ Each step description must be self-contained and specific enough that an AI exec
 
 ### Universal Requirements:
 1. **Exact file paths** - Every step must list files it creates or modifies
-2. **Data dependencies** - Reference table slugs for any data access
-3. **Self-contained** - Another AI should be able to execute this step with ONLY its description
+2. **Self-contained** - Another AI should be able to execute this step with ONLY its description
 
-
-### 6. Go Back and Confirm Everything was added to the Data Step
-
-After drafting all steps, **REVIEW YOUR PLAN** and verify:
-- Did you include ALL tables needed by EVERY component and feature?
-- Look at each component step - what data will it need? Is that table in the data step?
-- Check integration steps - do they reference tables that exist?
-- If a component needs to store/fetch data that's not in your data step, **ADD IT NOW**
-
-This is your ONLY chance to define tables - you CANNOT add tables in later steps!
-
-## 7. Operation Types and Target Files
+## 5. Operation Types and Target Files
 
 Each step must specify:
 - **target_files**: Array of file paths this step will create or modify
 - **operation_type**: The type of operation being performed
 
-## 8. Confirm src/App.tsx is Included
-
-After drafting all steps, **VERIFY** that at least ONE step has "src/App.tsx" in its target_files array:
-- ✅ Check: Does any step create or modify src/App.tsx?
-- ❌ If NO: Add an integration step with target_files: ["src/App.tsx"]
-- 🚨 Plans without App.tsx will be REJECTED and you'll need to revise!
-
 **Operation Types:**
 - `generate` - Create new files from scratch (new components, new utilities)
 - `edit` - Modify existing files (integration, styling changes)
 - `add_feature` - Add new functionality to existing code
-- `schema` - Create or modify data schemas (data steps)
 - `fix` - Fix issues or bugs
 - `refactor` - Reorganize or restructure code
 
 **Default operation_type by step type:**
-- `data` steps → `schema`
 - `component` steps → `generate` (new) or `edit` (modifying existing)
 - `integration` steps → `edit`
 - `styling` steps → `edit`
 - `code` steps → `generate` or `add_feature`
-- `validation` steps → `add_feature`
+- `validation` steps → `edit`
+
+## 7. Form Dependencies and Foreign Key Ordering
+Never assume data will come from a mock data store. Data will either need to be added via form or \
+fetched via integration. Do not allocate any steps for creating the DB, that is done separately, instead \
+allocate steps for Forms that allow the user to enter data.
+
+When planning forms for data entry, **consider the dependency order based on foreign keys**:
+
+- **Identify all forms needed**: Before assigning step_orders, list every form/component that lets users create or edit data
+- **Foreign key dependencies determine order**: If Table A has a foreign key to Table B, the form for Table B must be created/usable BEFORE the form for Table A
+- **Parent entities come first**: Users must be able to populate referenced tables before they can create records that reference them
+
+**Example - Stock Trade Tracker:**
+If you're building an app to track stock market trades:
+- `users` table (trader profiles)
+- `trades` table with `user_id` FK → references `users`
+
+Form order:
+- **Step 1 (step_order=1)**: Create UserForm component - users need to exist first
+- **Step 2 (step_order=2)**: Create TradeForm component - can now select from existing users
+
+**Exception - Integration Data:**
+If the referenced data comes from an external integration/connector (not user-entered), you may not need a form for it. For example, if users are synced from an HR system, you don't need a UserForm - just the TradeForm with a user selector.
+
+**Checklist for form planning:**
+1. List all tables that need user input forms
+2. Map foreign key relationships between them
+3. Assign lower step_orders to forms for "parent" entities (referenced tables)
+4. Assign higher step_orders to forms for "child" entities (tables with FKs)
+5. Skip forms for tables populated by integrations
 
 Generate a plan with 2-5 steps. Return JSON:
 {{
-    "reasoning": "<string: Your analysis of what needs to be built. LIST ALL DATA TABLES NEEDED.>",
     "steps": [
         {{
-            "type": "<step_type>",
-            "step_order": <int>,
             "title": "<string>",
             "description": "<detailed description following guidelines above>",
             "target_files": ["<file_path>", ...],
-            "operation_type": "<generate|edit|add_feature|schema|fix|refactor>"
+            "operation_type": "<generate|edit|add_feature|fix|refactor>"
+            "type": "<step_type>",
+            "step_order": <int>,
         }}
     ]
 }}
 
-🚨 **FINAL CHECKLIST BEFORE SUBMITTING:**
-1. ✅ Does at least ONE step include "src/App.tsx" in target_files? (REQUIRED!)
-2. ✅ If there's a data step, is it step_order=0 with operation_type="schema"?
-3. ✅ Do all parallel steps (same step_order) have different target_files?
-4. ✅ Are all table names referenced in components also defined in the data step?
-
-**REMEMBER**: Plans missing src/App.tsx will be REJECTED! Every React app needs an App.tsx entry point.
-
-Step types: research, design, data, code, component, styling, integration, validation
-**REMEMBER**: Data steps are always step_order=0 with operation_type="schema". Steps with the same step_order run in parallel and must not conflict!"""
+Step types: research, design, code, component, styling, integration, validation
+**REMEMBER**: Steps with the same step_order run in parallel and must not conflict!"""
 
 STEP_PROMPT_TEMPLATE = """Step {step_number}: {step_title}
 Description: {step_description}
@@ -1100,11 +1149,11 @@ The `dataStore` is the ONLY data API. NEVER create entity-specific stores:
 ```typescript
 import {{ dataStore }} from '../lib/dataStore';
 
-// For habits: use the TABLE SLUG, not a custom store
-await dataStore.query('habits', {{}});
-await dataStore.insert('habits', {{ name: 'Exercise' }});
-await dataStore.update('habits', rowId, {{ completed: true }});
-await dataStore.delete('habits', rowId);
+// For events: use the TABLE SLUG, not a custom store
+await dataStore.query('events', {{}});
+await dataStore.insert('events', {{ title: 'Team Meeting', start_time: '2024-01-15T10:00:00Z' }});
+await dataStore.update('events', rowId, {{ attendee_count: 5 }});
+await dataStore.delete('events', rowId);
 ```
 
 ### Creating Data Tables
@@ -1261,12 +1310,13 @@ CRITICAL REQUIREMENTS:
 9. Make it interactive (search, filters, etc. as appropriate)
 10. **🚨 DO NOT HALLUCINATE FIELDS 🚨**: Before using ANY field in a dataStore call, CHECK types.ts to verify it exists - Do NOT invent fields like `is_active`, `isActive`, `active_status`
 11. **FIELD VERIFICATION**: For each dataStore.query/insert/update call, verify EVERY field you use is listed in types.ts for that specific table
-12. **🚨 CRITICAL - CHECK YOUR CODE FOR STRAY QUOTES 🚨**: Every line must end cleanly with semicolon `;` NOT `;'` or `;"` - these cause parse errors!
-13. **CRITICAL**: Ensure all TypeScript syntax is valid - no stray quotes, unclosed brackets, or malformed type declarations
-14. **ONLY import from**: react, react-dom, lucide-react, framer-motion, react-router-dom
-15. **DO NOT use**: Any other npm packages not listed above
-16. For navigation, use react-router-dom (BrowserRouter, Routes, Route, Link, useNavigate)
-17. **CRITICAL - AVOID SYNTAX ERRORS**:
+12. **🚨 DIFFERENT TABLES = DIFFERENT FIELDS 🚨**: Projects use `name`, Tasks use `title` - NEVER assume field names! Example: `projects.name` ✅ but `tasks.name` ❌ (use `tasks.title` instead)
+13. **🚨 CRITICAL - CHECK YOUR CODE FOR STRAY QUOTES 🚨**: Every line must end cleanly with semicolon `;` NOT `;'` or `;"` - these cause parse errors!
+14. **CRITICAL**: Ensure all TypeScript syntax is valid - no stray quotes, unclosed brackets, or malformed type declarations
+15. **ONLY import from**: react, react-dom, lucide-react, framer-motion, react-router-dom
+16. **DO NOT use**: Any other npm packages not listed above
+17. For navigation, use react-router-dom (BrowserRouter, Routes, Route, Link, useNavigate)
+18. **CRITICAL - AVOID SYNTAX ERRORS**:
     ```typescript
     // ❌ WRONG - Stray quotes cause parse errors
     owner: Database['projects']['row'];'  // Extra quote at end!
@@ -1351,24 +1401,44 @@ Import types from `src/lib/types.ts` for type safety:
 import {{ dataStore }} from './lib/dataStore';
 import type {{ Database }} from './lib/types';
 
-// Type your operations
-const item: Database['customers']['insert'] = {{ name: 'John', email: 'john@example.com' }};
-await dataStore.insert('customers', item);
+// Type your operations - Example: articles table
+const article: Database['articles']['insert'] = {{ title: 'Getting Started', content: 'Lorem ipsum...', author_id: 'user123' }};
+await dataStore.insert('articles', article);
 
-const result = await dataStore.query('customers', {{
-  filters: [{{ field: 'status', op: 'eq', value: 'active' }}]
+const result = await dataStore.query('articles', {{
+  filters: [{{ field: 'published', op: 'eq', value: true }}]
 }});
-const customers: Database['customers']['row'][] = result.rows;
+const articles: Database['articles']['row'][] = result.rows;
 
 // Access fields via row.data:
-result.rows.map(row => <div key={{row.id}}>{{row.data.name}}</div>);
+result.rows.map(row => <div key={{row.id}}>{{row.data.title}}</div>);
 
 // Update/delete uses row.id (NOT row.data.id):
-await dataStore.update('customers', row.id, {{ status: 'inactive' }});
-await dataStore.delete('customers', row.id);
+await dataStore.update('articles', row.id, {{ published: false }});
+await dataStore.delete('articles', row.id);
 ```
 
 **Filter Operators:** `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `not_in`, `contains`, `icontains`, `is_null`
+
+🚨 **CRITICAL: Different Tables Have Different Field Names** 🚨
+
+**DO NOT assume all tables use the same field names!** Check types.ts for EXACT field names:
+
+```typescript
+// ✅ CORRECT - Projects use 'name'
+await dataStore.insert('projects', {{ name: 'Q1 Launch' }});
+result.rows.map(row => <div>{{row.data.name}}</div>);
+
+// ✅ CORRECT - Tasks use 'title' (NOT 'name')
+await dataStore.insert('tasks', {{ title: 'Design homepage', project_id: 'xyz' }});
+result.rows.map(row => <div>{{row.data.title}}</div>);
+
+// ❌ WRONG - Tasks don't have 'name' field
+await dataStore.insert('tasks', {{ name: 'Design homepage' }}); // ERROR!
+result.rows.map(row => <div>{{row.data.name}}</div>); // ERROR!
+```
+
+**Common mistake:** Assuming 'name' exists on all tables. Always verify field names in types.ts.
 
 **CRITICAL: Row Data Structure**
 - Use `row.id` for the row UUID (for update/delete operations)
