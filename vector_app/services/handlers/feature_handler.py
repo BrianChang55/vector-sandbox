@@ -14,7 +14,11 @@ from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 from .base_handler import BaseHandler, AgentEvent, FileChange
 from .generate_handler import GenerateHandler
 from vector_app.services.context_analyzer import get_context_analyzer
-from vector_app.services.diff import parse_diffs, apply_diff, format_with_line_numbers
+from vector_app.services.diff import format_with_line_numbers
+from vector_app.services.diff_application_service import (
+    _apply_diffs_from_llm_response,
+    DiffApplicationConfig,
+)
 from vector_app.services.planning_service import PlanStepStatus
 
 if TYPE_CHECKING:
@@ -681,54 +685,25 @@ class FeatureHandler(BaseHandler):
             for warning in final_warnings:
                 yield self.emit_streaming_warning(warning)
 
-            # Parse unified diffs from LLM response
-            diffs = parse_diffs(full_content)
-
-            # DEBUG: Log parsed diffs
-            logger.debug(f"[FEATURE] Parsed {len(diffs)} diff(s) from LLM response")
-            for diff in diffs:
-                original = existing_code.get(diff.path, "")
-                numbered = format_with_line_numbers(original)
-                logger.debug(f"[FEATURE] Original file {diff.path} ({len(original)} chars):\n{numbered}")
-                logger.debug(f"[FEATURE] Diff for {diff.path}: {len(diff.hunks)} hunk(s)")
-                for i, hunk in enumerate(diff.hunks):
-                    logger.debug(f"[FEATURE]   Hunk {i+1}:\n{hunk[:10000]}")
-
-            if diffs:
-                # Apply diffs to original files
-                for diff in diffs:
-                    # For new files, original is empty; for existing files, get content
-                    original = existing_code.get(diff.path, "")
-                    new_content = apply_diff(original, diff)
-
-                    # Determine action based on whether file existed
-                    action = "modify" if diff.path in existing_code else "create"
-
-                    file_change = FileChange(
-                        path=diff.path,
-                        action=action,
-                        language=self.get_language(diff.path),
-                        content=new_content,
-                        previous_content=original,
-                        lines_added=diff.lines_added,
-                        lines_removed=diff.lines_removed,
-                    )
-                    yield self.emit_file_generated(file_change)
-                    files.append(file_change)
-            else:
-                # Fallback: try parsing as complete file blocks (backwards compatibility)
-                logger.warning("No diffs found in LLM response, falling back to full file parsing")
-                parsed_files = self.parse_code_blocks(full_content)
-
-                for f in parsed_files:
-                    # Determine if this is a new file or modification
-                    if f.path in existing_code:
-                        f.action = "modify"
-                    else:
-                        f.action = "create"
-
-                    yield self.emit_file_generated(f)
-                    files.append(f)
+            # Apply diffs using centralized service
+            config = DiffApplicationConfig(
+                protected_files=set(),        # Feature handler doesn't protect any files
+                normalize_paths=False,        # Paths match exactly from context
+                allow_new_files=True,         # Features often create new components
+                fallback_to_full_file=True,   # Backwards compatibility
+                verify_changes=False,         # Apply all diffs regardless
+            )
+            
+            files = _apply_diffs_from_llm_response(
+                llm_response=full_content,
+                file_contents=existing_code,
+                config=config,
+                parse_full_files_fallback=self.parse_code_blocks,
+            )
+            
+            # Emit file_generated events for each file
+            for file_change in files:
+                yield self.emit_file_generated(file_change)
 
             return files
 

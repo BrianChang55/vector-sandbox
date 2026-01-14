@@ -30,9 +30,9 @@ from vector_app.services.types import (
     FileChange,
     CompilationError,
 )
-from vector_app.services.diff import (
-    parse_diffs,
-    apply_diff,
+from vector_app.services.diff_application_service import (
+    _apply_diffs_from_llm_response,
+    DiffApplicationConfig,
 )
 
 logger = logging.getLogger(__name__)
@@ -362,7 +362,7 @@ class ErrorFixService:
         """
         Parse unified diffs from LLM response and apply them to files.
         
-        Uses diff.parse_diffs and apply_diff for surgical changes.
+        Uses centralized diff application service for surgical changes.
         
         Args:
             content: Full LLM response content
@@ -371,73 +371,22 @@ class ErrorFixService:
         Returns:
             List of FileChange objects with diffs applied (empty if no diffs found)
         """
-        # Build lookup for original file content
-        original_by_path = {f.path: f for f in original_files}
+        # Convert List[FileChange] to Dict[str, str] for service
+        file_contents = {f.path: f.content for f in original_files}
         
-        # Parse unified diffs from LLM response
-        diffs = parse_diffs(content)
+        config = DiffApplicationConfig(
+            protected_files=set(),        # Error fix doesn't protect any files
+            normalize_paths=True,         # LLM may return paths with/without src/
+            allow_new_files=False,        # Error fixes only modify existing files
+            fallback_to_full_file=False,  # Return empty - caller handles fallback
+            verify_changes=True,          # Skip files where diff has no effect
+        )
         
-        if not diffs:
-            logger.debug("[ERROR FIX] No unified diffs found in LLM response")
-            return []
-        
-        logger.info(f"Parsed {len(diffs)} diff(s) from LLM response")
-        
-        fixed_files = []
-        
-        for diff in diffs:
-            file_path = diff.path
-            
-            # Normalize path to match original files
-            if not file_path.startswith('src/') and not file_path.startswith('/'):
-                file_path = f"src/{file_path}"
-            
-            # Find the original file
-            original_file = original_by_path.get(file_path)
-            if not original_file:
-                # Try without src/ prefix
-                alt_path = file_path[4:] if file_path.startswith('src/') else file_path
-                original_file = original_by_path.get(alt_path)
-                if original_file:
-                    file_path = alt_path
-            
-            if not original_file:
-                logger.warning(f"No original file found for diff path: {diff.path} (tried: {file_path})")
-                continue
-            
-            original_content = original_file.content
-            
-            # Apply the diff
-            try:
-                new_content = apply_diff(original_content, diff)
-                
-                # Verify the diff actually changed something
-                if new_content == original_content:
-                    logger.debug(f"Diff for {file_path} resulted in no changes")
-                    continue
-                
-                # Determine language from extension
-                ext = file_path.split('.')[-1] if '.' in file_path else 'tsx'
-                lang_map = {'tsx': 'tsx', 'ts': 'ts', 'css': 'css', 'json': 'json'}
-                
-                fixed_files.append(FileChange(
-                    path=file_path,
-                    action='modify',
-                    language=lang_map.get(ext, 'tsx'),
-                    content=new_content,
-                    previous_content=original_content,
-                    lines_added=diff.lines_added,
-                    lines_removed=diff.lines_removed,
-                ))
-                
-                logger.debug(f"Applied diff to {file_path}: +{diff.lines_added}/-{diff.lines_removed} lines")
-                
-            except Exception as e:
-                logger.error(f"Failed to apply diff to {file_path}: {e}")
-                continue
-        
-        logger.info(f"Successfully applied {len(fixed_files)} diff(s)")
-        return fixed_files
+        return _apply_diffs_from_llm_response(
+            llm_response=content,
+            file_contents=file_contents,
+            config=config,
+        )
     
     def _parse_fixed_files(
         self,
