@@ -1249,17 +1249,13 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
                 previous_content=content,
             ))
 
-        # Build user message with step context
-        user_message_with_step = f"""## Step {step_index + 1}: {getattr(step, 'title', '')}
-Description: {getattr(step, 'description', '')}
-
-## User's Original Request
-{user_message}"""
-
-        # Build extra context
-        extra_context = None
-        if data_store_context and "No data tables" not in data_store_context:
-            extra_context = f"## Available Data Store\n{data_store_context}"
+        # Build user message with step context using helper
+        user_message_with_step, extra_context = self._build_step_edit_prompt(
+            step=step,
+            step_index=step_index,
+            user_message=user_message,
+            data_store_context=data_store_context,
+        )
 
         # Build prompts using centralized method
         system_prompt, user_prompt = build_diff_prompts(
@@ -1341,6 +1337,36 @@ Description: {getattr(step, 'description', '')}
             logger.error(f"[EDIT STEP] Execution error: {e}")
             yield self.emit_thinking(f"Error during edit step: {str(e)}", "reflection")
             raise
+
+    def _build_step_edit_prompt(
+        self,
+        step: PlanStep,
+        step_index: int,
+        user_message: str,
+        data_store_context: Optional[str] = None,
+    ) -> tuple[str, Optional[str]]:
+        """
+        Build user message content for diff-based step execution.
+        
+        Returns the user message and extra context to pass to build_diff_prompts.
+        The actual file context and diff format instructions are added by build_diff_prompts.
+        
+        Returns:
+            Tuple of (user_message, extra_context)
+        """
+        # Build user message with step context
+        user_message_with_step = f"""## Step {step_index + 1}: {getattr(step, 'title', '')}
+Description: {getattr(step, 'description', '')}
+
+## User's Original Request
+{user_message}"""
+        
+        # Build extra context
+        extra_context = None
+        if data_store_context and "No data tables" not in data_store_context:
+            extra_context = f"## Available Data Store\n{data_store_context}"
+        
+        return user_message_with_step, extra_context
 
     def _parse_table_definitions(self, content: str) -> List[Dict[str, Any]]:
         """Parse TABLE_DEFINITION blocks from agent output."""

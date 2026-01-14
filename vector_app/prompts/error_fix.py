@@ -48,138 +48,6 @@ Example:
 ```"""
 
 
-# Shared diff format instructions used by both prompt builders
-DIFF_FORMAT_INSTRUCTIONS = """
-## Output Format: Unified Diff
-
-For each file you fix, output a unified diff inside a ```diff code block:
-
-```diff
---- src/path/to/file.tsx
-+++ src/path/to/file.tsx
-@@ -LINE,COUNT +LINE,COUNT @@
- context line (unchanged, starts with space)
- context line (unchanged, starts with space)
- context line (unchanged, starts with space)
--line to remove (starts with minus)
-+line to add (starts with plus)
- context line (unchanged, starts with space)
- context line (unchanged, starts with space)
- context line (unchanged, starts with space)
-```
-
-### Diff Rules
-- Start with `--- path` and `+++ path` header lines
-- Each hunk starts with `@@ -old_start,old_count +new_start,new_count @@`
-- Include exactly 3 lines of unchanged context before and after changes
-- Lines starting with ` ` (space) are unchanged context - these MUST be copied EXACTLY from the source file
-- Lines starting with `-` are removed
-- Lines starting with `+` are added
-- For multiple non-adjacent changes in the same file, use multiple hunks
-
-### Hunk Structure Rule (CRITICAL)
-
-Within each hunk, lines MUST appear in this exact order:
-1. Context lines (space prefix) - unchanged lines before the change
-2. ALL removed lines (minus prefix) - grouped together consecutively
-3. ALL added lines (plus prefix) - grouped together consecutively
-4. Context lines (space prefix) - unchanged lines after the change
-
-**NEVER interleave removals and additions.** Each contiguous change region gets its own hunk.
-
-BAD (interleaved - will break):
-```
-@@ -1,10 +1,10 @@
- import React from 'react';
--old line
-+new line
--another old line        <- WRONG: more removals after additions
-+another new line
-```
-
-GOOD (separate hunks):
-```
-@@ -1,4 +1,4 @@
- import React from 'react';
--old line
-+new line
-
-@@ -8,3 +8,3 @@
- // context line
--another old line
-+another new line
-```
-
-### Example: Adding a missing import
-
-```diff
---- src/App.tsx
-+++ src/App.tsx
-@@ -1,4 +1,5 @@
- import React from "react";
-+import { useState } from "react";
- 
- function App() {
-   const [count, setCount] = useState(0);
-```
-
-### Example: Fixing a type error
-
-```diff
---- src/utils.ts
-+++ src/utils.ts
-@@ -5,7 +5,7 @@
- }
- 
- function processData(data: unknown) {
--  return data.value;
-+  return (data as Record<string, unknown>).value;
- }
-```
-
-### CRITICAL - CONTEXT LINES MUST BE EXACT
-
-The patch system can tolerate slight line number errors, but context lines MUST match the source file CHARACTER-FOR-CHARACTER.
-- Copy context lines exactly as shown (same whitespace, same quotes, same everything)
-- If the source has `  return <div className="p-4">` your context must be identical
-- Mismatched context lines will cause the patch to fail
-
-### CRITICAL - NO DUPLICATE HUNKS
-
-Each location in a file must have exactly ONE hunk. Never repeat or duplicate hunks.
-
-**RULES:**
-1. Each line range can only appear ONCE in your output
-2. If you need multiple changes at the same location, combine them into ONE hunk
-3. NEVER output the same hunk multiple times - this breaks the patch
-4. Before outputting, mentally verify you haven't already written a hunk for that location
-5. If you catch yourself repeating, STOP and consolidate
-
-**BAD (duplicate hunks - will fail with "misordered hunks" error):**
-```
-@@ -54,7 +54,7 @@
--    return this.props.children;
-+    return this.props.children;
-   }
-
-@@ -54,7 +54,7 @@      <- WRONG: same location again!
--    return this.props.children;
-+    return this.props.children;
-   }
-```
-
-**GOOD (single hunk per location):**
-```
-@@ -54,7 +54,7 @@
--    return this.props.children;
-+    return (this.props as Props).children;
-   }
-```
-
-Output each change ONCE, then move on. Do not loop or repeat.
-"""
-
-
 def build_error_fix_prompt(
     files: list,
     errors: list,
@@ -244,18 +112,11 @@ def build_error_fix_prompt(
     
     files_section = '\n'.join(files_section_parts)
     
-    # Build the prompt
+    # Build the prompt (diff format instructions are added by build_diff_prompts)
     prompt = f"""Fix the following TypeScript compilation errors. This is attempt {attempt} of {max_attempts}.
 
 ## COMPILATION ERRORS TO FIX:
 {errors_section}
-
-## CURRENT FILES (with line numbers):
-{files_section}
-
-**LINE NUMBERS**: The file contents above include line numbers in the format "   42| code here".
-Use these line numbers for your @@ hunk headers. The patch system has fuzz matching (±3 lines tolerance), but accurate numbers improve reliability.
-Do NOT include the line number prefix (e.g., "   42| ") in your diff output.
 
 ## INSTRUCTIONS:
 1. Analyze each error carefully - look at the line number and error message
@@ -263,7 +124,6 @@ Do NOT include the line number prefix (e.g., "   42| ") in your diff output.
 3. DO NOT change any working code
 4. Output only unified diffs for files that need changes
 5. Context lines must match the source file EXACTLY (character-for-character)
-{DIFF_FORMAT_INSTRUCTIONS}
 
 Remember: Your ONLY goal is to fix compilation errors. Do not refactor, improve, or change any functionality."""
 
@@ -318,17 +178,11 @@ def build_bundler_error_fix_prompt(
     
     files_section = '\n'.join(files_section_parts)
     
+    # Build the prompt (diff format instructions are added by build_diff_prompts)
     prompt = f"""Fix the following bundler/runtime errors. This is attempt {attempt} of {max_attempts}.
 
 ## BUNDLER ERRORS:
 {errors_section}
-
-## CURRENT FILES (with line numbers):
-{files_section}
-
-**LINE NUMBERS**: The file contents above include line numbers in the format "   42| code here".
-Use these line numbers for your @@ hunk headers. The patch system has fuzz matching (±3 lines tolerance), but accurate numbers improve reliability.
-Do NOT include the line number prefix (e.g., "   42| ") in your diff output.
 
 ## INSTRUCTIONS:
 1. These errors were caught by the bundler, not TypeScript
@@ -337,7 +191,6 @@ Do NOT include the line number prefix (e.g., "   42| ") in your diff output.
 4. DO NOT change working functionality
 5. Output unified diffs for files that need changes
 6. Context lines must match the source file EXACTLY (character-for-character)
-{DIFF_FORMAT_INSTRUCTIONS}
 
 Make minimal changes to fix the errors."""
 
