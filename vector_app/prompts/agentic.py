@@ -897,7 +897,21 @@ Has Existing Spec: {has_existing_spec}
 
 🚨 **CRITICAL PLANNING RULES:**
 
-## 1. Data Storage Rule
+## 1. App.tsx Requirement (MANDATORY!)
+
+🚨 **EVERY PLAN MUST INCLUDE src/App.tsx IN target_files** 🚨
+
+- **REQUIRED**: At least ONE step must have "src/App.tsx" in its target_files array
+- This is the main entry point of the React application
+- Typically this should be an "integration" type step (operation_type="generate" or "edit")
+- If you have multiple components, App.tsx should import and orchestrate them
+- **YOUR PLAN WILL BE REJECTED if src/App.tsx is not included!**
+
+Examples:
+- ✅ GOOD: Step with target_files: ["src/App.tsx"] and description explaining how it imports components
+- ❌ BAD: No step mentions src/App.tsx - PLAN WILL BE REJECTED
+
+## 2. Data Storage Rule
 
 ### For NEW apps (no existing tables):
 If the app needs to store/manage ANY data, you MUST:
@@ -999,6 +1013,13 @@ Each step must specify:
 - **target_files**: Array of file paths this step will create or modify
 - **operation_type**: The type of operation being performed
 
+## 7. Confirm src/App.tsx is Included
+
+After drafting all steps, **VERIFY** that at least ONE step has "src/App.tsx" in its target_files array:
+- ✅ Check: Does any step create or modify src/App.tsx?
+- ❌ If NO: Add an integration step with target_files: ["src/App.tsx"]
+- 🚨 Plans without App.tsx will be REJECTED and you'll need to revise!
+
 **Operation Types:**
 - `generate` - Create new files from scratch (new components, new utilities)
 - `edit` - Modify existing files (integration, styling changes)
@@ -1029,6 +1050,14 @@ Generate a plan with 2-5 steps. Return JSON:
         }}
     ]
 }}
+
+🚨 **FINAL CHECKLIST BEFORE SUBMITTING:**
+1. ✅ Does at least ONE step include "src/App.tsx" in target_files? (REQUIRED!)
+2. ✅ If there's a data step, is it step_order=0 with operation_type="schema"?
+3. ✅ Do all parallel steps (same step_order) have different target_files?
+4. ✅ Are all table names referenced in components also defined in the data step?
+
+**REMEMBER**: Plans missing src/App.tsx will be REJECTED! Every React app needs an App.tsx entry point.
 
 Step types: research, design, data, code, component, styling, integration, validation
 **REMEMBER**: Data steps are always step_order=0 with operation_type="schema". Steps with the same step_order run in parallel and must not conflict!"""

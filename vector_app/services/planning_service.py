@@ -181,14 +181,25 @@ class PlanningService:
                     if step.target_files:
                         logger.debug(f"  Target Files: {', '.join(step.target_files)}")
                 logger.debug("=" * 80)
-                
+
+                # Validate the plan using ValidationService
+                from vector_app.services.validation_service import get_validation_service
+                validation_service = get_validation_service()
+                validation_errors = validation_service.validate_plan(plan)
+
+                if validation_errors:
+                    logger.error("🚨 PLAN VALIDATION FAILED 🚨")
+                    for error in validation_errors:
+                        logger.error(f"  ❌ {error}")
+                    raise ValueError(f"Plan validation failed: {'; '.join(validation_errors)}")
+
                 return plan
-                
+
         except Exception as e:
             logger.error(f"Plan generation error: {e}")
             # Fallback to default plan
             return self._create_fallback_plan(user_message)
-    
+
     def _parse_plan_response(self, content: str) -> Dict[str, Any]:
         """
         Parse plan JSON from API response.
