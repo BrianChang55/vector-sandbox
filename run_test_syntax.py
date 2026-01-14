@@ -259,7 +259,7 @@ def run_test(test_case: dict, handler: GenerateHandler) -> tuple[bool, str]:
                 full_content=full_content,
                 app=mock_app,
                 version=None,
-                model="anthropic/claude-sonnet-4",
+                model="anthropic/claude-sonnet-4.5",
             )
             
             # Consume all events from generator and capture output

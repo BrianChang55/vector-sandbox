@@ -947,7 +947,7 @@ class ChatSession(BaseModel):
     internal_app = models.ForeignKey(InternalApp, on_delete=models.CASCADE, related_name="chat_sessions")
     title = models.CharField(max_length=255, default="New Chat")
     model_id = models.CharField(
-        max_length=100, default="anthropic/claude-sonnet-4", help_text="AI model used for this session"
+        max_length=100, default="anthropic/claude-sonnet-4.5", help_text="AI model used for this session"
     )
     is_active = models.BooleanField(default=True)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name="chat_sessions")
@@ -1043,7 +1043,7 @@ class AgentConfiguration(BaseModel):
     description = models.TextField(blank=True)
 
     # Model configuration
-    default_model = models.CharField(max_length=100, default="anthropic/claude-sonnet-4")
+    default_model = models.CharField(max_length=100, default="anthropic/claude-sonnet-4.5")
     fallback_model = models.CharField(
         max_length=100, default="openai/gpt-4o-mini", help_text="Model to use if primary fails"
     )
@@ -1135,7 +1135,7 @@ class CodeGenerationJob(BaseModel):
 
     # Generation parameters
     user_message = models.TextField(blank=True)
-    model_id = models.CharField(max_length=100, default="anthropic/claude-sonnet-4")
+    model_id = models.CharField(max_length=100, default="anthropic/claude-sonnet-4.5")
 
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_QUEUED)
 

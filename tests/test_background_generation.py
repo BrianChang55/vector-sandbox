@@ -73,7 +73,7 @@ class JobCreationTestCase(TestCase):
         
         response = self.client.post(
             url,
-            json.dumps({'message': 'Create a todo app', 'model': 'anthropic/claude-sonnet-4'}),
+            json.dumps({'message': 'Create a todo app', 'model': 'anthropic/claude-sonnet-4.5'}),
             content_type='application/json',
             **self.auth_header
         )
