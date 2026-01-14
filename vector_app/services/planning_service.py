@@ -9,7 +9,7 @@ import logging
 import re
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 from enum import StrEnum
 
 from django.conf import settings
@@ -227,7 +227,7 @@ class PlanningService:
             if start >= 0 and end > start:
                 content = content[start:end+1]
         
-        return json.loads(content)
+        return cast(Dict[str, Any], json.loads(content))
     
     def _create_fallback_plan(self, user_message: str) -> AgentPlan:
         """

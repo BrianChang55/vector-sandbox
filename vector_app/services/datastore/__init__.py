@@ -27,6 +27,8 @@ from .fetcher import (
     get_table_summary,
 )
 
+from .table_creator import create_tables_from_definitions
+
 __all__ = [
     # Schema constants and utilities
     'SYSTEM_COLUMNS',
@@ -47,4 +49,6 @@ __all__ = [
     'build_data_store_context',
     'build_data_store_context_for_version',
     'get_table_summary',
+    # Table creation
+    'create_tables_from_definitions',
 ]
