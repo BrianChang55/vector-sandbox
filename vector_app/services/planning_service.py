@@ -18,6 +18,7 @@ import httpx
 from vector_app.prompts.agentic import build_plan_prompt
 from vector_app.utils.enum_utils import safe_str_enum
 from vector_app.services.openrouter_service import AIModel
+from vector_app.services.validation_service import get_validation_service
 
 logger = logging.getLogger(__name__)
 
@@ -183,15 +184,12 @@ class PlanningService:
                 logger.debug("=" * 80)
 
                 # Validate the plan using ValidationService
-                from vector_app.services.validation_service import get_validation_service
                 validation_service = get_validation_service()
                 validation_errors = validation_service.validate_plan(plan)
 
                 if validation_errors:
-                    logger.error("🚨 PLAN VALIDATION FAILED 🚨")
-                    for error in validation_errors:
-                        logger.error(f"  ❌ {error}")
-                    raise ValueError(f"Plan validation failed: {'; '.join(validation_errors)}")
+                    logger.error("🚨 PLAN VALIDATION FAILED 🚨, validation errors: %s", str(validation_errors))
+                    raise ValueError("Plan validation failed")
 
                 return plan
 

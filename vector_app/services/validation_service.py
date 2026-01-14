@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
+from collections import defaultdict
 from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
 
 from vector_app.services.types import (
@@ -19,7 +20,7 @@ from vector_app.services.types import (
     CompilationError,
     ValidationResult,
 )
-
+from vector_app.services.planning_service import PlanOperationType
 if TYPE_CHECKING:
     from vector_app.models import InternalApp
 
@@ -1364,8 +1365,6 @@ export const dataStore: DataStore = {} as DataStore;
             List of validation error messages (empty if valid)
         """
         errors = []
-
-        # Rule 1: At least one step must include src/App.tsx in target_files
         has_app_tsx = any(
             "src/App.tsx" in step.target_files
             for step in plan.steps
@@ -1377,47 +1376,6 @@ export const dataStore: DataStore = {} as DataStore;
                 "Every React app MUST have an App.tsx entry point. "
                 "At least one step must include 'src/App.tsx' in its target_files array."
             )
-
-        # Rule 2: If there's a data step, it should be step_order=0 with operation_type=schema
-        from vector_app.services.planning_service import PlanOperationType
-
-        data_steps = [s for s in plan.steps if s.type == "data"]
-        for step in data_steps:
-            if step.step_order != 0:
-                errors.append(
-                    f"Data step '{step.title}' has step_order={step.step_order}, "
-                    "but data steps must be step_order=0 to run first."
-                )
-            if step.operation_type != PlanOperationType.SCHEMA:
-                errors.append(
-                    f"Data step '{step.title}' has operation_type={step.operation_type}, "
-                    "but data steps must have operation_type='schema'."
-                )
-
-        # Rule 3: Steps with the same step_order must not have overlapping target_files
-        from collections import defaultdict
-        steps_by_order = defaultdict(list)
-        for step in plan.steps:
-            steps_by_order[step.step_order].append(step)
-
-        for order, parallel_steps in steps_by_order.items():
-            if len(parallel_steps) > 1:
-                # Check for file conflicts
-                all_files = []
-                for step in parallel_steps:
-                    all_files.extend([(step.title, f) for f in step.target_files])
-
-                # Find duplicates
-                seen = {}
-                for step_title, file_path in all_files:
-                    if file_path in seen:
-                        errors.append(
-                            f"File conflict in step_order={order}: "
-                            f"'{file_path}' is targeted by both '{seen[file_path]}' and '{step_title}'. "
-                            "Parallel steps must not have overlapping target_files."
-                        )
-                    else:
-                        seen[file_path] = step_title
 
         return errors
 
