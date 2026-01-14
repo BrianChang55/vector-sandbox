@@ -35,7 +35,8 @@ from vector_app.services.datastore.fetcher import (
     get_table_summary,
 )
 from vector_app.services.data_store_context import build_data_store_context
-from vector_app.services.datastore.table_creator import create_tables_from_definitions, TableDefinitionParser
+from vector_app.services.datastore.table_creator import create_tables_from_definitions
+from vector_app.services.datastore.parser import TableDefinitionParser
 from vector_app.services.mcp_context import (
     build_mcp_tools_context,
     MCPToolsContext,
@@ -342,12 +343,12 @@ class AgenticService:
             else:
                 logger.info("📊 Extracted schema from plan, creating tables...")
 
-                # Extract table definition blocks from the LLM response
-                table_blocks = schema_extraction_service.parse_table_definitions(schema_content)
+                # Extract table definitions from the LLM response
+                table_definitions = schema_extraction_service.parse_table_definitions(schema_content)
 
-                if table_blocks:
-                    # Create tables from the parsed definitions
-                    created_tables = create_tables_from_definitions(app, table_blocks)
+                if table_definitions:
+                    # Create tables from the definitions
+                    created_tables = create_tables_from_definitions(app, table_definitions)
                     logger.info(f"✅ Created {len(created_tables)} tables from plan: {[t.slug for t in created_tables]}")
         else:
             logger.info("ℹ️  No database tables needed for this plan")

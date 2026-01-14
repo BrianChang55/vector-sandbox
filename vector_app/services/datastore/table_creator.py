@@ -1,12 +1,11 @@
 """
 Table Creator
 
-Creates database tables from parsed TABLE_DEFINITION blocks.
+Creates database tables from table definition dictionaries.
 """
 import logging
-from typing import Any, List, TYPE_CHECKING
+from typing import Any, Dict, List, TYPE_CHECKING
 
-from .parser import TableDefinitionParser
 from .schema import get_system_columns
 
 if TYPE_CHECKING:
@@ -17,27 +16,25 @@ logger = logging.getLogger(__name__)
 
 def create_tables_from_definitions(
     app: 'InternalApp',
-    table_definitions: List[str]
+    table_definitions: List[Dict[str, Any]]
 ) -> List['AppDataTable']:
     """
-    Create database tables from TABLE_DEFINITION blocks.
+    Create database tables from table definition dictionaries.
 
     Args:
         app: The InternalApp to create tables in
-        table_definitions: List of table definition strings (e.g., ```table:slug...```)
+        table_definitions: List of dicts with structure:
+            {'slug': 'name', 'name': 'Display', 'description': '...', 'columns': [...]}
 
     Returns:
         List of created AppDataTable objects
     """
     from vector_app.services.app_data_service import AppDataService
 
-    parser = TableDefinitionParser()
     created_tables = []
 
-    # Parse all table definitions
-    parsed_tables = parser.parse_table_definitions("\n\n".join(table_definitions))
-
-    for table_def in parsed_tables:
+    # Work directly with dictionaries - no parsing needed
+    for table_def in table_definitions:
         slug = table_def['slug']
         name = table_def['name']
         description = table_def.get('description', '')
