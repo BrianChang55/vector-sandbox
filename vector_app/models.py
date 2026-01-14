@@ -878,58 +878,6 @@ class ChatMessage(BaseModel):
         return f"{self.role}: {preview}"
 
 
-class AgentConfiguration(BaseModel):
-    """
-    User-configurable agent settings for code generation.
-    """
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="agent_configs")
-    name = models.CharField(max_length=100)
-    description = models.TextField(blank=True)
-
-    # Model configuration
-    default_model = models.CharField(max_length=100, default="anthropic/claude-sonnet-4")
-    fallback_model = models.CharField(
-        max_length=100, default="openai/gpt-4o-mini", help_text="Model to use if primary fails"
-    )
-
-    # Generation settings
-    temperature = models.FloatField(default=0.3)
-    max_tokens = models.IntegerField(default=8192)
-
-    # Custom instructions
-    system_prompt_override = models.TextField(
-        blank=True, null=True, help_text="Custom system prompt to prepend"
-    )
-    coding_guidelines = models.TextField(
-        blank=True, null=True, help_text="Custom coding guidelines for generation"
-    )
-
-    # Feature flags
-    enable_streaming = models.BooleanField(default=True)
-    enable_auto_apply = models.BooleanField(
-        default=False, help_text="Auto-apply generated code without confirmation"
-    )
-    enable_thinking_display = models.BooleanField(default=True, help_text="Show AI thinking process")
-
-    is_default = models.BooleanField(default=False)
-
-    class Meta:
-        unique_together = ["organization", "name"]
-
-    def __str__(self):
-        return f"{self.name} ({self.organization.name})"
-
-    def save(self, *args, **kwargs):
-        # Ensure only one default per org
-        if self.is_default:
-            AgentConfiguration.objects.filter(organization=self.organization, is_default=True).exclude(
-                pk=self.pk
-            ).update(is_default=False)
-        super().save(*args, **kwargs)
-
-
 class CodeGenerationJob(BaseModel):
     """
     Tracks code generation jobs for async processing and streaming.
@@ -1031,119 +979,6 @@ class CodeGenerationJob(BaseModel):
         self.events_json.append(event)
         self.chunk_count = len(self.events_json)
         self.save(update_fields=["events_json", "chunk_count", "updated_at"])
-
-
-class AIUsageLog(BaseModel):
-    """
-    Tracks AI API usage for cost monitoring and analytics.
-    """
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="ai_usage_logs")
-    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name="ai_usage_logs")
-
-    # Request details
-    model_id = models.CharField(max_length=100)
-    request_type = models.CharField(max_length=50)  # 'appspec', 'code', 'chat'
-
-    # Usage metrics
-    input_tokens = models.IntegerField(default=0)
-    output_tokens = models.IntegerField(default=0)
-    total_tokens = models.IntegerField(default=0)
-
-    # Cost tracking (in USD cents for precision)
-    cost_input_cents = models.IntegerField(default=0)
-    cost_output_cents = models.IntegerField(default=0)
-    total_cost_cents = models.IntegerField(default=0)
-
-    # Timing
-    duration_ms = models.IntegerField(default=0)
-
-    # Status
-    success = models.BooleanField(default=True)
-    error_message = models.TextField(null=True, blank=True)
-
-    # Context
-    internal_app = models.ForeignKey(
-        InternalApp, on_delete=models.SET_NULL, null=True, blank=True, related_name="ai_usage_logs"
-    )
-    chat_message = models.ForeignKey(
-        ChatMessage, on_delete=models.SET_NULL, null=True, blank=True, related_name="usage_logs"
-    )
-
-    class Meta:
-        ordering = ["-created_at"]
-        indexes = [
-            models.Index(fields=["organization", "-created_at"]),
-            models.Index(fields=["user", "-created_at"]),
-            models.Index(fields=["model_id", "-created_at"]),
-        ]
-
-    def __str__(self):
-        return f"{self.model_id} - {self.total_tokens} tokens - ${self.total_cost_cents / 100:.4f}"
-
-    @classmethod
-    def log_usage(
-        cls,
-        organization,
-        model_id: str,
-        request_type: str,
-        input_tokens: int,
-        output_tokens: int,
-        duration_ms: int,
-        user=None,
-        internal_app=None,
-        chat_message=None,
-        success: bool = True,
-        error_message: str = None,
-    ):
-        """Create a usage log entry with cost calculation."""
-        from .services.openrouter_service import MODEL_CONFIGS
-
-        # Get model cost config
-        config = MODEL_CONFIGS.get(model_id)
-        if config:
-            cost_input = int((input_tokens / 1_000_000) * config.cost_per_million_input * 100)
-            cost_output = int((output_tokens / 1_000_000) * config.cost_per_million_output * 100)
-        else:
-            # Default fallback pricing
-            cost_input = int((input_tokens / 1_000_000) * 1.0 * 100)
-            cost_output = int((output_tokens / 1_000_000) * 3.0 * 100)
-
-        return cls.objects.create(
-            organization=organization,
-            user=user,
-            model_id=model_id,
-            request_type=request_type,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            total_tokens=input_tokens + output_tokens,
-            cost_input_cents=cost_input,
-            cost_output_cents=cost_output,
-            total_cost_cents=cost_input + cost_output,
-            duration_ms=duration_ms,
-            success=success,
-            error_message=error_message,
-            internal_app=internal_app,
-            chat_message=chat_message,
-        )
-
-    @classmethod
-    def get_org_usage_summary(cls, organization, days: int = 30):
-        """Get usage summary for an organization."""
-        from django.utils import timezone
-        from datetime import timedelta
-        from django.db.models import Sum, Count, Avg
-
-        cutoff = timezone.now() - timedelta(days=days)
-
-        return cls.objects.filter(organization=organization, created_at__gte=cutoff).aggregate(
-            total_requests=Count("id"),
-            total_tokens=Sum("total_tokens"),
-            total_cost_cents=Sum("total_cost_cents"),
-            avg_duration_ms=Avg("duration_ms"),
-        )
-
 
 # ============================================================================
 # App Data Store Models
@@ -1255,25 +1090,6 @@ class AppDataRow(BaseModel):
             )["max_index"]
             self.row_index = (max_index or 0) + 1
         super().save(*args, **kwargs)
-
-
-class AppDataQuery(BaseModel):
-    """
-    Saved/named queries for an app's data tables.
-    Enables reusable queries in the app UI.
-    """
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    internal_app = models.ForeignKey(InternalApp, on_delete=models.CASCADE, related_name="data_queries")
-    name = models.CharField(max_length=255)
-    table = models.ForeignKey(AppDataTable, on_delete=models.CASCADE, related_name="saved_queries")
-    query_spec = models.JSONField(help_text="Query specification: filters, sort, pagination")
-
-    class Meta:
-        unique_together = ["internal_app", "name"]
-
-    def __str__(self):
-        return f"{self.name} ({self.internal_app.name})"
 
 
 class AppDataTableSnapshot(BaseModel):

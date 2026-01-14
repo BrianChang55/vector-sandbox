@@ -2,7 +2,7 @@
 Serializers for Chat and Code Generation
 """
 from rest_framework import serializers
-from ..models import ChatSession, ChatMessage, AgentConfiguration
+from ..models import ChatSession, ChatMessage
 
 
 class ChatSessionSerializer(serializers.ModelSerializer):
@@ -78,32 +78,6 @@ class ChatMessageCreateSerializer(serializers.Serializer):
         default='appspec'
     )
     stream = serializers.BooleanField(required=False, default=True)
-
-
-class AgentConfigurationSerializer(serializers.ModelSerializer):
-    """Serializer for AgentConfiguration model."""
-    
-    class Meta:
-        model = AgentConfiguration
-        fields = [
-            'id',
-            'organization',
-            'name',
-            'description',
-            'default_model',
-            'fallback_model',
-            'temperature',
-            'max_tokens',
-            'system_prompt_override',
-            'coding_guidelines',
-            'enable_streaming',
-            'enable_auto_apply',
-            'enable_thinking_display',
-            'is_default',
-            'created_at',
-            'updated_at',
-        ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
 
 
 class GenerationRequestSerializer(serializers.Serializer):
