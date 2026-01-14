@@ -559,7 +559,7 @@ export function AgenticChatPanel({
   const [messages, setMessages] = useState<LocalMessage[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [selectedModel, setSelectedModel] = useState('anthropic/claude-sonnet-4')
+  const [selectedModel, setSelectedModel] = useState('anthropic/claude-sonnet-4.5')
   const [abortController, setAbortController] = useState<AbortController | null>(null)
   const [thinkingStartTime, setThinkingStartTime] = useState<number | null>(null)
   const [planningStartTime, setPlanningStartTime] = useState<number | null>(null)

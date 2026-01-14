@@ -144,7 +144,7 @@ export function generateCodeStreaming(
   
   const params = new URLSearchParams({
     message,
-    model: options.model || 'anthropic/claude-sonnet-4',
+    model: options.model || 'anthropic/claude-sonnet-4.5',
     mode: options.mode || 'appspec',
   })
   

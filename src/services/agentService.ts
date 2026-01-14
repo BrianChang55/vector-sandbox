@@ -232,7 +232,7 @@ export function startAgenticGeneration(
 
   const params = new URLSearchParams({
     message,
-    model: options.model || 'anthropic/claude-sonnet-4',
+    model: options.model || 'anthropic/claude-sonnet-4.5',
     mode: 'agentic',
   })
 
@@ -479,7 +479,7 @@ export function startFixErrors(
   
   const params = new URLSearchParams({
     errors: errorsB64,
-    model: options.model || 'anthropic/claude-sonnet-4',
+    model: options.model || 'anthropic/claude-sonnet-4.5',
     attempt: String(options.attempt || 1),
   })
 
