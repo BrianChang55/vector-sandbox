@@ -943,7 +943,7 @@ Title: Create Kanban Card and Form Components
 step_order: 0
 type: component
 operation_type: generate
-target_files: [src/components/KanbanCard.tsx, src/components/KanbanForm.tsx]
+target_files: [src/components/KanbanForm.tsx, src/components/KanbanCard.tsx]
 
 Description:
 Build the foundational leaf components for the Kanban system: the task card and the add/edit form modal. These have no dependencies on other Kanban components and will be imported by higher-level components in subsequent steps.
@@ -1062,6 +1062,36 @@ Each step must specify:
 - `styling` steps → `edit`
 - `code` steps → `generate` or `add_feature`
 - `validation` steps → `edit`
+
+## 7. Form Dependencies and Foreign Key Ordering
+Never assume data will come from a mock data store. Data will either need to be added via form or \
+fetched via integration. Do not allocate any steps for creating the DB, that is done separately, instead \
+allocate steps for Forms that allow the user to enter data.
+
+When planning forms for data entry, **consider the dependency order based on foreign keys**:
+
+- **Identify all forms needed**: Before assigning step_orders, list every form/component that lets users create or edit data
+- **Foreign key dependencies determine order**: If Table A has a foreign key to Table B, the form for Table B must be created/usable BEFORE the form for Table A
+- **Parent entities come first**: Users must be able to populate referenced tables before they can create records that reference them
+
+**Example - Stock Trade Tracker:**
+If you're building an app to track stock market trades:
+- `users` table (trader profiles)
+- `trades` table with `user_id` FK → references `users`
+
+Form order:
+- **Step 1 (step_order=1)**: Create UserForm component - users need to exist first
+- **Step 2 (step_order=2)**: Create TradeForm component - can now select from existing users
+
+**Exception - Integration Data:**
+If the referenced data comes from an external integration/connector (not user-entered), you may not need a form for it. For example, if users are synced from an HR system, you don't need a UserForm - just the TradeForm with a user selector.
+
+**Checklist for form planning:**
+1. List all tables that need user input forms
+2. Map foreign key relationships between them
+3. Assign lower step_orders to forms for "parent" entities (referenced tables)
+4. Assign higher step_orders to forms for "child" entities (tables with FKs)
+5. Skip forms for tables populated by integrations
 
 Generate a plan with 2-5 steps. Return JSON:
 {{
