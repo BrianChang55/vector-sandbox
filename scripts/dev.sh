@@ -43,9 +43,9 @@ open_dev_browser() {
         sleep 1
     done
     
-    # Generate dev tokens
+    # Generate dev tokens (from backend dir so SQLite uses correct path)
     echo -e "${GREEN}Generating dev tokens...${NC}"
-    local tokens=$(python "$SCRIPT_DIR/internal-apps-backend/scripts/dev_login.py" 2>/dev/null)
+    local tokens=$(cd "$SCRIPT_DIR/internal-apps-backend" && python scripts/dev_login.py 2>/dev/null)
     
     if [ -z "$tokens" ]; then
         echo -e "${RED}Failed to generate dev tokens${NC}"
@@ -123,6 +123,10 @@ start_services() {
         sleep 2
     fi
 
+    # Flush Redis to clear stale Celery tasks from previous sessions
+    echo -e "${YELLOW}Flushing Redis (clearing stale tasks)...${NC}"
+    redis-cli FLUSHDB > /dev/null 2>&1 || true
+
     # Activate venv once
     source "$SCRIPT_DIR/internal-apps-backend/venv/bin/activate"
 
@@ -135,13 +139,13 @@ start_services() {
     BACKEND_DIR="$SCRIPT_DIR/internal-apps-backend"
     FRONTEND_DIR="$SCRIPT_DIR/internal-apps-web-app"
 
-    # Run migrations
+    # Run migrations (from backend dir so SQLite uses correct path)
     echo -e "${GREEN}Running migrations...${NC}"
-    python "$BACKEND_DIR/manage.py" migrate
+    (cd "$BACKEND_DIR" && python manage.py migrate)
 
-    # Start Django
+    # Start Django (from backend dir so SQLite uses correct path)
     echo -e "${GREEN}Starting Django (port 8001)...${NC}"
-    python "$BACKEND_DIR/manage.py" runserver 8001 > "$LOG_DIR/django.log" 2>&1 &
+    (cd "$BACKEND_DIR" && python manage.py runserver 8001) > "$LOG_DIR/django.log" 2>&1 &
 
     # Start Celery with auto-reload (watchmedo watches backend dir for .py changes)
     echo -e "${GREEN}Starting Celery (auto-reload enabled)...${NC}"
