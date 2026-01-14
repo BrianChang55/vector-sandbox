@@ -319,7 +319,7 @@ def _apply_hunks_backwards(original_content: str, diff: FileDiff) -> str:
     current_content = original_content
     applied_count = 0
     relocated_count = 0
-    failed_hunks = []
+    failed_hunks = []  # List of tuples: (start_line, hunk_content)
     
     for hunk in sorted_hunks:
         start_line = _get_hunk_start_line(hunk)
@@ -335,8 +335,13 @@ def _apply_hunks_backwards(original_content: str, diff: FileDiff) -> str:
         # Failed - attempt relocation by searching for old lines
         old_lines = _extract_old_lines(hunk)
         if not old_lines:
-            logger.warning(f"[DIFF] Failed to apply hunk at line {start_line}, no old lines to relocate with")
-            failed_hunks.append(start_line)
+            formatted_content = format_with_line_numbers(current_content)
+            logger.warning(
+                f"[DIFF] Failed to apply hunk at line {start_line}, no old lines to relocate with\n"
+                f"Failed hunk:\n{hunk}\n"
+                f"Current file content:\n{formatted_content}"
+            )
+            failed_hunks.append((start_line, hunk))
             continue
         
         file_lines = current_content.split('\n')
@@ -355,24 +360,35 @@ def _apply_hunks_backwards(original_content: str, diff: FileDiff) -> str:
                     logger.info(f"[DIFF] Full context search failed, but found unique match using removed lines only at line {locations[0]}")
                     used_removed_only_fallback = True
                 elif len(locations) > 1:
+                    formatted_content = format_with_line_numbers(current_content)
                     logger.warning(
                         f"[DIFF] Failed to apply hunk at line {start_line}, "
-                        f"removed-lines-only search found {len(locations)} possible locations: {locations}. Skipping."
+                        f"removed-lines-only search found {len(locations)} possible locations: {locations}. Skipping.\n"
+                        f"Failed hunk:\n{hunk}\n"
+                        f"Current file content:\n{formatted_content}"
                     )
-                    failed_hunks.append(start_line)
+                    failed_hunks.append((start_line, hunk))
                     continue
             
             if len(locations) == 0:
-                logger.warning(f"[DIFF] Failed to apply hunk at line {start_line}, could not find matching lines in file")
-                failed_hunks.append(start_line)
+                formatted_content = format_with_line_numbers(current_content)
+                logger.warning(
+                    f"[DIFF] Failed to apply hunk at line {start_line}, could not find matching lines in file\n"
+                    f"Failed hunk:\n{hunk}\n"
+                    f"Current file content:\n{formatted_content}"
+                )
+                failed_hunks.append((start_line, hunk))
                 continue
         
         if len(locations) > 1:
+            formatted_content = format_with_line_numbers(current_content)
             logger.warning(
                 f"[DIFF] Failed to apply hunk at line {start_line}, "
-                f"found {len(locations)} possible locations: {locations}. Skipping relocation."
+                f"found {len(locations)} possible locations: {locations}. Skipping relocation.\n"
+                f"Failed hunk:\n{hunk}\n"
+                f"Current file content:\n{formatted_content}"
             )
-            failed_hunks.append(start_line)
+            failed_hunks.append((start_line, hunk))
             continue
         
         # Exactly one location found - relocate and retry
@@ -392,8 +408,14 @@ def _apply_hunks_backwards(original_content: str, diff: FileDiff) -> str:
                 applied_count += 1
                 relocated_count += 1
             else:
-                logger.warning(f"[DIFF] Failed to apply reconstructed hunk at line {new_location} for {diff.path}")
-                failed_hunks.append(start_line)
+                formatted_content = format_with_line_numbers(current_content)
+                logger.warning(
+                    f"[DIFF] Failed to apply reconstructed hunk at line {new_location} for {diff.path}\n"
+                    f"Failed hunk (reconstructed):\n{reconstructed_hunk}\n"
+                    f"Original hunk:\n{hunk}\n"
+                    f"Current file content:\n{formatted_content}"
+                )
+                failed_hunks.append((start_line, hunk))
         else:
             # Full context search succeeded - just relocate header
             relocated_hunk = _relocate_hunk_header(hunk, new_location)
@@ -405,11 +427,27 @@ def _apply_hunks_backwards(original_content: str, diff: FileDiff) -> str:
                 applied_count += 1
                 relocated_count += 1
             else:
-                logger.warning(f"[DIFF] Failed to apply hunk even after relocating from line {start_line} to {new_location}")
-                failed_hunks.append(start_line)
+                formatted_content = format_with_line_numbers(current_content)
+                logger.warning(
+                    f"[DIFF] Failed to apply hunk even after relocating from line {start_line} to {new_location}\n"
+                    f"Failed hunk (relocated):\n{relocated_hunk}\n"
+                    f"Original hunk:\n{hunk}\n"
+                    f"Current file content:\n{formatted_content}"
+                )
+                failed_hunks.append((start_line, hunk))
     
     if failed_hunks:
-        logger.warning(f"[DIFF] {len(failed_hunks)} hunk(s) failed to apply for {diff.path}: lines {failed_hunks}")
+        formatted_content = format_with_line_numbers(current_content)
+        failed_lines = [line for line, _ in failed_hunks]
+        failed_hunks_text = "\n\n".join([
+            f"Failed hunk at line {line}:\n{hunk_content}"
+            for line, hunk_content in failed_hunks
+        ])
+        logger.warning(
+            f"[DIFF] {len(failed_hunks)} hunk(s) failed to apply for {diff.path}: lines {failed_lines}\n\n"
+            f"Failed hunks:\n{failed_hunks_text}\n\n"
+            f"Current file content:\n{formatted_content}"
+        )
     
     if applied_count > 0:
         if relocated_count > 0:

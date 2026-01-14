@@ -120,25 +120,25 @@ The `+1,N` in the hunk header means "starting at line 1, adding N lines":
 @@ -0,0 +1,12 @@
 +import React from "react";
 +
-+interface NewComponentProps {{
++interface NewComponentProps {
 +  title: string;
-+}}
++}
 +
-+export function NewComponent({{ title }}: NewComponentProps) {{
++export function NewComponent({ title }: NewComponentProps) {
 +  return (
-+    <div className="p-4">{{title}}</div>
++    <div className="p-4">{title}</div>
 +  );
-+}}
++}
 ```"""
 
 SYNTAX_BALANCE_CHECK = """### Syntax Balance Check (REQUIRED before outputting)
 
 Before finalizing each hunk, verify:
-1. Count removed `{{` equals removed `}}`
+1. Count removed `{` equals removed `}`
 2. Count removed `(` equals removed `)`
 3. Count removed `<Tag>` equals removed `</Tag>` or `<Tag />`
-4. If removing an opening line (e.g., `if (condition) {{`), the closing `}}` MUST also be removed
-5. If removing JSX like `{{condition && (`, you MUST also remove the matching `)}}`
+4. If removing an opening line (e.g., `if (condition) {`), the closing `}` MUST also be removed
+5. If removing JSX like `{condition && (`, you MUST also remove the matching `)}`
 
 If your diff would leave unbalanced syntax, expand the hunk to include the matching closing element."""
 
@@ -490,14 +490,10 @@ def build_diff_prompts(
     
     files_context = "\n\n".join(files_context_parts) if files_context_parts else "No existing files to modify."
     
-    # Escape curly braces for JSX (prevents .format() errors)
-    escaped_message = user_message.replace("{", "{{").replace("}", "}}")
-    escaped_files = files_context.replace("{", "{{").replace("}", "}}")
-    
     # Build user prompt
     user_prompt_parts = [
-        f"## Request\n{escaped_message}",
-        f"## Current Files (with line numbers)\n{escaped_files}",
+        f"## Request\n{user_message}",
+        f"## Current Files (with line numbers)\n{files_context}",
         LINE_NUMBER_INSTRUCTIONS,
     ]
     
@@ -510,5 +506,4 @@ def build_diff_prompts(
         user_prompt_parts.append(f"\n## Additional Context\n{extra_context}")
     
     user_prompt = "\n\n".join(user_prompt_parts)
-    
     return system_prompt, user_prompt
