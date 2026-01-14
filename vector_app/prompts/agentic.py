@@ -191,15 +191,16 @@ const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
 When defining a type/interface and using it elsewhere, properties MUST match exactly:
 ```typescript
 // ✅ CORRECT - Type definition matches usage
-// In types/item.ts:
-interface Item { id: string; name: string; price: number; }
+// In types/product.ts:
+interface Product { id: string; title: string; price: number; inStock: boolean; }
 
-// In components/ItemList.tsx:
-const items: Item[] = [...];
-items.map(item => <div key={item.id}>{item.name}: ${item.price}</div>)
+// In components/ProductList.tsx:
+const products: Product[] = [...];
+products.map(product => <div key={product.id}>{product.title}: ${product.price}</div>)
 
 // ❌ WRONG - Using properties not in the type definition
-items.map(item => <div>{item.quantity}</div>) // ERROR: 'quantity' doesn't exist on Item
+products.map(product => <div>{product.name}</div>) // ERROR: 'name' doesn't exist on Product (use 'title')
+products.map(product => <div>{product.quantity}</div>) // ERROR: 'quantity' doesn't exist on Product
 ```
 
 If you need additional properties, ADD THEM to the type definition first, then use them.
@@ -865,17 +866,17 @@ You have access to a component library in `/components/ui/`. ALWAYS prefer using
 import { Button, Card, Badge, PageHeader, EmptyState, StatCard, cn } from './components/ui';
 import { useDataQuery, useMutation } from './hooks';
 
-// Fetch data
-const { data: customers, loading, refetch } = useDataQuery('customers', {
-  filters: [{ field: 'status', op: 'eq', value: 'active' }],
+// Fetch data - Example: orders table
+const { data: orders, loading, refetch } = useDataQuery('orders', {
+  filters: [{ field: 'status', op: 'eq', value: 'pending' }],
   orderBy: [{ field: 'created_at', dir: 'desc' }],
   limit: 50,
 });
 
-// Mutations
-const { insert, update, remove, loading: saving } = useMutation('customers');
-await insert({ name: 'John Doe', email: 'john@example.com' });
-await update(rowId, { status: 'inactive' });
+// Mutations - Example: orders table
+const { insert, update, remove, loading: saving } = useMutation('orders');
+await insert({ total: 99.99, customer_email: 'john@example.com', status: 'pending' });
+await update(rowId, { status: 'shipped' });
 await remove(rowId);
 
 // UI Components
@@ -1148,11 +1149,11 @@ The `dataStore` is the ONLY data API. NEVER create entity-specific stores:
 ```typescript
 import {{ dataStore }} from '../lib/dataStore';
 
-// For habits: use the TABLE SLUG, not a custom store
-await dataStore.query('habits', {{}});
-await dataStore.insert('habits', {{ name: 'Exercise' }});
-await dataStore.update('habits', rowId, {{ completed: true }});
-await dataStore.delete('habits', rowId);
+// For events: use the TABLE SLUG, not a custom store
+await dataStore.query('events', {{}});
+await dataStore.insert('events', {{ title: 'Team Meeting', start_time: '2024-01-15T10:00:00Z' }});
+await dataStore.update('events', rowId, {{ attendee_count: 5 }});
+await dataStore.delete('events', rowId);
 ```
 
 ### Creating Data Tables
@@ -1309,12 +1310,13 @@ CRITICAL REQUIREMENTS:
 9. Make it interactive (search, filters, etc. as appropriate)
 10. **🚨 DO NOT HALLUCINATE FIELDS 🚨**: Before using ANY field in a dataStore call, CHECK types.ts to verify it exists - Do NOT invent fields like `is_active`, `isActive`, `active_status`
 11. **FIELD VERIFICATION**: For each dataStore.query/insert/update call, verify EVERY field you use is listed in types.ts for that specific table
-12. **🚨 CRITICAL - CHECK YOUR CODE FOR STRAY QUOTES 🚨**: Every line must end cleanly with semicolon `;` NOT `;'` or `;"` - these cause parse errors!
-13. **CRITICAL**: Ensure all TypeScript syntax is valid - no stray quotes, unclosed brackets, or malformed type declarations
-14. **ONLY import from**: react, react-dom, lucide-react, framer-motion, react-router-dom
-15. **DO NOT use**: Any other npm packages not listed above
-16. For navigation, use react-router-dom (BrowserRouter, Routes, Route, Link, useNavigate)
-17. **CRITICAL - AVOID SYNTAX ERRORS**:
+12. **🚨 DIFFERENT TABLES = DIFFERENT FIELDS 🚨**: Projects use `name`, Tasks use `title` - NEVER assume field names! Example: `projects.name` ✅ but `tasks.name` ❌ (use `tasks.title` instead)
+13. **🚨 CRITICAL - CHECK YOUR CODE FOR STRAY QUOTES 🚨**: Every line must end cleanly with semicolon `;` NOT `;'` or `;"` - these cause parse errors!
+14. **CRITICAL**: Ensure all TypeScript syntax is valid - no stray quotes, unclosed brackets, or malformed type declarations
+15. **ONLY import from**: react, react-dom, lucide-react, framer-motion, react-router-dom
+16. **DO NOT use**: Any other npm packages not listed above
+17. For navigation, use react-router-dom (BrowserRouter, Routes, Route, Link, useNavigate)
+18. **CRITICAL - AVOID SYNTAX ERRORS**:
     ```typescript
     // ❌ WRONG - Stray quotes cause parse errors
     owner: Database['projects']['row'];'  // Extra quote at end!
@@ -1399,24 +1401,44 @@ Import types from `src/lib/types.ts` for type safety:
 import {{ dataStore }} from './lib/dataStore';
 import type {{ Database }} from './lib/types';
 
-// Type your operations
-const item: Database['customers']['insert'] = {{ name: 'John', email: 'john@example.com' }};
-await dataStore.insert('customers', item);
+// Type your operations - Example: articles table
+const article: Database['articles']['insert'] = {{ title: 'Getting Started', content: 'Lorem ipsum...', author_id: 'user123' }};
+await dataStore.insert('articles', article);
 
-const result = await dataStore.query('customers', {{
-  filters: [{{ field: 'status', op: 'eq', value: 'active' }}]
+const result = await dataStore.query('articles', {{
+  filters: [{{ field: 'published', op: 'eq', value: true }}]
 }});
-const customers: Database['customers']['row'][] = result.rows;
+const articles: Database['articles']['row'][] = result.rows;
 
 // Access fields via row.data:
-result.rows.map(row => <div key={{row.id}}>{{row.data.name}}</div>);
+result.rows.map(row => <div key={{row.id}}>{{row.data.title}}</div>);
 
 // Update/delete uses row.id (NOT row.data.id):
-await dataStore.update('customers', row.id, {{ status: 'inactive' }});
-await dataStore.delete('customers', row.id);
+await dataStore.update('articles', row.id, {{ published: false }});
+await dataStore.delete('articles', row.id);
 ```
 
 **Filter Operators:** `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `not_in`, `contains`, `icontains`, `is_null`
+
+🚨 **CRITICAL: Different Tables Have Different Field Names** 🚨
+
+**DO NOT assume all tables use the same field names!** Check types.ts for EXACT field names:
+
+```typescript
+// ✅ CORRECT - Projects use 'name'
+await dataStore.insert('projects', {{ name: 'Q1 Launch' }});
+result.rows.map(row => <div>{{row.data.name}}</div>);
+
+// ✅ CORRECT - Tasks use 'title' (NOT 'name')
+await dataStore.insert('tasks', {{ title: 'Design homepage', project_id: 'xyz' }});
+result.rows.map(row => <div>{{row.data.title}}</div>);
+
+// ❌ WRONG - Tasks don't have 'name' field
+await dataStore.insert('tasks', {{ name: 'Design homepage' }}); // ERROR!
+result.rows.map(row => <div>{{row.data.name}}</div>); // ERROR!
+```
+
+**Common mistake:** Assuming 'name' exists on all tables. Always verify field names in types.ts.
 
 **CRITICAL: Row Data Structure**
 - Use `row.id` for the row UUID (for update/delete operations)

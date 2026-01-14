@@ -31,11 +31,12 @@ from vector_app.prompts.agentic import (
     build_codegen_system_prompt,
     build_final_app_prompt,
 )
-from vector_app.services.datastore import (
-    build_data_store_context,
+from vector_app.services.datastore.fetcher import (
     get_table_summary,
-    TableDefinitionParser,
 )
+from vector_app.services.data_store_context import build_data_store_context
+from vector_app.services.datastore.table_creator import create_tables_from_definitions
+from vector_app.services.datastore.parser import TableDefinitionParser
 from vector_app.services.mcp_context import (
     build_mcp_tools_context,
     MCPToolsContext,
@@ -48,6 +49,7 @@ from vector_app.services.intent_classifier import (
     UserIntent,
 )
 from vector_app.services.context_analyzer import get_context_analyzer
+from vector_app.services.schema_extraction_service import get_schema_extraction_service
 from vector_app.services.intent_router import get_intent_router
 from vector_app.services.filter_mcp_tools import (
     filter_mcp_tools,
@@ -325,7 +327,32 @@ class AgenticService:
         # Generate plan
         planning_service = get_planning_service()
         plan = planning_service.create_plan(styled_user_message, context_analysis, model)
-        
+
+        # Extract database schema from plan
+        schema_extraction_service = get_schema_extraction_service()
+        schema_content = schema_extraction_service.extract_schema_from_plan(
+            plan,
+            styled_user_message,
+            model
+        )
+
+        # Parse and create tables if schema was extracted
+        if schema_content and "NO_TABLES_NEEDED" not in schema_content.upper():
+            if app is None:
+                logger.info("ℹ️  Schema extracted but no app provided; skipping table creation")
+            else:
+                logger.info("📊 Extracted schema from plan, creating tables...")
+
+                # Extract table definitions from the LLM response
+                table_definitions = schema_extraction_service.parse_table_definitions(schema_content)
+
+                if table_definitions:
+                    # Create tables from the definitions
+                    created_tables = create_tables_from_definitions(app, table_definitions)
+                    logger.info(f"✅ Created {len(created_tables)} tables from plan: {[t.slug for t in created_tables]}")
+        else:
+            logger.info("ℹ️  No database tables needed for this plan")
+
         # Convert plan steps to the format frontend expects
         plan_steps = [
             {
@@ -577,7 +604,7 @@ class AgenticService:
         total_duration = int((time.time() - start_time) * 1000)
 
         # Build summary message
-        file_types = {}
+        file_types: Dict[str, int] = {}
         for f in generated_files:
             ext = f.path.split(".")[-1] if "." in f.path else "unknown"
             file_types[ext] = file_types.get(ext, 0) + 1
@@ -788,7 +815,7 @@ class AgenticService:
         total_duration = int((time.time() - start_time) * 1000)
 
         # Build summary message
-        file_types = {}
+        file_types: Dict[str, int] = {}
         for f in generated_files:
             ext = f.path.split(".")[-1] if "." in f.path else "unknown"
             file_types[ext] = file_types.get(ext, 0) + 1
@@ -957,7 +984,7 @@ class AgenticService:
         """Parse code blocks from the AI response into FileChange objects."""
         import re
 
-        files = []
+        files: List[FileChange] = []
 
         # Multiple patterns to catch different formats
         patterns = [
