@@ -11,7 +11,6 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, cast
 from enum import StrEnum
-from typing import Any, Dict, List, Optional
 
 from vector_app.ai.client import get_llm_client
 from vector_app.ai.models import AIModel
@@ -144,15 +143,15 @@ class PlanningService:
             logger.debug("=" * 80)
             logger.debug("📋 GENERATED PLAN")
             logger.debug("=" * 80)
-            logger.debug(f"Reasoning: {reasoning}")
-            logger.debug(f"Total Steps: {len(steps)}")
+            logger.debug("Reasoning: %s", reasoning)
+            logger.debug("Total Steps: %d", len(steps))
             logger.debug("-" * 80)
             for i, step in enumerate(steps, 1):
-                logger.debug(f"Step {i}: [{step.type}] {step.title} (Order: {step.step_order})")
-                logger.debug(f"  Description: {step.description}")
-                logger.debug(f"  Operation Type: {step.operation_type}")
+                logger.debug("Step %d: [%s] %s (Order: %d)", i, step.type, step.title, step.step_order)
+                logger.debug("  Description: %s", step.description)
+                logger.debug("  Operation Type: %s", step.operation_type)
                 if step.target_files:
-                    logger.debug(f"  Target Files: {', '.join(step.target_files)}")
+                    logger.debug("  Target Files: %s", ', '.join(step.target_files))
             logger.debug("=" * 80)
 
             # Validate the plan using ValidationService
@@ -166,7 +165,7 @@ class PlanningService:
             return plan
 
         except Exception as e:
-            logger.error(f"Plan generation error: {e}")
+            logger.error("Plan generation error: %s", e)
             # Fallback to default plan
             return self._create_fallback_plan(user_message)
 
