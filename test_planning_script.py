@@ -30,6 +30,7 @@ def get_app_ideas() -> List[str]:
         "Build a simple roi calculator",
         "Build a simple expense tracker",
         "Create a recipe searching app",
+        "Build a project management tool. It should support tasks per project and let you assign employees (name, email, phone) as the project lead"
     ]
 
 
