@@ -27,16 +27,27 @@ class Organization(BaseModel):
     name = models.CharField(max_length=255)
 ```
 
-### Pydantic Models
+### Data Structures
 
-Always inherit from `StrictBaseModel` (rejects extra fields, no type coercion):
+**Prefer dataclasses or Pydantic models over dicts.** Never create large nested dicts.
 
 ```python
+# ✅ Good - structured and typed
+@dataclass
+class GenerationResult:
+    code: str
+    errors: list[str]
+    metadata: ResultMetadata
+
+# ✅ Good - Pydantic with validation (inherit from StrictBaseModel)
 from vector_app.utils.pydantic_utils import StrictBaseModel
 
 class UserRequest(StrictBaseModel):
     email: str
     count: int
+
+# ❌ Bad - untyped nested dict
+result = {"code": "...", "metadata": {"errors": [...], "info": {...}}}
 ```
 
 ### Services
