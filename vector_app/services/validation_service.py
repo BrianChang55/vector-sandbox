@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
+from collections import defaultdict
 from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
 
 from vector_app.services.types import (
@@ -19,7 +20,6 @@ from vector_app.services.types import (
     CompilationError,
     ValidationResult,
 )
-
 if TYPE_CHECKING:
     from vector_app.models import InternalApp
 
@@ -1348,6 +1348,33 @@ export const dataStore: DataStore = {} as DataStore;
                 )
                 errors.append(error_msg)
                 logger.error(f"🚨 [ID OVERWRITE] {error_msg}")
+
+        return errors
+
+    # ===== Plan Validation Methods =====
+
+    def validate_plan(self, plan: Any) -> List[str]:
+        """
+        Validate the generated plan meets all requirements.
+
+        Args:
+            plan: The generated AgentPlan to validate
+
+        Returns:
+            List of validation error messages (empty if valid)
+        """
+        errors = []
+        has_app_tsx = any(
+            "src/App.tsx" in step.target_files
+            for step in plan.steps
+        )
+
+        if not has_app_tsx:
+            errors.append(
+                "CRITICAL: Plan is missing 'src/App.tsx' in target_files. "
+                "Every React app MUST have an App.tsx entry point. "
+                "At least one step must include 'src/App.tsx' in its target_files array."
+            )
 
         return errors
 
