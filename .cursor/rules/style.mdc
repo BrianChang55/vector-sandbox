@@ -1,0 +1,78 @@
+---
+globs: *.py
+alwaysApply: false
+---
+# Backend Style Guide
+
+## Architecture
+
+**Layer separation** - business logic in services, not views:
+- `vector_app/views/` - HTTP handling only
+- `vector_app/serializers/` - validation and transformation
+- `vector_app/services/` - all business logic
+- `vector_app/models.py` - data schema only
+
+**Data flow:** Request → ViewSet → Serializer → Service → Model → Response
+
+## Project-Specific Patterns
+
+### Django Models
+
+Inherit from `BaseModel` (provides UUID `id`, `created_at`, `updated_at`):
+
+```python
+from internal_apps.utils.base_model import BaseModel
+
+class Organization(BaseModel):
+    name = models.CharField(max_length=255)
+```
+
+### Pydantic Models
+
+Always inherit from `StrictBaseModel` (rejects extra fields, no type coercion):
+
+```python
+from vector_app.utils.pydantic_utils import StrictBaseModel
+
+class UserRequest(StrictBaseModel):
+    email: str
+    count: int
+```
+
+### Services
+
+Use factory getter pattern. See `vector_app/services/validation_service.py` for canonical example.
+
+```python
+class MyService:
+    def do_thing(self, data: dict) -> Result:
+        # Business logic here
+        pass
+
+def get_my_service() -> MyService:
+    return MyService()
+```
+
+### Query Optimization
+
+Always use `select_related()` for ForeignKey and `prefetch_related()` for reverse/M2M:
+
+```python
+# Avoid N+1
+Organization.objects.select_related('owner').prefetch_related('members')
+```
+
+## Canonical Examples
+
+- **ViewSet pattern:** `vector_app/views/organization_views.py`
+- **Service pattern:** `vector_app/services/validation_service.py`
+- **Serializer pattern:** `vector_app/serializers/internal_app.py`
+- **LLM calls:** See `calling-llms.mdc` rule and `vector_app/services/intent_classifier.py`
+
+## Tooling
+
+| Tool | Command | Config |
+|------|---------|--------|
+| Formatter | `make format` | black + isort |
+| Linting | `make lint` | `prospector.yml` |
+| Type checking | `make static` | `mypy.ini` |
