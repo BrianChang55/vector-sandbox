@@ -22,8 +22,6 @@ import httpx
 
 from vector_app.prompts.error_fix import (
     ERROR_FIX_SYSTEM_PROMPT,
-    build_error_fix_prompt,
-    build_bundler_error_fix_prompt,
 )
 from vector_app.services.types import (
     AgentEvent,
@@ -32,6 +30,7 @@ from vector_app.services.types import (
 )
 from vector_app.services.diff_application_service import (
     _apply_diffs_from_llm_response,
+    build_diff_prompts,
     DiffApplicationConfig,
 )
 
@@ -108,12 +107,22 @@ class ErrorFixService:
             "error_count": len(errors),
         })
         
-        # Build focused prompt for error fixing
-        prompt = build_error_fix_prompt(
-            files=files,
-            errors=errors,
-            attempt=attempt,
-            max_attempts=self.MAX_ATTEMPTS,
+        # Filter files to only those with errors
+        files_to_fix = [f for f in files if any(e.file == f.path for e in errors)]
+        
+        # Build user message with error details
+        error_summary = "\n".join([f"- {e.file}:{e.line} - {e.message}" for e in errors])
+        user_message = f"""Fix the following TypeScript compilation errors. This is attempt {attempt} of {self.MAX_ATTEMPTS}.
+
+## COMPILATION ERRORS TO FIX:
+{error_summary}"""
+        
+        # Build prompts using centralized method
+        system_prompt, user_prompt = build_diff_prompts(
+            edit_style_prompt=ERROR_FIX_SYSTEM_PROMPT,
+            file_changes=files_to_fix,
+            user_message=user_message,
+            allow_new_files=False,
         )
         
         yield AgentEvent("thinking", {
@@ -130,8 +139,8 @@ class ErrorFixService:
                     json={
                         "model": model,
                         "messages": [
-                            {"role": "system", "content": ERROR_FIX_SYSTEM_PROMPT},
-                            {"role": "user", "content": prompt},
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt},
                         ],
                         "temperature": 0.2,  # Lower temperature for more focused fixes
                         "stream": True,
@@ -172,13 +181,24 @@ class ErrorFixService:
                             except json.JSONDecodeError:
                                 continue
                     
-                    # Try diff-based parsing first, fallback to full-file parsing
-                    fixed_files = self._apply_diff_fixes(full_content, files)
+                    # Convert files to dict for diff application
+                    file_contents = {f.path: f.content for f in files}
                     
-                    if not fixed_files:
-                        # Fallback to full-file parsing for backwards compatibility
-                        logger.warning("No diffs found in LLM response, falling back to full-file parsing")
-                        fixed_files = self._parse_fixed_files(full_content, files)
+                    # Apply diffs using centralized service
+                    config = DiffApplicationConfig(
+                        protected_files=set(),
+                        normalize_paths=False,
+                        allow_new_files=False,
+                        fallback_to_full_file=True,
+                        verify_changes=False,
+                    )
+                    
+                    fixed_files = _apply_diffs_from_llm_response(
+                        llm_response=full_content,
+                        file_contents=file_contents,
+                        config=config,
+                        parse_full_files_fallback=self._parse_fixed_files,
+                    )
                     
                     # Emit events for each fixed file
                     for fixed_file in fixed_files:
@@ -247,11 +267,36 @@ class ErrorFixService:
             "error_type": "bundler",
         })
         
-        prompt = build_bundler_error_fix_prompt(
-            files=files,
-            bundler_errors=bundler_errors,
-            attempt=attempt,
-            max_attempts=self.MAX_ATTEMPTS,
+        # Build error summary
+        error_summary = "\n".join([
+            f"- {err.get('file', 'unknown')}:{err.get('line', '?')} - {err.get('message', 'Unknown error')}"
+            if isinstance(err, dict) else f"- {getattr(err, 'file', 'unknown')}:{getattr(err, 'line', '?')} - {getattr(err, 'message', str(err))}"
+            for err in bundler_errors
+        ])
+        
+        # Filter files to only those with errors
+        error_files = set()
+        for err in bundler_errors:
+            if isinstance(err, dict):
+                error_files.add(err.get('file', 'unknown'))
+            else:
+                error_files.add(getattr(err, 'file', 'unknown'))
+        files_to_fix = [f for f in files if f.path in error_files]
+        
+        # Build user message with bundler error details
+        user_message = f"""Fix the following bundler/runtime errors. This is attempt {attempt} of {self.MAX_ATTEMPTS}.
+
+## BUNDLER ERRORS:
+{error_summary}
+
+These errors were caught by the bundler, not TypeScript. Common causes: circular imports, missing exports, runtime errors."""
+        
+        # Build prompts using centralized method
+        system_prompt, user_prompt = build_diff_prompts(
+            edit_style_prompt=ERROR_FIX_SYSTEM_PROMPT,
+            file_changes=files_to_fix,
+            user_message=user_message,
+            allow_new_files=False,
         )
         
         yield AgentEvent("thinking", {
@@ -268,8 +313,8 @@ class ErrorFixService:
                     json={
                         "model": model,
                         "messages": [
-                            {"role": "system", "content": ERROR_FIX_SYSTEM_PROMPT},
-                            {"role": "user", "content": prompt},
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt},
                         ],
                         "temperature": 0.2,
                         "stream": True,
@@ -310,13 +355,24 @@ class ErrorFixService:
                             except json.JSONDecodeError:
                                 continue
                     
-                    # Try diff-based parsing first, fallback to full-file parsing
-                    fixed_files = self._apply_diff_fixes(full_content, files)
+                    # Convert files to dict for diff application
+                    file_contents = {f.path: f.content for f in files}
                     
-                    if not fixed_files:
-                        # Fallback to full-file parsing for backwards compatibility
-                        logger.warning("No diffs found in bundler fix response, falling back to full-file parsing")
-                        fixed_files = self._parse_fixed_files(full_content, files)
+                    # Apply diffs using centralized service
+                    config = DiffApplicationConfig(
+                        protected_files=set(),
+                        normalize_paths=False,
+                        allow_new_files=False,
+                        fallback_to_full_file=True,
+                        verify_changes=False,
+                    )
+
+                    fixed_files = _apply_diffs_from_llm_response(
+                        llm_response=full_content,
+                        file_contents=file_contents,
+                        config=config,
+                        parse_full_files_fallback=self._parse_fixed_files,
+                    )
                     
                     for fixed_file in fixed_files:
                         yield AgentEvent("fix_file_updated", {

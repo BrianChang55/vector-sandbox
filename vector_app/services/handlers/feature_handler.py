@@ -14,9 +14,9 @@ from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 from .base_handler import BaseHandler, AgentEvent, FileChange
 from .generate_handler import GenerateHandler
 from vector_app.services.context_analyzer import get_context_analyzer
-from vector_app.services.diff import format_with_line_numbers
 from vector_app.services.diff_application_service import (
     _apply_diffs_from_llm_response,
+    build_diff_prompts,
     DiffApplicationConfig,
 )
 from vector_app.services.planning_service import PlanStepStatus
@@ -90,6 +90,7 @@ Return your analysis as JSON:
 }}"""
 
 
+# Handler-specific user message template (diff format instructions added by build_diff_prompts)
 FEATURE_GENERATION_PROMPT = """Add the following feature to the existing application.
 
 ## User Request
@@ -99,18 +100,6 @@ FEATURE_GENERATION_PROMPT = """Add the following feature to the existing applica
 {feature_analysis}
 {reusable_components}
 {codebase_style}
-## Existing Code (with line numbers)
-{existing_code}
-
-**LINE NUMBERS**: The file contents above include line numbers in the format "  42| code here".
-Use these line numbers for your @@ hunk headers. The patch system has fuzz matching (±3 lines tolerance), but accurate numbers improve reliability.
-Do NOT include the line number prefix (e.g., "  42| ") in your diff output.
-
-**CRITICAL - CONTEXT LINES MUST BE EXACT**:
-The patch system can tolerate slight line number errors, but context lines MUST match the source file CHARACTER-FOR-CHARACTER.
-- Copy context lines exactly as shown (same whitespace, same quotes, same everything)
-- If the source has `  return <div className="p-4">` your context must be identical
-- Mismatched context lines will cause the patch to fail
 
 ## Instructions
 1. **Check for reusable components first** - extend existing components when possible
@@ -118,156 +107,6 @@ The patch system can tolerate slight line number errors, but context lines MUST 
 3. Update the main App.tsx to integrate the new feature
 4. Preserve ALL existing functionality
 5. Follow the existing code style exactly
-
-## Output Format: Unified Diff
-
-For ALL files (new and modified), output unified diffs inside ```diff code blocks:
-
-```diff
---- src/path/to/file.tsx
-+++ src/path/to/file.tsx
-@@ -LINE,COUNT +LINE,COUNT @@
- context line (unchanged, starts with space)
- context line (unchanged, starts with space)
- context line (unchanged, starts with space)
--line to remove (starts with minus)
-+line to add (starts with plus)
- context line (unchanged, starts with space)
- context line (unchanged, starts with space)
- context line (unchanged, starts with space)
-```
-
-### Diff Rules
-- Start with `--- path` and `+++ path` header lines
-- Each hunk starts with `@@ -old_start,old_count +new_start,new_count @@`
-- Include exactly 3 lines of unchanged context before and after changes
-- Lines starting with ` ` (space) are unchanged context
-- Lines starting with `-` are removed
-- Lines starting with `+` are added
-- For multiple non-adjacent changes in the same file, use multiple hunks
-
-### Hunk Structure Rule (CRITICAL)
-
-Within each hunk, lines MUST appear in this exact order:
-1. Context lines (space prefix) - unchanged lines before the change
-2. ALL removed lines (minus prefix) - grouped together consecutively
-3. ALL added lines (plus prefix) - grouped together consecutively
-4. Context lines (space prefix) - unchanged lines after the change
-
-**NEVER interleave removals and additions.** Each contiguous change region gets its own hunk.
-
-BAD (interleaved - will break):
-```
-@@ -1,10 +1,10 @@
- import React from 'react';
--old interface
-+new interface
--old export        <- WRONG: more removals after additions
-+new export
-```
-
-GOOD (separate hunks):
-```
-@@ -1,4 +1,4 @@
- import React from 'react';
--old interface
-+new interface
-
-@@ -8,3 +8,3 @@
- // context line
--old export
-+new export
-```
-
-### For NEW files (components that don't exist yet)
-Use `--- /dev/null` and start line numbers at 1:
-
-```diff
---- /dev/null
-+++ src/components/NewFeature.tsx
-@@ -0,0 +1,25 @@
-+import React from "react";
-+
-+export function NewFeature() {{
-+  return <div>New Feature</div>;
-+}}
-```
-
-### For MODIFIED files (like App.tsx)
-Include context lines from the existing code:
-
-```diff
---- src/App.tsx
-+++ src/App.tsx
-@@ -1,5 +1,6 @@
- import React from "react";
-+import {{ NewFeature }} from "./components/NewFeature";
- 
- function App() {{
-   return (
-@@ -10,6 +11,7 @@
-     <div>
-       <Header />
-       <Main />
-+      <NewFeature />
-     </div>
-   );
- }}
-```
-
-### Example with longer removals
-
-When removing multi-line blocks (functions, JSX elements, conditionals), you MUST include BOTH the opening AND closing parts. Never leave orphaned brackets, braces, or tags.
-
-```diff
---- src/components/Form.tsx
-+++ src/components/Form.tsx
-@@ -1,16 +1,8 @@
- import React, {{ useState }} from "react";
-
--function validate(value: string): boolean {{
--  return value.trim().length > 0;
--}}
--
- function Form() {{
-   const [value, setValue] = useState("");
--  const [hasError, setHasError] = useState(false);
-
-   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {{
--    const next = e.target.value;
--    setValue(next);
--    setHasError(!validate(next));
-+    setValue(e.target.value);
-   }}
-
-   return (
-@@ -20,9 +12,6 @@
-     <form>
-       <input value={{value}} onChange={{handleChange}} />
--      {{hasError && (
--        <span className="error">Required</span>
--      )}}
-       <button type="submit">Save</button>
-     </form>
-   );
- }}
-```
-
-Key points for removals:
-- Remove the ENTIRE `validate` function including its closing `}}`
-- Remove the ENTIRE conditional `{{hasError && (...)}}` including both `{{` and `)}}`
-- Never leave unmatched brackets, braces, parentheses, or tags
-
-### Syntax Balance Check (REQUIRED before outputting)
-
-Before finalizing each hunk, verify:
-1. Count removed `{{` equals removed `}}`
-2. Count removed `(` equals removed `)`
-3. Count removed `<Tag>` equals removed `</Tag>` or `<Tag />`
-4. If removing an opening line (e.g., `if (condition) {{`), the closing `}}` MUST also be removed
-5. If removing JSX like `{{condition && (`, you MUST also remove the matching `)}}`
-
-If your diff would leave unbalanced syntax, expand the hunk to include the matching closing element.
 
 CRITICAL:
 - Output unified diffs, NOT complete file contents
@@ -608,15 +447,18 @@ class FeatureHandler(BaseHandler):
         mcp_tools_context: Optional[str] = None,
     ) -> Generator[AgentEvent, None, List[FileChange]]:
         """Generate the new feature code."""
-        files = []
-
-        # Build existing code context with line numbers for accurate diff generation
-        code_context = ""
+        # Convert Dict[str, str] to List[FileChange]
+        file_changes = []
         for path, content in existing_code.items():
-            # Add line numbers first so LLM can reference them in diffs
-            numbered_content = format_with_line_numbers(content)
-            # Truncate large files (line numbers are preserved for visible lines)
-            code_context += f"\n### {path}\n```\n{numbered_content}\n```\n"
+            ext = path.split('.')[-1] if '.' in path else 'tsx'
+            lang_map = {'tsx': 'tsx', 'ts': 'ts', 'jsx': 'jsx', 'js': 'js', 'css': 'css', 'json': 'json'}
+            file_changes.append(FileChange(
+                path=path,
+                action="modify",
+                language=lang_map.get(ext, 'tsx'),
+                content=content,
+                previous_content=content,
+            ))
 
         feature_analysis_str = json.dumps(feature_analysis, indent=2)
 
@@ -635,26 +477,30 @@ class FeatureHandler(BaseHandler):
             if context.codebase_style:
                 codebase_style = f"\n{context.codebase_style.to_prompt_context()}\n"
 
-        # Build prompt with additional context
-        prompt_parts = [
-            FEATURE_GENERATION_PROMPT.format(
-                user_message=user_message,
-                feature_analysis=feature_analysis_str,
-                existing_code=code_context or "No existing code provided",
-                reusable_components=reusable_components,
-                codebase_style=codebase_style,
-            )
-        ]
+        # Build user message using handler-specific template
+        user_message_with_feature = FEATURE_GENERATION_PROMPT.format(
+            user_message=user_message,
+            feature_analysis=feature_analysis_str,
+            reusable_components=reusable_components,
+            codebase_style=codebase_style,
+        )
 
-        # Add data store context if available
+        # Build extra context
+        extra_context_parts = []
         if data_store_context and "No data tables" not in data_store_context:
-            prompt_parts.append(f"\n## Available Data Store\n{data_store_context}")
-
-        # Add MCP tools context if available
+            extra_context_parts.append(f"## Available Data Store\n{data_store_context}")
         if mcp_tools_context:
-            prompt_parts.append(f"\n## Available Integrations\n{mcp_tools_context}")
+            extra_context_parts.append(f"## Available Integrations\n{mcp_tools_context}")
+        extra_context = "\n\n".join(extra_context_parts) if extra_context_parts else None
 
-        prompt = "\n".join(prompt_parts)
+        # Build prompts using centralized method
+        system_prompt, user_prompt = build_diff_prompts(
+            edit_style_prompt=FEATURE_SYSTEM_PROMPT,
+            file_changes=file_changes,
+            user_message=user_message_with_feature,
+            allow_new_files=True,  # Feature handler can create new files
+            extra_context=extra_context,
+        )
 
         try:
             full_content = ""
@@ -664,8 +510,8 @@ class FeatureHandler(BaseHandler):
             validator = self.create_streaming_validator()
 
             for chunk in self.stream_llm_response(
-                system_prompt=FEATURE_SYSTEM_PROMPT,
-                user_prompt=prompt,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
                 model=model,
                 temperature=0.3,
             ):

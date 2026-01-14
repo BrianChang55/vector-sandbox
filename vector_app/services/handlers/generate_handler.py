@@ -22,6 +22,7 @@ from ..datastore import TableDefinitionParser, build_data_store_context, get_sys
 from ..diff import format_with_line_numbers
 from ..diff_application_service import (
     _apply_diffs_from_llm_response,
+    build_diff_prompts,
     DiffApplicationConfig,
 )
 from vector_app.models import AppDataTable, VersionFile
@@ -85,94 +86,6 @@ STEP_EDIT_SYSTEM_PROMPT = """You are an expert React/TypeScript developer making
    - Use `-` prefix for removed lines, `+` for added lines
    - Space prefix for unchanged context lines
    - Multiple hunks allowed for non-adjacent changes in the same file
-"""
-
-
-STEP_EDIT_PROMPT_TEMPLATE = """## Step {step_number}: {step_title}
-Description: {step_description}
-
-## User's Original Request
-{user_message}
-
-## Current File Contents (with line numbers)
-{files_context}
-
-**LINE NUMBERS**: The file contents above include line numbers in the format "  42| code here".
-Use these line numbers for your @@ hunk headers. The patch system has fuzz matching (±3 lines tolerance), but accurate numbers improve reliability.
-Do NOT include the line number prefix (e.g., "  42| ") in your diff output.
-
-**CRITICAL - CONTEXT LINES MUST BE EXACT**:
-The patch system can tolerate slight line number errors, but context lines MUST match the source file CHARACTER-FOR-CHARACTER.
-- Copy context lines exactly as shown (same whitespace, same quotes, same everything)
-- Mismatched context lines will cause the patch to fail
-
-{data_store_section}
-
-## Surgical Edit Instructions
-
-1. **Analyze the step description**: Identify exactly what needs to change
-2. **Locate the target**: Find the specific line(s) or section(s) to modify
-3. **Make minimal changes**: Change ONLY what's needed to fulfill the step
-4. **Preserve everything else**: Keep all other code exactly as-is
-
-## Output Format: Unified Diff
-
-For each file you modify, output a unified diff inside a ```diff code block:
-
-```diff
---- src/path/to/file.tsx
-+++ src/path/to/file.tsx
-@@ -LINE,COUNT +LINE,COUNT @@
- context line (unchanged, starts with space)
- context line (unchanged, starts with space)
- context line (unchanged, starts with space)
--line to remove (starts with minus)
-+line to add (starts with plus)
- context line (unchanged, starts with space)
- context line (unchanged, starts with space)
- context line (unchanged, starts with space)
-```
-
-### Diff Rules
-- Start with `--- path` and `+++ path` header lines
-- Each hunk starts with `@@ -old_start,old_count +new_start,new_count @@`
-- Include exactly 3 lines of unchanged context before and after changes
-- Lines starting with ` ` (space) are unchanged context - these MUST be copied EXACTLY from the source file
-- Lines starting with `-` are removed
-- Lines starting with `+` are added
-- For multiple non-adjacent changes in the same file, use multiple hunks
-- **CRITICAL**: Context lines must match the source file EXACTLY
-
-### Hunk Structure Rule (CRITICAL)
-
-Within each hunk, lines MUST appear in this exact order:
-1. Context lines (space prefix) - unchanged lines before the change
-2. ALL removed lines (minus prefix) - grouped together consecutively
-3. ALL added lines (plus prefix) - grouped together consecutively
-4. Context lines (space prefix) - unchanged lines after the change
-
-**NEVER interleave removals and additions.** Each contiguous change region gets its own hunk.
-
-### Creating NEW Files
-
-For new files that don't exist yet, use `--- /dev/null`:
-
-```diff
---- /dev/null
-+++ src/components/NewComponent.tsx
-@@ -0,0 +1,12 @@
-+import React from "react";
-+
-+export function NewComponent() {{
-+  return <div>New Component</div>;
-+}}
-```
-
-## Critical Reminders
-- Output ONLY unified diffs, not complete file contents
-- Do NOT add new features or "improvements" beyond what the step requires
-- Do NOT refactor or reorganize code
-- Context lines MUST be copied exactly from the provided file
 """
 
 
@@ -1323,13 +1236,34 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
             )
             return
         
-        # Build edit prompt
-        prompt = self._build_step_edit_prompt(
+        # Convert Dict[str, str] to List[FileChange]
+        file_changes = []
+        for path, content in files_to_edit.items():
+            ext = path.split('.')[-1] if '.' in path else 'tsx'
+            lang_map = {'tsx': 'tsx', 'ts': 'ts', 'jsx': 'jsx', 'js': 'js', 'css': 'css', 'json': 'json'}
+            file_changes.append(FileChange(
+                path=path,
+                action="modify",
+                language=lang_map.get(ext, 'tsx'),
+                content=content,
+                previous_content=content,
+            ))
+
+        # Build user message with step context using helper
+        user_message_with_step, extra_context = self._build_step_edit_prompt(
             step=step,
             step_index=step_index,
             user_message=user_message,
-            file_contents=files_to_edit,
             data_store_context=data_store_context,
+        )
+
+        # Build prompts using centralized method
+        system_prompt, user_prompt = build_diff_prompts(
+            edit_style_prompt=STEP_EDIT_SYSTEM_PROMPT,
+            file_changes=file_changes,
+            user_message=user_message_with_step,
+            allow_new_files=False,
+            extra_context=extra_context,
         )
         
         try:
@@ -1340,8 +1274,8 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
             validator = self.create_streaming_validator()
             
             for chunk in self.stream_llm_response(
-                system_prompt=STEP_EDIT_SYSTEM_PROMPT,
-                user_prompt=prompt,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
                 model=model,
                 temperature=0.2,  # Lower temperature for more consistent edits
             ):
@@ -1409,41 +1343,30 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
         step: PlanStep,
         step_index: int,
         user_message: str,
-        file_contents: Dict[str, str],
         data_store_context: Optional[str] = None,
-    ) -> str:
+    ) -> tuple[str, Optional[str]]:
         """
-        Build prompt for diff-based step execution.
+        Build user message content for diff-based step execution.
         
-        Shows existing file contents with line numbers and requests unified diffs.
+        Returns the user message and extra context to pass to build_diff_prompts.
+        The actual file context and diff format instructions are added by build_diff_prompts.
+        
+        Returns:
+            Tuple of (user_message, extra_context)
         """
-        # Build files context with line numbers
-        files_context = ""
-        for path, content in file_contents.items():
-            numbered_content = format_with_line_numbers(content)
-            files_context += f"\n### {path}\n```\n{numbered_content}\n```\n"
+        # Build user message with step context
+        user_message_with_step = f"""## Step {step_index + 1}: {getattr(step, 'title', '')}
+Description: {getattr(step, 'description', '')}
+
+## User's Original Request
+{user_message}"""
         
-        if not files_context:
-            files_context = "No existing files to modify."
-        
-        # Build data store section
-        data_store_section = ""
+        # Build extra context
+        extra_context = None
         if data_store_context and "No data tables" not in data_store_context:
-            data_store_section = f"## Available Data Store\n{data_store_context}"
+            extra_context = f"## Available Data Store\n{data_store_context}"
         
-        # Escape curly braces for .format()
-        escaped_files_context = files_context.replace("{", "{{").replace("}", "}}")
-        escaped_user_message = user_message.replace("{", "{{").replace("}", "}}")
-        escaped_data_store = data_store_section.replace("{", "{{").replace("}", "}}")
-        
-        return STEP_EDIT_PROMPT_TEMPLATE.format(
-            step_number=step_index + 1,
-            step_title=getattr(step, "title", ""),
-            step_description=getattr(step, "description", ""),
-            user_message=escaped_user_message,
-            files_context=escaped_files_context,
-            data_store_section=escaped_data_store,
-        )
+        return user_message_with_step, extra_context
 
     def _parse_table_definitions(self, content: str) -> List[Dict[str, Any]]:
         """Parse TABLE_DEFINITION blocks from agent output."""
