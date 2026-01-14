@@ -897,7 +897,23 @@ Has Existing Spec: {has_existing_spec}
 
 🚨 **CRITICAL PLANNING RULES:**
 
-## 1. Parallel Execution with step_order
+
+## 1. App.tsx Requirement (MANDATORY!)
+
+🚨 **EVERY PLAN MUST INCLUDE src/App.tsx IN target_files** 🚨
+
+- **REQUIRED**: At least ONE step must have "src/App.tsx" in its target_files array
+- This is the main entry point of the React application
+- Typically this should be an "integration" type step (operation_type="generate" or "edit")
+- If you have multiple components, App.tsx should import and orchestrate them
+- **YOUR PLAN WILL BE REJECTED if src/App.tsx is not included!**
+
+Examples:
+- ✅ GOOD: Step with target_files: ["src/App.tsx"] and description explaining how it imports components
+- ❌ BAD: No step mentions src/App.tsx - PLAN WILL BE REJECTED
+
+
+## 2. Parallel Execution with step_order
 Each step has a `step_order` (integer) that determines when it executes:
 - **step_order=0**: Executes first
 - **step_order=1, 2, 3...**: Higher numbers execute after lower numbers complete
@@ -912,7 +928,7 @@ Integration/styling steps that hook up components in App.tsx should have a HIGHE
 than the component steps they depend on - they cannot run in parallel with \
 steps that create the components they need to import.
 
-## 2. Detailed Step by Step Descriptions. These are CRUCIAL
+## 3. Detailed Step by Step Descriptions. These are CRUCIAL
 
 Each step description must be self-contained and specific enough that an AI executing \
 ONLY that step can succeed without seeing other steps. Think of this as design document level \
@@ -1027,7 +1043,7 @@ edit the plan to include that as a previous step.
 1. **Exact file paths** - Every step must list files it creates or modifies
 2. **Self-contained** - Another AI should be able to execute this step with ONLY its description
 
-## 4. Operation Types and Target Files
+## 5. Operation Types and Target Files
 
 Each step must specify:
 - **target_files**: Array of file paths this step will create or modify
