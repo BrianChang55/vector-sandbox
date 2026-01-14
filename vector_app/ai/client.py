@@ -149,9 +149,9 @@ class LLMClient:
                 )
 
         except httpx.HTTPStatusError as e:
-            logger.error("API error: %s", e.response.status_code)
+            logger.error("API error: %s with response: %s", e.response.status_code, e.response.text)
             raise APIError(
-                f"API request failed: {e.response.status_code}",
+                f"API request failed: {e.response.status_code} with response: {e.response.text}",
                 status_code=e.response.status_code,
                 response_body=e.response.text,
             ) from e
@@ -218,8 +218,8 @@ class LLMClient:
             yield StreamChunk(content="", done=True)
 
         except httpx.HTTPStatusError as e:
-            logger.error("API error: %s", e.response.status_code)
-            yield StreamChunk(content="", error=f"API error: {e.response.status_code}")
+            logger.error("API error: %s with response: %s", e.response.status_code, e.response.text)
+            yield StreamChunk(content="", error=f"API error: {e.response.status_code} with response: {e.response.text}")
         except Exception as e:
             logger.error("Stream error: %s", e)
             yield StreamChunk(content="", error=str(e))

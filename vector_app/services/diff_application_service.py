@@ -355,7 +355,7 @@ class DiffApplicationService:
             system_prompt: System prompt for the LLM
             user_prompt: User prompt for the LLM
             file_contents: Dict mapping file paths to their original content
-            model: Model identifier (e.g., "anthropic/claude-sonnet-4.5.5")
+            model: Model identifier (e.g., "anthropic/claude-sonnet-4.5")
             temperature: LLM temperature (default 0.2 for consistent edits)
             timeout: HTTP timeout in seconds
             config: Optional DiffApplicationConfig

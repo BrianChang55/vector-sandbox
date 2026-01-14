@@ -8,8 +8,8 @@ class AIModel(StrEnum):
     # Claude Models (Agent-capable)
     CLAUDE_OPUS_4_5 = "anthropic/claude-opus-4.5"
     CLAUDE_OPUS_4_5_HIGH = "anthropic/claude-opus-4.5"  # Same model, different settings
-    CLAUDE_SONNET_4_5 = "anthropic/claude-sonnet-4.5.5"
-    CLAUDE_HAIKU_4_5 = "anthropic/claude-haiku-4.5.5"
+    CLAUDE_SONNET_4_5 = "anthropic/claude-sonnet-4.5"
+    CLAUDE_HAIKU_4_5 = "anthropic/claude-haiku-4.5"
 
     # OpenAI Models (Agent-capable)
     GPT_5_1 = "openai/gpt-5.1"  # Best available
@@ -48,8 +48,8 @@ MODEL_CONFIGS: Dict[str, ModelConfig] = {
         category="premium",
         recommended_for=["complex_apps", "agents", "reasoning"],
     ),
-    "anthropic/claude-sonnet-4.5.5": ModelConfig(
-        model_id="anthropic/claude-sonnet-4.5.5",
+    "anthropic/claude-sonnet-4.5": ModelConfig(
+        model_id="anthropic/claude-sonnet-4.5",
         display_name="Sonnet 4.5",
         description="Best balance of speed and capability for agents",
         context_length=200000,
@@ -60,8 +60,8 @@ MODEL_CONFIGS: Dict[str, ModelConfig] = {
         category="standard",
         recommended_for=["general_coding", "agents", "ui_generation"],
     ),
-    "anthropic/claude-haiku-4.5.5": ModelConfig(
-        model_id="anthropic/claude-haiku-4.5.5",
+    "anthropic/claude-haiku-4.5": ModelConfig(
+        model_id="anthropic/claude-haiku-4.5",
         display_name="Haiku 4.5",
         description="Fast and efficient for quick agentic tasks",
         context_length=200000,
