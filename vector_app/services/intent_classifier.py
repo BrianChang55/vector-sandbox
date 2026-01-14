@@ -274,10 +274,10 @@ class IntentClassifier:
         try:
             llm_result = self._llm_classify(user_message, context, model)
             if llm_result:
-                logger.info(f"LLM classification: {llm_result.intent.value} ({llm_result.confidence:.0%})")
+                logger.info("LLM classification: %s (%.0f%%)", llm_result.intent.value, llm_result.confidence * 100)
                 return llm_result
         except Exception as e:
-            logger.warning(f"LLM classification failed: {e}, falling back to heuristics")
+            logger.warning("LLM classification failed: %s, falling back to heuristics", e)
 
         # Fallback to heuristic result or default
         if heuristic_result:
@@ -462,6 +462,7 @@ class IntentClassifier:
             table_columns=table_columns,
         )
 
+        start_time = time.time()
         try:
             result = get_llm_client().run(
                 system_prompt=INTENT_CLASSIFICATION_SYSTEM_PROMPT,
@@ -473,40 +474,15 @@ class IntentClassifier:
                     timeout=30.0,
                 ),
             )
+            duration_ms = int((time.time() - start_time) * 1000)
             data = result.validated(self._load_json_response, default=None)
+            logger.debug("[Intent Classifier] LLM response took %dms: %s", duration_ms, data)
             if not isinstance(data, dict):
                 return None
             return self._parse_llm_response(data)
-        # force small model to the be the model for now (speed and we dont depend on the files or tables from this)
-        model = AIModel.CLAUDE_SONNET_4_5.value
-
-        start_time = time.time()
-        try:
-            with httpx.Client(timeout=20) as client:
-                response = client.post(
-                    self.OPENROUTER_API_URL,
-                    headers=self._build_headers(),
-                    json={
-                        "model": model,
-                        "messages": [
-                            {"role": "system", "content": INTENT_CLASSIFICATION_SYSTEM_PROMPT},
-                            {"role": "user", "content": prompt},
-                        ],
-                        "temperature": 0.1,  # Low temperature for consistent classification
-                        "max_tokens": 500,
-                    },
-                )
-                response.raise_for_status()
-                
-                result = response.json()
-                content = result["choices"][0]["message"]["content"]
-                duration_ms = int((time.time() - start_time) * 1000)
-                logger.debug(f"[Intent Classifier] LLM response took {duration_ms}ms: {content}")
-                # Parse JSON response
-                return self._parse_llm_response(content)
 
         except Exception as e:
-            logger.error(f"LLM classification error: {e}")
+            logger.error("LLM classification error: %s", e)
             return None
 
     def _load_json_response(self, content: str) -> Optional[Dict[str, Any]]:
@@ -518,13 +494,13 @@ class IntentClassifier:
 
         json_match = re.search(r"\{.*\}", content, re.DOTALL)
         if not json_match:
-            logger.warning(f"No JSON found in LLM response: {content[:100]}")
+            logger.warning("No JSON found in LLM response: %s", content[:100])
             return None
 
         try:
             return json.loads(json_match.group())
         except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse LLM response as JSON: {e}")
+            logger.warning("Failed to parse LLM response as JSON: %s", e)
             return None
 
     def _parse_llm_response(self, data: Dict[str, Any]) -> Optional[IntentResult]:
@@ -545,7 +521,7 @@ class IntentClassifier:
 
             intent = intent_map.get(intent_str)
             if not intent:
-                logger.warning(f"Unknown intent: {intent_str}")
+                logger.warning("Unknown intent: %s", intent_str)
                 return None
 
             # Parse secondary intents if present (compound request)
