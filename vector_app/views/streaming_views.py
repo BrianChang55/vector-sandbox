@@ -23,6 +23,8 @@ from rest_framework.request import Request
 from ..models import InternalApp, AppVersion, VersionFile, VersionAuditLog
 from ..models import ChatSession, ChatMessage, CodeGenerationJob
 from ..ai.models import AIModel
+from ..ai.client import get_llm_client
+from ..ai.types import LLMSettings
 from ..services.openrouter_service import (
     get_openrouter_service,
     StreamChunk,
@@ -1728,19 +1730,15 @@ class GenerateAppTitleView(APIView):
             )
         
         try:
-            import httpx
-            from django.conf import settings
-            
-            api_key = getattr(settings, 'OPENROUTER_API_KEY', None) or getattr(settings, 'OPENAI_API_KEY', None)
-            
-            if not api_key:
+            client = get_llm_client()
+            if not client.api_key:
                 # Fallback: use prompt as title
                 return Response({
                     "title": prompt[:40],
                     "description": "",
                     "fallback": True,
                 })
-            
+
             # Use GPT-4o-mini for fast, cheap title generation
             system_prompt = """You are a helpful assistant that generates short, catchy app titles and descriptions.
 Given a user's prompt describing what they want to build, generate:
@@ -1753,39 +1751,28 @@ Examples:
 - Prompt: "Build a dashboard to manage user subscriptions" -> {"title": "Subscription Manager", "description": "Track and manage user subscriptions"}
 - Prompt: "Create an order tracking system with refunds" -> {"title": "Order Tracker", "description": "Track orders and process refunds"}
 """
-            
-            with httpx.Client(timeout=15.0) as client:
-                response = client.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": "openai/gpt-4o-mini",
-                        "messages": [
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": f"Prompt: {prompt}"},
-                        ],
-                        "response_format": {"type": "json_object"},
-                        "temperature": 0.3,
-                        "max_tokens": 100,
-                    },
-                )
-                response.raise_for_status()
-                
-                result = response.json()
-                content = result["choices"][0]["message"]["content"]
-                parsed = json.loads(content)
-                
-                title = parsed.get("title", prompt[:40])[:40]
-                description = parsed.get("description", "")[:60]
-                
-                return Response({
-                    "title": title,
-                    "description": description,
-                    "fallback": False,
-                })
+
+            result = client.run(
+                system_prompt=system_prompt,
+                user_prompt=f"Prompt: {prompt}",
+                llm_settings=LLMSettings(
+                    model="openai/gpt-4o-mini",
+                    temperature=0.3,
+                    max_tokens=100,
+                    timeout=15.0,
+                ),
+                json_mode=True,
+            )
+            parsed = result.validated(json.loads, default={})
+
+            title = parsed.get("title", prompt[:40])[:40]
+            description = parsed.get("description", "")[:60]
+
+            return Response({
+                "title": title,
+                "description": description,
+                "fallback": False,
+            })
                 
         except Exception as e:
             logger.warning(f"Failed to generate app title via GPT: {e}")

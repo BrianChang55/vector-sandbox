@@ -13,10 +13,9 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, List, Optional
 
-from django.conf import settings
-import httpx
-
+from vector_app.ai.client import get_llm_client
 from vector_app.ai.models import AIModel
+from vector_app.ai.types import LLMSettings
 from vector_app.prompts.execution_scope import (
     EXECUTION_SCOPE_SYSTEM_PROMPT,
     build_execution_scope_prompt,
@@ -70,8 +69,6 @@ class ExecutionScopeClassifier:
     Designed to be called before execution for pricing/billing purposes.
     """
     
-    OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-    
     # Heuristic keywords for quick classification
     EXPLANATION_KEYWORDS = [
         "what is", "what are", "how does", "how do", "explain",
@@ -103,21 +100,6 @@ class ExecutionScopeClassifier:
         "redesign everything", "from scratch", "regenerate the entire",
         "rebuild the whole", "full rewrite",
     ]
-    
-    def __init__(self):
-        self.api_key = getattr(settings, 'OPENROUTER_API_KEY', None) or \
-                       getattr(settings, 'OPENAI_API_KEY', None)
-        self.app_name = getattr(settings, 'OPENROUTER_APP_NAME', 'Internal Apps Builder')
-        self.site_url = getattr(settings, 'BASE_URL', 'http://localhost:8001')
-    
-    def _build_headers(self) -> Dict[str, str]:
-        """Build API headers for OpenRouter."""
-        return {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": self.site_url,
-            "X-Title": self.app_name,
-        }
     
     def classify(
         self,
@@ -256,37 +238,28 @@ class ExecutionScopeClassifier:
         """
         Use LLM for nuanced scope classification.
         """
-        if not self.api_key:
+        client = get_llm_client()
+        if not getattr(client, "api_key", None):
             logger.warning("No API key configured for LLM classification")
             return None
-        
+
         prompt = build_execution_scope_prompt(user_prompt)
-        
+
         try:
-            with httpx.Client(timeout=15.0) as client:
-                response = client.post(
-                    self.OPENROUTER_API_URL,
-                    headers=self._build_headers(),
-                    json={
-                        "model": model,
-                        "messages": [
-                            {"role": "system", "content": EXECUTION_SCOPE_SYSTEM_PROMPT},
-                            {"role": "user", "content": prompt},
-                        ],
-                        "temperature": 0.0,  # Deterministic for consistent classification
-                        "max_tokens": 10,    # We only need a single label
-                    },
-                )
-                response.raise_for_status()
-                
-                result = response.json()
-                content = result["choices"][0]["message"]["content"].strip().upper()
-                
-                return self._parse_llm_response(content)
-                
-        except httpx.HTTPStatusError as e:
-            logger.error(f"LLM API error: {e.response.status_code}")
-            return None
+            result = client.run(
+                system_prompt=EXECUTION_SCOPE_SYSTEM_PROMPT,
+                user_prompt=prompt,
+                llm_settings=LLMSettings(
+                    model=model,
+                    temperature=0.0,
+                    max_tokens=10,
+                    timeout=15.0,
+                ),
+            )
+            content = result.validated(default="").strip().upper()
+            if not content:
+                return None
+            return self._parse_llm_response(content)
         except Exception as e:
             logger.error(f"LLM classification error: {e}")
             return None

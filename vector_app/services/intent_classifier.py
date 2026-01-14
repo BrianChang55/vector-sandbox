@@ -14,10 +14,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, TYPE_CHECKING
 
-from django.conf import settings
-import httpx
-
+from vector_app.ai.client import get_llm_client
 from vector_app.ai.models import AIModel
+from vector_app.ai.types import LLMSettings
 from vector_app.prompts.intent_classification import (
     INTENT_CLASSIFICATION_SYSTEM_PROMPT,
     build_intent_classification_prompt,
@@ -88,8 +87,6 @@ class IntentClassifier:
     multiple operations (e.g., add field + update UI).
     """
     
-    OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-    
     # Keywords that strongly suggest specific intents
     # Order matters - more specific patterns first
     GENERATE_KEYWORDS = [
@@ -146,21 +143,6 @@ class IntentClassifier:
         "refactor", "reorganize", "split", "extract",
         "separate", "clean up", "restructure", "modularize"
     ]
-    
-    def __init__(self):
-        self.api_key = getattr(settings, 'OPENROUTER_API_KEY', None) or \
-                      getattr(settings, 'OPENAI_API_KEY', None)
-        self.app_name = getattr(settings, 'OPENROUTER_APP_NAME', 'Internal Apps Builder')
-        self.site_url = getattr(settings, 'BASE_URL', 'http://localhost:8001')
-    
-    def _build_headers(self) -> Dict[str, str]:
-        """Build API headers for OpenRouter."""
-        return {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": self.site_url,
-            "X-Title": self.app_name,
-        }
     
     def classify(
         self,
@@ -395,54 +377,48 @@ class IntentClassifier:
         )
         
         try:
-            with httpx.Client(timeout=30.0) as client:
-                response = client.post(
-                    self.OPENROUTER_API_URL,
-                    headers=self._build_headers(),
-                    json={
-                        "model": model,
-                        "messages": [
-                            {"role": "system", "content": INTENT_CLASSIFICATION_SYSTEM_PROMPT},
-                            {"role": "user", "content": prompt},
-                        ],
-                        "temperature": 0.1,  # Low temperature for consistent classification
-                        "max_tokens": 500,
-                    },
-                )
-                response.raise_for_status()
-                
-                result = response.json()
-                content = result["choices"][0]["message"]["content"]
-                
-                # Parse JSON response
-                return self._parse_llm_response(content)
-                
+            result = get_llm_client().run(
+                system_prompt=INTENT_CLASSIFICATION_SYSTEM_PROMPT,
+                user_prompt=prompt,
+                llm_settings=LLMSettings(
+                    model=model,
+                    temperature=0.1,
+                    max_tokens=500,
+                    timeout=30.0,
+                ),
+            )
+            data = result.validated(self._load_json_response, default=None)
+            if not isinstance(data, dict):
+                return None
+            return self._parse_llm_response(data)
         except Exception as e:
             logger.error(f"LLM classification error: {e}")
             return None
-    
-    def _parse_llm_response(self, content: str) -> Optional[IntentResult]:
+
+    def _load_json_response(self, content: str) -> Optional[Dict[str, Any]]:
+        """Extract a JSON object from an LLM response string."""
+        content = content.strip()
+        if content.startswith("```"):
+            content = re.sub(r'^```(?:json)?\s*', '', content)
+            content = re.sub(r'\s*```$', '', content)
+
+        json_match = re.search(r'\{.*\}', content, re.DOTALL)
+        if not json_match:
+            logger.warning(f"No JSON found in LLM response: {content[:100]}")
+            return None
+
+        try:
+            return json.loads(json_match.group())
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse LLM response as JSON: {e}")
+            return None
+
+    def _parse_llm_response(self, data: Dict[str, Any]) -> Optional[IntentResult]:
         """Parse the LLM's JSON response into an IntentResult.
         
         Supports compound intent parsing with secondary_intents.
         """
         try:
-            # Clean up the response - remove markdown code blocks if present
-            content = content.strip()
-            if content.startswith("```"):
-                # Remove code block markers
-                content = re.sub(r'^```(?:json)?\s*', '', content)
-                content = re.sub(r'\s*```$', '', content)
-            
-            # Find JSON object
-            json_match = re.search(r'\{.*\}', content, re.DOTALL)
-            if not json_match:
-                logger.warning(f"No JSON found in LLM response: {content[:100]}")
-                return None
-            
-            data = json.loads(json_match.group())
-            
-            # Map intent string to enum
             intent_str = data.get("intent", "").upper()
             intent_map = {
                 "GENERATE_NEW": UserIntent.GENERATE_NEW,
@@ -452,16 +428,16 @@ class IntentClassifier:
                 "FIX_BUG": UserIntent.FIX_BUG,
                 "REFACTOR": UserIntent.REFACTOR,
             }
-            
+
             intent = intent_map.get(intent_str)
             if not intent:
                 logger.warning(f"Unknown intent: {intent_str}")
                 return None
-            
+
             # Parse secondary intents if present (compound request)
             secondary_intents = []
             is_compound = data.get("is_compound", False)
-            
+
             if "secondary_intents" in data and isinstance(data["secondary_intents"], list):
                 is_compound = True
                 for secondary in data["secondary_intents"]:
@@ -476,7 +452,7 @@ class IntentClassifier:
                             scope=secondary.get("scope", "partial"),
                             reasoning=secondary.get("reasoning", ""),
                         ))
-            
+
             return IntentResult(
                 intent=intent,
                 confidence=float(data.get("confidence", 0.7)),
@@ -487,10 +463,6 @@ class IntentClassifier:
                 is_compound=is_compound,
                 secondary_intents=secondary_intents,
             )
-            
-        except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse LLM response as JSON: {e}")
-            return None
         except Exception as e:
             logger.warning(f"Error parsing LLM response: {e}")
             return None
