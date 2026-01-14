@@ -919,7 +919,7 @@ If the app needs to store/manage ANY data, you MUST:
 - Think through EVERY entity that needs to be stored upfront
 - **YOU CANNOT CREATE TABLES LATER** - all tables must be defined in this first step!
 
-## 2. Parallel Execution with step_order
+## 3. Parallel Execution with step_order
 Each step has a `step_order` (integer) that determines when it executes:
 - **step_order=0**: Executes first (always use for "data" type steps)
 - **step_order=1, 2, 3...**: Higher numbers execute after lower numbers complete
@@ -934,14 +934,14 @@ Integration/styling steps that hook up components in App.tsx should have a HIGHE
 than the component steps they depend on - they cannot run in parallel with \
 steps that create the components they need to import.
 
-## 3. Explicit File Ownership in Descriptions
+## 4. Explicit File Ownership in Descriptions
 Each step description MUST clearly state which files it will create or modify:
 - ❌ BAD: "Build UI components"
 - ✅ GOOD: "Create src/components/Header.tsx and src/components/Sidebar.tsx"
 - ❌ BAD: "Create table schemas for core data"
 - ✅ GOOD: "Create table schemas for: projects, tasks, sprints, team_members"
 
-## 4. Detailed Step Descriptions
+## 5. Detailed Step Descriptions
 
 Each step description must be self-contained and specific enough that an AI executing ONLY that step can succeed without seeing other steps.
 
@@ -997,7 +997,7 @@ Each step description must be self-contained and specific enough that an AI exec
 3. **Self-contained** - Another AI should be able to execute this step with ONLY its description
 
 
-### 5. Go Back and Confirm Everything was added to the Data Step
+### 6. Go Back and Confirm Everything was added to the Data Step
 
 After drafting all steps, **REVIEW YOUR PLAN** and verify:
 - Did you include ALL tables needed by EVERY component and feature?
@@ -1007,13 +1007,13 @@ After drafting all steps, **REVIEW YOUR PLAN** and verify:
 
 This is your ONLY chance to define tables - you CANNOT add tables in later steps!
 
-## 6. Operation Types and Target Files
+## 7. Operation Types and Target Files
 
 Each step must specify:
 - **target_files**: Array of file paths this step will create or modify
 - **operation_type**: The type of operation being performed
 
-## 7. Confirm src/App.tsx is Included
+## 8. Confirm src/App.tsx is Included
 
 After drafting all steps, **VERIFY** that at least ONE step has "src/App.tsx" in its target_files array:
 - ✅ Check: Does any step create or modify src/App.tsx?
