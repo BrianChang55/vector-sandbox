@@ -58,7 +58,7 @@ function App() {
                   <AdminTemplatePage />
                 </AdminGuard>
               }
-              />
+            />
 
             {/* Protected routes */}
             <Route
@@ -70,7 +70,7 @@ function App() {
                   </MainLayout>
                 </AuthGuard>
               }
-              />
+            />
             {/* AppBuilder is fullscreen without MainLayout for immersive vibe coding */}
             <Route
               path="/apps/:appId"
@@ -79,7 +79,7 @@ function App() {
                   <AppBuilderPage />
                 </AuthGuard>
               }
-              />
+            />
             <Route
               path="/preview/apps/:appId/"
               element={
@@ -87,7 +87,7 @@ function App() {
                   <AppPreviewPage />
                 </AuthGuard>
               }
-              />
+            />
             <Route
               path="/integrations"
               element={
@@ -97,7 +97,7 @@ function App() {
                   </MainLayout>
                 </AuthGuard>
               }
-              />
+            />
             <Route
               path="/settings"
               element={
@@ -107,7 +107,7 @@ function App() {
                   </MainLayout>
                 </AuthGuard>
               }
-              />
+            />
             
             {/* Dev-only route for auto-login - excluded from production builds */}
             {DevAuthPage && (
@@ -134,7 +134,7 @@ function App() {
                   <PublishedAppPage />
                 </AuthGuard>
               }
-              />
+            />
           </Routes>
           </BrowserRouter>
           </ToastProvider>
