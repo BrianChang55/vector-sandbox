@@ -20,7 +20,6 @@ from vector_app.services.types import (
     CompilationError,
     ValidationResult,
 )
-from vector_app.services.planning_service import PlanOperationType
 if TYPE_CHECKING:
     from vector_app.models import InternalApp
 
