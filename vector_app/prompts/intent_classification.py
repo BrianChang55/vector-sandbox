@@ -38,6 +38,9 @@ INTENT_CLASSIFICATION_PROMPT = """Analyze this user request in the context of an
 - Has data store: {has_data_store}
 - Table columns: {table_columns}
 
+- All Files:
+{existing_files}
+
 ## Schema-Aware Classification
 
 When the user mentions data fields, tables, or columns:
@@ -86,38 +89,58 @@ Example compound requests:
 6. **REFACTOR** - Reorganize code without changing functionality
    - Examples: "Split into components", "Extract to separate file", "Clean up code"
 
+
+### Think Critically About the Impacted Files
+When populating `affected_files` and `affected_tables`, be specific and accurate:
+
+**For `affected_files`:**
+- Match component names in the request to existing components listed above
+- "Change the button" → look through Button.tsx and files containing "Button" in exports
+- "Update the header" → look through Header.tsx, Nav.tsx, etc.
+- "Fix the form" → look through Form.tsx, or files with "Form" in the name
+- If the request is vague or could affect many files, return `[]` (empty) — the system will fall back to broader detection
+- ONLY include files that actually exist in the list of affected files.
+
+**For `affected_tables`:**
+- If the request mentions data fields, check if they exist in `table_columns`
+- "Add due date to todos" + todos exists → `["todos"]`
+- "Create a new comments table" → `["comments"]` (even if it doesn't exist yet)
+- For pure UI changes with no data implications → `[]`
+
+**Accuracy matters:** The downstream system uses your file list as a starting point to find related files. A wrong file wastes effort; an empty list triggers fallback heuristics (safer when uncertain).
+
 ## Response Format
 
 Return ONLY valid JSON (no markdown, no code blocks).
 
 For SINGLE intent:
 {{
+  "reasoning": "User specifically mentions changing button color, which is a targeted CSS edit",
   "intent": "EDIT_CODE",
   "confidence": 0.9,
   "affected_files": ["src/components/Button.tsx"],
   "affected_tables": [],
   "scope": "surgical",
-  "reasoning": "User specifically mentions changing button color, which is a targeted CSS edit",
   "is_compound": false
 }}
 
 For COMPOUND requests (multiple operations needed):
 {{
+  "reasoning": "Adding due date field requires schema change first, then UI updates",
   "intent": "MODIFY_SCHEMA",
   "confidence": 0.9,
   "affected_files": [],
   "affected_tables": ["todos"],
   "scope": "partial",
-  "reasoning": "Adding due date field requires schema change first, then UI updates",
   "is_compound": true,
   "secondary_intents": [
     {{
+      "reasoning": "UI needs new date input and form handling for due date"
       "intent": "ADD_FEATURE",
       "confidence": 0.85,
       "affected_files": ["src/components/TodoForm.tsx"],
       "affected_tables": [],
       "scope": "partial",
-      "reasoning": "UI needs new date input and form handling for due date"
     }}
   ]
 }}
@@ -147,6 +170,7 @@ def build_intent_classification_prompt(
     user_message: str,
     has_files: bool,
     file_count: int,
+    existing_files: str,
     components: str,
     tables: str,
     has_data_store: bool,
@@ -166,6 +190,7 @@ def build_intent_classification_prompt(
     return INTENT_CLASSIFICATION_PROMPT.format(
         user_message=user_message,
         has_files=has_files,
+        existing_files=existing_files or "None",
         file_count=file_count,
         components=components or "None",
         tables=tables or "None",

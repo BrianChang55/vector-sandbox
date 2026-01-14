@@ -10,9 +10,11 @@ operations (e.g., schema change + UI update).
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, TYPE_CHECKING
+from vector_app.services.openrouter_service import AIModel
 
 from django.conf import settings
 import httpx
@@ -26,6 +28,8 @@ if TYPE_CHECKING:
     from vector_app.services.context_analyzer import AppContext
 
 logger = logging.getLogger(__name__)
+
+TIMEOUT = 20
 
 
 class UserIntent(Enum):
@@ -199,10 +203,7 @@ class IntentClassifier:
         
         # Try heuristic classification first
         heuristic_result = self._heuristic_classify(message_lower, context)
-        if heuristic_result and heuristic_result.confidence >= 0.85:
-            logger.info(f"Heuristic classification: {heuristic_result.intent.value} ({heuristic_result.confidence:.0%})")
-            return heuristic_result
-        
+
         # Use LLM for more nuanced classification
         try:
             llm_result = self._llm_classify(user_message, context, model)
@@ -371,14 +372,15 @@ class IntentClassifier:
         Use LLM for nuanced intent classification.
         """
         # Build context strings for the prompt
-        components = ", ".join(context.entry_points[:5]) if context.entry_points else "None"
-        tables = ", ".join([t.name for t in context.existing_tables[:5]]) if context.existing_tables else "None"
-        
+        all_existing_files = ", ".join([f.path for f in context.existing_files]) if context.existing_files else "None"
+        components = ", ".join(context.entry_points) if context.entry_points else "None"
+        tables = ", ".join([t.name for t in context.existing_tables]) if context.existing_tables else "None"
+
         # Build detailed table columns for schema-aware classification
         table_columns = ""
         if context.existing_tables:
             table_details = []
-            for t in context.existing_tables[:5]:
+            for t in context.existing_tables:
                 cols = ", ".join(t.columns[:10]) if t.columns else "unknown"
                 table_details.append(f"{t.name}: {cols}")
             table_columns = "; ".join(table_details)
@@ -387,14 +389,18 @@ class IntentClassifier:
             user_message=user_message,
             has_files=context.has_existing_app,
             file_count=context.file_count,
+            existing_files=all_existing_files,
             components=components,
             tables=tables,
             has_data_store=len(context.existing_tables) > 0,
             table_columns=table_columns,
         )
-        
+        # force small model to the be the model for now (speed and we dont depend on the files or tables from this)
+        model = AIModel.CLAUDE_SONNET_4_5.value
+
+        start_time = time.time()
         try:
-            with httpx.Client(timeout=30.0) as client:
+            with httpx.Client(timeout=20) as client:
                 response = client.post(
                     self.OPENROUTER_API_URL,
                     headers=self._build_headers(),
@@ -412,10 +418,11 @@ class IntentClassifier:
                 
                 result = response.json()
                 content = result["choices"][0]["message"]["content"]
-                
+                duration_ms = int((time.time() - start_time) * 1000)
+                logger.debug(f"[Intent Classifier] LLM response took {duration_ms}ms: {content}")
                 # Parse JSON response
                 return self._parse_llm_response(content)
-                
+
         except Exception as e:
             logger.error(f"LLM classification error: {e}")
             return None
