@@ -19,7 +19,11 @@ from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 from .base_handler import BaseHandler, AgentEvent, FileChange, exclude_protected_files
 from .parallel_executor import create_parallel_executor, ParallelStepExecutor
 from ..datastore import TableDefinitionParser, build_data_store_context, get_system_columns
-from ..diff import parse_diffs, apply_diff, format_with_line_numbers
+from ..diff import format_with_line_numbers
+from ..diff_application_service import (
+    _apply_diffs_from_llm_response,
+    DiffApplicationConfig,
+)
 from vector_app.models import AppDataTable, VersionFile
 from vector_app.prompts.agentic import (
     apply_design_style_prompt,
@@ -769,37 +773,42 @@ FILES WITH LINE NUMBERS:
             ):
                 diff_response += chunk
 
-            # Parse and apply diffs to original files
-            diffs = parse_diffs(diff_response)
-            if diffs:
+            # Apply diffs using centralized service
+            # Convert List[FileChange] to Dict[str, str] for service
+            file_contents = {f.path: f.content for f in files}
+            
+            config = DiffApplicationConfig(
+                protected_files=PROTECTED_FILES,  # Protect auto-generated types file
+                normalize_paths=False,            # Paths match exactly
+                allow_new_files=False,            # Syntax fix only modifies existing
+                fallback_to_full_file=False,      # No fallback - just warn
+                verify_changes=False,             # Apply all diffs
+            )
+            
+            fixed_files = _apply_diffs_from_llm_response(
+                llm_response=diff_response,
+                file_contents=file_contents,
+                config=config,
+            )
+            
+            if fixed_files:
+                # Merge fixed files back into original list, preserving action/language
                 files_by_path = {f.path: f for f in files}
-                for diff in diffs:
-                    # Skip protected files
-                    if diff.path in PROTECTED_FILES:
-                        logger.info(f"[SYNTAX FIX] Skipping protected file: {diff.path}")
-                        continue
-                    
-                    original_file = files_by_path.get(diff.path)
+                for fixed_file in fixed_files:
+                    original_file = files_by_path.get(fixed_file.path)
                     if original_file:
-                        try:
-                            new_content = apply_diff(original_file.content, diff)
-                            # Update the file in place
-                            files_by_path[diff.path] = FileChange(
-                                path=original_file.path,
-                                action=original_file.action,
-                                language=original_file.language,
-                                content=new_content,
-                                previous_content=original_file.content,
-                                lines_added=diff.lines_added,
-                                lines_removed=diff.lines_removed,
-                            )
-                        except Exception as e:
-                            logger.error(f"[SYNTAX FIX] Failed to apply diff to {diff.path}: {e}")
-                    else:
-                        logger.warning(f"[SYNTAX FIX] No original file found for diff: {diff.path}")
-
+                        # Preserve original action and language, update content
+                        files_by_path[fixed_file.path] = FileChange(
+                            path=original_file.path,
+                            action=original_file.action,
+                            language=original_file.language,
+                            content=fixed_file.content,
+                            previous_content=fixed_file.previous_content,
+                            lines_added=fixed_file.lines_added,
+                            lines_removed=fixed_file.lines_removed,
+                        )
                 files = list(files_by_path.values())
-                logger.info(f"[SYNTAX FIX] Applied {len(diffs)} diff(s)")
+                logger.info(f"[SYNTAX FIX] Applied {len(fixed_files)} diff(s)")
             else:
                 logger.warning("[SYNTAX FIX] No diffs found in LLM response")
 
@@ -1352,69 +1361,36 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
             for warning in final_warnings:
                 yield self.emit_streaming_warning(warning)
             
-            # Parse unified diffs from LLM response
-            diffs = parse_diffs(full_content)
+            # Apply diffs using centralized service
+            config = DiffApplicationConfig(
+                protected_files=PROTECTED_FILES,  # Protect auto-generated types file
+                normalize_paths=False,            # Paths match exactly from step context
+                allow_new_files=True,             # Edit steps can create new files
+                fallback_to_full_file=True,       # Fall back to full file parsing
+                verify_changes=False,             # Apply all diffs
+            )
             
-            logger.debug(f"[EDIT STEP] Parsed {len(diffs)} diff(s) from LLM response")
+            def fallback_with_protection(content: str) -> List[FileChange]:
+                """Fallback that also excludes protected files."""
+                parsed_files = self.parse_code_blocks(content)
+                return exclude_protected_files(parsed_files, PROTECTED_FILES)
             
-            files: List[FileChange] = []
+            files = _apply_diffs_from_llm_response(
+                llm_response=full_content,
+                file_contents=file_contents,
+                config=config,
+                parse_full_files_fallback=fallback_with_protection,
+            )
             
-            if diffs:
-                # Apply diffs to original files
-                for diff in diffs:
-                    # Skip protected files
-                    if diff.path in PROTECTED_FILES:
-                        logger.info(f"[EDIT STEP] Skipping protected file: {diff.path}")
-                        continue
-                    
-                    original = file_contents.get(diff.path, "")
-                    
-                    if not original and diff.path.startswith('---'):
-                        # New file being created via diff (--- /dev/null)
-                        # The content comes from the + lines
-                        new_content = "\n".join(
-                            line[1:] for hunk in diff.hunks 
-                            for line in hunk.split('\n') 
-                            if line.startswith('+') and not line.startswith('+++')
-                        )
-                        file_change = FileChange(
-                            path=diff.path.replace('/dev/null', '').strip() if '/dev/null' in diff.path else diff.path,
-                            action="create",
-                            language=self.get_language(diff.path),
-                            content=new_content,
-                            lines_added=diff.lines_added,
-                            lines_removed=0,
-                        )
-                    elif not original:
-                        logger.warning(f"[EDIT STEP] No original content for {diff.path}, skipping")
-                        continue
-                    else:
-                        # Apply diff to existing file
-                        new_content = apply_diff(original, diff)
-                        file_change = FileChange(
-                            path=diff.path,
-                            action="modify",
-                            language=self.get_language(diff.path),
-                            content=new_content,
-                            previous_content=original,
-                            lines_added=diff.lines_added,
-                            lines_removed=diff.lines_removed,
-                        )
-                    
-                    files.append(file_change)
-                    yield self.emit_file_generated(file_change)
-                    
-                logger.info(f"[EDIT STEP] Applied {len(files)} diff(s) successfully")
-            else:
-                # Fallback: try parsing as complete file blocks
-                logger.warning("[EDIT STEP] No diffs found in LLM response, falling back to full file parsing")
-                files = self.parse_code_blocks(full_content)
-                files = exclude_protected_files(files, PROTECTED_FILES)
-                
-                for f in files:
-                    # Mark as modify if file existed, create otherwise
-                    f.action = "modify" if f.path in file_contents else "create"
-                    yield self.emit_file_generated(f)
+            # Ensure correct action based on original existence
+            for f in files:
+                if f.path in file_contents:
+                    f.action = "modify"
+                else:
+                    f.action = "create"
+                yield self.emit_file_generated(f)
+            
+            logger.info(f"[EDIT STEP] Applied {len(files)} diff(s) successfully")
             
             # Validate and fix field names (same as generate path)
             for event in self._validate_and_fix_fields(files, full_content, app, version, model):
