@@ -16,6 +16,7 @@ from typing import Any, Dict, Generator, List, Optional, Set, TYPE_CHECKING
 from django.conf import settings
 import httpx
 
+from vector_app.ai.models import AIModel
 from vector_app.services.error_fix_service import get_error_fix_service
 from vector_app.services.planning_service import PlanStep
 from vector_app.services.types import (
@@ -198,7 +199,7 @@ class BaseHandler(ABC):
         current_spec: Optional[Dict[str, Any]],
         registry_surface: Dict[str, Any],
         app_name: str,
-        model: str,
+        model: AIModel,
         app: Optional["InternalApp"] = None,
         version: Optional["AppVersion"] = None,
         **kwargs,
@@ -402,7 +403,7 @@ class BaseHandler(ABC):
         self,
         system_prompt: str,
         user_prompt: str,
-        model: str,
+        model: AIModel,
         temperature: float = 0.3,
         timeout: float = 120.0,
     ) -> Generator[str, None, str]:
@@ -463,7 +464,7 @@ class BaseHandler(ABC):
         self,
         system_prompt: str,
         user_prompt: str,
-        model: str,
+        model: AIModel,
         temperature: float = 0.3,
         timeout: float = 60.0,
     ) -> str:
@@ -646,7 +647,7 @@ class BaseHandler(ABC):
     def validate_and_fix(
         self,
         generated_files: List[FileChange],
-        model: str,
+        model: AIModel,
         max_attempts: int = 2,
     ) -> Generator[AgentEvent, None, tuple]:
         """

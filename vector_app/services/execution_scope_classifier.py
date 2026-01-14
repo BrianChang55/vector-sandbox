@@ -16,6 +16,7 @@ from typing import Dict, List, Optional
 from django.conf import settings
 import httpx
 
+from vector_app.ai.models import AIModel
 from vector_app.prompts.execution_scope import (
     EXECUTION_SCOPE_SYSTEM_PROMPT,
     build_execution_scope_prompt,
@@ -121,7 +122,7 @@ class ExecutionScopeClassifier:
     def classify(
         self,
         user_prompt: str,
-        model: str = "anthropic/claude-haiku-4",
+        model: AIModel = AIModel.CLAUDE_HAIKU_4_5,
         use_heuristics_only: bool = False,
     ) -> ExecutionScopeResult:
         """
@@ -250,7 +251,7 @@ class ExecutionScopeClassifier:
     def _llm_classify(
         self,
         user_prompt: str,
-        model: str,
+        model: AIModel,
     ) -> Optional[ExecutionScopeResult]:
         """
         Use LLM for nuanced scope classification.

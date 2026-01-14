@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Literal, Optional, TYPE_CHECKING
 from django.conf import settings
 import httpx
 
+from vector_app.ai.models import AIModel
 from vector_app.prompts.intent_classification import (
     INTENT_CLASSIFICATION_SYSTEM_PROMPT,
     build_intent_classification_prompt,
@@ -165,7 +166,7 @@ class IntentClassifier:
         self,
         user_message: str,
         context: 'AppContext',
-        model: str = "anthropic/claude-sonnet-4",
+        model: AIModel = AIModel.CLAUDE_SONNET_4_5,
     ) -> IntentResult:
         """
         Classify the user's intent based on their message and app context.
@@ -365,7 +366,7 @@ class IntentClassifier:
         self,
         user_message: str,
         context: 'AppContext',
-        model: str,
+        model: AIModel,
     ) -> Optional[IntentResult]:
         """
         Use LLM for nuanced intent classification.

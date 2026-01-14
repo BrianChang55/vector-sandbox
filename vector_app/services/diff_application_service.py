@@ -17,6 +17,7 @@ from typing import Any, Callable, Dict, Generator, List, Optional, Set
 import httpx
 from django.conf import settings
 
+from vector_app.ai.models import AIModel
 from vector_app.services.diff import parse_diffs, apply_diff, FileDiff, format_with_line_numbers
 from vector_app.services.types import FileChange, AgentEvent
 
@@ -352,7 +353,7 @@ class DiffApplicationService:
         system_prompt: str,
         user_prompt: str,
         file_contents: Dict[str, str],
-        model: str,
+        model: AIModel,
         *,
         temperature: float = 0.2,
         timeout: float = 120.0,
@@ -370,7 +371,7 @@ class DiffApplicationService:
             system_prompt: System prompt for the LLM
             user_prompt: User prompt for the LLM
             file_contents: Dict mapping file paths to their original content
-            model: Model identifier (e.g., "anthropic/claude-sonnet-4")
+            model: Model identifier (e.g., "anthropic/claude-sonnet-4.5.5")
             temperature: LLM temperature (default 0.2 for consistent edits)
             timeout: HTTP timeout in seconds
             config: Optional DiffApplicationConfig

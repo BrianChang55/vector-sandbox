@@ -20,6 +20,7 @@ from typing import Dict, Any, List, Generator, Optional
 from django.conf import settings
 import httpx
 
+from vector_app.ai.models import AIModel
 from vector_app.prompts.error_fix import (
     ERROR_FIX_SYSTEM_PROMPT,
 )
@@ -70,7 +71,7 @@ class ErrorFixService:
         self,
         files: List[FileChange],
         errors: List[CompilationError],
-        model: str = "anthropic/claude-sonnet-4",
+        model: AIModel = AIModel.CLAUDE_SONNET_4_5,
         attempt: int = 1,
     ) -> Generator[AgentEvent, None, List[FileChange]]:
         """
@@ -246,7 +247,7 @@ class ErrorFixService:
         self,
         files: List[FileChange],
         bundler_errors: List[Dict[str, Any]],
-        model: str = "anthropic/claude-sonnet-4",
+        model: AIModel = AIModel.CLAUDE_SONNET_4_5,
         attempt: int = 1,
     ) -> Generator[AgentEvent, None, List[FileChange]]:
         """

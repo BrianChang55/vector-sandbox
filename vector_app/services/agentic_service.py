@@ -24,6 +24,7 @@ from enum import Enum
 from django.conf import settings
 import httpx
 
+from vector_app.ai.models import AIModel
 from vector_app.prompts.agentic import (
     FINAL_APP_SYSTEM_PROMPT,
     apply_design_style_prompt,
@@ -203,7 +204,7 @@ class AgenticService:
         current_spec: Optional[Dict[str, Any]],
         registry_surface: Dict[str, Any],
         app_name: str,
-        model: str = "anthropic/claude-sonnet-4",
+        model: AIModel = AIModel.CLAUDE_SONNET_4_5,
         app: Optional["InternalApp"] = None,
         version: Optional["AppVersion"] = None,
         use_intent_routing: bool = True,
@@ -676,7 +677,7 @@ class AgenticService:
         current_spec: Optional[Dict[str, Any]],
         registry_surface: Dict[str, Any],
         app_name: str,
-        model: str,
+        model: AIModel,
         app: Optional["InternalApp"],
         version: Optional["AppVersion"],
         session_id: str,
@@ -828,7 +829,7 @@ class AgenticService:
         context: Dict[str, Any],
         existing_files: List[FileChange],
         registry_surface: Dict[str, Any],
-        model: str,
+        model: AIModel,
         app: Optional["InternalApp"] = None,
         version: Optional["AppVersion"] = None,
         data_store_context: Optional[str] = None,
@@ -1115,7 +1116,7 @@ class AgenticService:
         context: Dict[str, Any],
         existing_files: List[FileChange],
         registry_surface: Dict[str, Any],
-        model: str,
+        model: AIModel,
     ) -> Generator[AgentEvent, None, None]:
         """Generate the final integrated App.tsx that uses all generated components."""
 

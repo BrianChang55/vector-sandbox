@@ -8,7 +8,7 @@ import json
 import logging
 import time
 import uuid
-from typing import Generator
+from typing import Generator, Optional
 from django.http import StreamingHttpResponse, JsonResponse
 from django.views import View
 from django.utils.decorators import method_decorator
@@ -22,11 +22,13 @@ from rest_framework.request import Request
 
 from ..models import InternalApp, AppVersion, VersionFile, VersionAuditLog
 from ..models import ChatSession, ChatMessage, CodeGenerationJob
+from ..ai.models import AIModel
 from ..services.openrouter_service import (
     get_openrouter_service,
     StreamChunk,
     MODEL_CONFIGS,
 )
+from ..utils.enum_utils import safe_str_enum
 from ..services.validation import AppSpecValidationService
 from ..services.codegen import CodegenService
 from ..services.agentic_service import get_agentic_service
@@ -61,7 +63,7 @@ class AvailableModelsView(APIView):
         return Response({
             "models": models,
             "grouped": grouped,
-            "default": "anthropic/claude-sonnet-4",
+            "default": AIModel.CLAUDE_SONNET_4_5.value,
         })
 
 
@@ -120,7 +122,7 @@ class ChatSessionViewSet(APIView):
             session = ChatSession.objects.create(
                 internal_app=app,
                 title=request.data.get("title", "New Chat"),
-                model_id=request.data.get("model_id", "anthropic/claude-sonnet-4"),
+                model_id=_parse_model(request.data.get("model_id")),
                 created_by=request.user,
             )
             
@@ -192,6 +194,10 @@ def sse_event(event_type: str, data: dict) -> str:
     return f"event: {event_type}\ndata: {json_data}\n\n"
 
 
+def _parse_model(raw_model: Optional[str]) -> AIModel:
+    return safe_str_enum(raw_model, AIModel.CLAUDE_SONNET_4_5, AIModel)
+
+
 @method_decorator(csrf_exempt, name='dispatch')
 class StreamingGenerateView(View):
     """
@@ -207,7 +213,7 @@ class StreamingGenerateView(View):
         # Get parameters
         session_id = request.GET.get('session_id')
         message = request.GET.get('message', '')
-        model = request.GET.get('model', 'anthropic/claude-sonnet-4')
+        model = _parse_model(request.GET.get('model'))
         mode = request.GET.get('mode', 'appspec')  # 'appspec' or 'code'
         
         if not message:
@@ -289,7 +295,7 @@ class StreamingGenerateView(View):
         self,
         app: InternalApp,
         message: str,
-        model: str,
+        model: AIModel,
         mode: str,
         session_id: str,
         user,
@@ -563,7 +569,7 @@ class NonStreamingGenerateView(APIView):
                 return error
             
             message = request.data.get('message', '')
-            model = request.data.get('model', 'anthropic/claude-sonnet-4')
+            model = _parse_model(request.data.get('model'))
             session_id = request.data.get('session_id')
             
             if not message:
@@ -739,7 +745,7 @@ class AgenticGenerateView(View):
             return JsonResponse({"error": "Invalid JSON body"}, status=400)
         
         message = body.get('message', '')
-        model = body.get('model', 'anthropic/claude-sonnet-4')
+        model = _parse_model(body.get('model'))
         session_id = body.get('session_id')
         
         if not message:
@@ -806,7 +812,7 @@ class AgenticGenerateView(View):
         # Get parameters from query string
         session_id = request.GET.get('session_id')
         message = request.GET.get('message', '')
-        model = request.GET.get('model', 'anthropic/claude-sonnet-4')
+        model = _parse_model(request.GET.get('model'))
         
         if not message:
             return JsonResponse({"error": "Message is required"}, status=400)
@@ -1509,7 +1515,7 @@ class FixErrorsView(View):
         
         # Get parameters
         errors_b64 = request.GET.get('errors', '')
-        model = request.GET.get('model', 'anthropic/claude-sonnet-4')
+        model = _parse_model(request.GET.get('model'))
         attempt = int(request.GET.get('attempt', '1'))
         
         if not errors_b64:
@@ -1599,7 +1605,7 @@ class FixErrorsView(View):
         self,
         version: AppVersion,
         errors: list,
-        model: str,
+        model: AIModel,
         attempt: int,
         user,
     ) -> Generator[str, None, None]:

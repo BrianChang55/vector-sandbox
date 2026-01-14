@@ -17,7 +17,7 @@ import httpx
 
 from vector_app.prompts.agentic import build_plan_prompt
 from vector_app.utils.enum_utils import safe_str_enum
-from vector_app.services.openrouter_service import AIModel
+from vector_app.ai.models import AIModel
 from vector_app.services.validation_service import get_validation_service
 
 logger = logging.getLogger(__name__)
@@ -97,7 +97,7 @@ class PlanningService:
         self,
         user_message: str,
         context: Dict[str, Any],
-        model: str = AIModel.CLAUDE_OPUS_4_5.value,
+        model: AIModel = AIModel.CLAUDE_OPUS_4_5,
     ) -> AgentPlan:
         """
         Create an execution plan for the app generation.
@@ -111,7 +111,7 @@ class PlanningService:
             AgentPlan with steps and reasoning
         """
         if FORCE_OPUS_PLAN_GENERATION:
-            model = AIModel.CLAUDE_OPUS_4_5.value
+            model = AIModel.CLAUDE_OPUS_4_5
 
         # Use AI to generate a smart plan
         plan_prompt = build_plan_prompt(user_message, context)

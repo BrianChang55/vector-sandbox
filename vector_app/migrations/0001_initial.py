@@ -510,7 +510,7 @@ class Migration(migrations.Migration):
                 (
                     "model_id",
                     models.CharField(
-                        default="anthropic/claude-sonnet-4",
+                        default="anthropic/claude-sonnet-4.5",
                         help_text="AI model used for this session",
                         max_length=100,
                     ),
@@ -790,7 +790,7 @@ class Migration(migrations.Migration):
                 (
                     "model_id",
                     models.CharField(
-                        default="anthropic/claude-sonnet-4", max_length=100
+                        default="anthropic/claude-sonnet-4.5", max_length=100
                     ),
                 ),
                 (
@@ -1287,7 +1287,7 @@ class Migration(migrations.Migration):
                 (
                     "default_model",
                     models.CharField(
-                        default="anthropic/claude-sonnet-4", max_length=100
+                        default="anthropic/claude-sonnet-4.5", max_length=100
                     ),
                 ),
                 (
