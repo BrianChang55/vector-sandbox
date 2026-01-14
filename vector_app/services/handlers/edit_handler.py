@@ -11,9 +11,9 @@ from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
 from .base_handler import BaseHandler, AgentEvent, FileChange
 from vector_app.services.context_analyzer import get_context_analyzer
-from vector_app.services.diff import format_with_line_numbers
 from vector_app.services.diff_application_service import (
     _apply_diffs_from_llm_response,
+    build_diff_prompts,
     DiffApplicationConfig,
 )
 from vector_app.services.planning_service import PlanStepStatus
@@ -514,39 +514,35 @@ class EditHandler(BaseHandler):
         mcp_tools_context: Optional[str] = None,
     ) -> Generator[AgentEvent, None, List[FileChange]]:
         """Generate edited versions of files."""
-        files = []
-
-        # Build context of files to edit with line numbers for accurate diff generation
-        files_context = ""
+        # Convert Dict[str, str] to List[FileChange]
+        file_changes = []
         for path, content in file_contents.items():
-            numbered_content = format_with_line_numbers(content)
-            files_context += f"\n### {path}\n```\n{numbered_content}\n```\n"
-
-        if not files_context:
-            files_context = "No existing files to modify."
-
-        # Escape curly braces in file contents to prevent .format() errors
-        # JSX code contains {variable} which breaks Python's .format()
-        escaped_files_context = files_context.replace("{", "{{").replace("}", "}}")
-        escaped_user_message = user_message.replace("{", "{{").replace("}", "}}")
-
-        # Build the user prompt with additional context
-        formatted_template = EDIT_PROMPT_TEMPLATE.format(
-            user_message=escaped_user_message,
-            files_context=escaped_files_context,
-        )
-
-        prompt_parts = [formatted_template]
-
-        # Add data store context if available
+            ext = path.split('.')[-1] if '.' in path else 'tsx'
+            lang_map = {'tsx': 'tsx', 'ts': 'ts', 'jsx': 'jsx', 'js': 'js', 'css': 'css', 'json': 'json'}
+            file_changes.append(FileChange(
+                path=path,
+                action="modify",
+                language=lang_map.get(ext, 'tsx'),
+                content=content,
+                previous_content=content,
+            ))
+        
+        # Build extra context
+        extra_context_parts = []
         if data_store_context and "No data tables" not in data_store_context:
-            prompt_parts.append(f"\n## Available Data Store\n{data_store_context}")
-
-        # Add MCP tools context if available
+            extra_context_parts.append(f"## Available Data Store\n{data_store_context}")
         if mcp_tools_context:
-            prompt_parts.append(f"\n## Available Integrations\n{mcp_tools_context}")
-
-        prompt = "\n".join(prompt_parts)
+            extra_context_parts.append(f"## Available Integrations\n{mcp_tools_context}")
+        extra_context = "\n\n".join(extra_context_parts) if extra_context_parts else None
+        
+        # Build prompts using centralized method
+        system_prompt, user_prompt = build_diff_prompts(
+            edit_style_prompt=EDIT_SYSTEM_PROMPT,
+            file_changes=file_changes,
+            user_message=user_message,
+            allow_new_files=False,
+            extra_context=extra_context,
+        )
 
         try:
             full_content = ""
@@ -556,8 +552,8 @@ class EditHandler(BaseHandler):
             validator = self.create_streaming_validator()
 
             for chunk in self.stream_llm_response(
-                system_prompt=EDIT_SYSTEM_PROMPT,
-                user_prompt=prompt,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
                 model=model,
                 temperature=0.2,  # Lower temperature for more consistent edits
             ):

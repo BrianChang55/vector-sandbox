@@ -14,9 +14,9 @@ from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 from .base_handler import BaseHandler, AgentEvent, FileChange
 from .generate_handler import GenerateHandler
 from vector_app.services.context_analyzer import get_context_analyzer
-from vector_app.services.diff import format_with_line_numbers
 from vector_app.services.diff_application_service import (
     _apply_diffs_from_llm_response,
+    build_diff_prompts,
     DiffApplicationConfig,
 )
 from vector_app.services.planning_service import PlanStepStatus
@@ -608,15 +608,18 @@ class FeatureHandler(BaseHandler):
         mcp_tools_context: Optional[str] = None,
     ) -> Generator[AgentEvent, None, List[FileChange]]:
         """Generate the new feature code."""
-        files = []
-
-        # Build existing code context with line numbers for accurate diff generation
-        code_context = ""
+        # Convert Dict[str, str] to List[FileChange]
+        file_changes = []
         for path, content in existing_code.items():
-            # Add line numbers first so LLM can reference them in diffs
-            numbered_content = format_with_line_numbers(content)
-            # Truncate large files (line numbers are preserved for visible lines)
-            code_context += f"\n### {path}\n```\n{numbered_content}\n```\n"
+            ext = path.split('.')[-1] if '.' in path else 'tsx'
+            lang_map = {'tsx': 'tsx', 'ts': 'ts', 'jsx': 'jsx', 'js': 'js', 'css': 'css', 'json': 'json'}
+            file_changes.append(FileChange(
+                path=path,
+                action="modify",
+                language=lang_map.get(ext, 'tsx'),
+                content=content,
+                previous_content=content,
+            ))
 
         feature_analysis_str = json.dumps(feature_analysis, indent=2)
 
@@ -635,26 +638,33 @@ class FeatureHandler(BaseHandler):
             if context.codebase_style:
                 codebase_style = f"\n{context.codebase_style.to_prompt_context()}\n"
 
-        # Build prompt with additional context
-        prompt_parts = [
-            FEATURE_GENERATION_PROMPT.format(
-                user_message=user_message,
-                feature_analysis=feature_analysis_str,
-                existing_code=code_context or "No existing code provided",
-                reusable_components=reusable_components,
-                codebase_style=codebase_style,
-            )
-        ]
+        # Build user message with feature context
+        user_message_with_feature = f"""Add the following feature to the existing application.
 
-        # Add data store context if available
+## User Request
+{user_message}
+
+## Feature Analysis
+{feature_analysis_str}
+{reusable_components}
+{codebase_style}"""
+
+        # Build extra context
+        extra_context_parts = []
         if data_store_context and "No data tables" not in data_store_context:
-            prompt_parts.append(f"\n## Available Data Store\n{data_store_context}")
-
-        # Add MCP tools context if available
+            extra_context_parts.append(f"## Available Data Store\n{data_store_context}")
         if mcp_tools_context:
-            prompt_parts.append(f"\n## Available Integrations\n{mcp_tools_context}")
+            extra_context_parts.append(f"## Available Integrations\n{mcp_tools_context}")
+        extra_context = "\n\n".join(extra_context_parts) if extra_context_parts else None
 
-        prompt = "\n".join(prompt_parts)
+        # Build prompts using centralized method
+        system_prompt, user_prompt = build_diff_prompts(
+            edit_style_prompt=FEATURE_SYSTEM_PROMPT,
+            file_changes=file_changes,
+            user_message=user_message_with_feature,
+            allow_new_files=True,  # Feature handler can create new files
+            extra_context=extra_context,
+        )
 
         try:
             full_content = ""
@@ -664,8 +674,8 @@ class FeatureHandler(BaseHandler):
             validator = self.create_streaming_validator()
 
             for chunk in self.stream_llm_response(
-                system_prompt=FEATURE_SYSTEM_PROMPT,
-                user_prompt=prompt,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
                 model=model,
                 temperature=0.3,
             ):

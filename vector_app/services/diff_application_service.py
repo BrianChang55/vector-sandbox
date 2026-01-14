@@ -17,7 +17,7 @@ from typing import Any, Callable, Dict, Generator, List, Optional, Set
 import httpx
 from django.conf import settings
 
-from vector_app.services.diff import parse_diffs, apply_diff, FileDiff
+from vector_app.services.diff import parse_diffs, apply_diff, FileDiff, format_with_line_numbers
 from vector_app.services.types import FileChange, AgentEvent
 
 logger = logging.getLogger(__name__)
@@ -26,6 +26,122 @@ logger = logging.getLogger(__name__)
 DEFAULT_PROTECTED_FILES: Set[str] = {
     "src/lib/types.ts",
 }
+
+# Shared diff format instructions (consolidated for single-point editing)
+LINE_NUMBER_INSTRUCTIONS = """**LINE NUMBERS**: The file contents above include line numbers in the format "  42| code here".
+Use these line numbers for your @@ hunk headers. The patch system has fuzz matching (±3 lines tolerance), but accurate numbers improve reliability.
+Do NOT include the line number prefix (e.g., "  42| ") in your diff output.
+
+**CRITICAL - CONTEXT LINES MUST BE EXACT**:
+The patch system can tolerate slight line number errors, but context lines MUST match the source file CHARACTER-FOR-CHARACTER.
+- Copy context lines exactly as shown (same whitespace, same quotes, same everything)
+- If the source has `  return <div className="p-4">` your context must be identical
+- Mismatched context lines will cause the patch to fail"""
+
+DIFF_OUTPUT_FORMAT = """## Output Format: Unified Diff
+
+For each file you modify, output a unified diff inside a ```diff code block:
+
+```diff
+--- src/path/to/file.tsx
++++ src/path/to/file.tsx
+@@ -LINE,COUNT +LINE,COUNT @@
+ context line (unchanged, starts with space)
+ context line (unchanged, starts with space)
+ context line (unchanged, starts with space)
+-line to remove (starts with minus)
++line to add (starts with plus)
+ context line (unchanged, starts with space)
+ context line (unchanged, starts with space)
+ context line (unchanged, starts with space)
+```
+
+### Diff Rules
+- Start with `--- path` and `+++ path` header lines
+- Each hunk starts with `@@ -old_start,old_count +new_start,new_count @@`
+- Include exactly 3 lines of unchanged context before and after changes
+- Lines starting with ` ` (space) are unchanged context - these MUST be copied EXACTLY from the source file
+- Lines starting with `-` are removed
+- Lines starting with `+` are added
+- For multiple non-adjacent changes in the same file, use multiple hunks
+- **CRITICAL**: Context lines must match the source file EXACTLY. Do not paraphrase, reformat, or invent context lines."""
+
+HUNK_STRUCTURE_RULES = """### Hunk Structure Rule (CRITICAL)
+
+Within each hunk, lines MUST appear in this exact order:
+1. Context lines (space prefix) - unchanged lines before the change
+2. ALL removed lines (minus prefix) - grouped together consecutively
+3. ALL added lines (plus prefix) - grouped together consecutively
+4. Context lines (space prefix) - unchanged lines after the change
+
+**NEVER interleave removals and additions.** Each contiguous change region gets its own hunk.
+
+BAD (interleaved - will break):
+```
+@@ -1,10 +1,10 @@
+ import React from 'react';
+-old interface
++new interface
+-old export        <- WRONG: more removals after additions
++new export
+```
+
+GOOD (separate hunks):
+```
+@@ -1,4 +1,4 @@
+ import React from 'react';
+-old interface
++new interface
+
+@@ -8,3 +8,3 @@
+ // context line
+-old export
++new export
+```"""
+
+NO_DUPLICATE_HUNKS = """### CRITICAL - NO DUPLICATE HUNKS
+
+Each location in a file must have exactly ONE hunk. Never repeat or duplicate hunks.
+
+**RULES:**
+1. Each line range can only appear ONCE in your output
+2. If you need multiple changes at the same location, combine them into ONE hunk
+3. NEVER output the same hunk multiple times - this breaks the patch
+4. Before outputting, mentally verify you haven't already written a hunk for that location
+5. If you catch yourself repeating, STOP and consolidate"""
+
+NEW_FILE_INSTRUCTIONS = """### Creating NEW Files
+
+For new files that don't exist yet, use `--- /dev/null` and start line numbers at 1.
+The `+1,N` in the hunk header means "starting at line 1, adding N lines":
+
+```diff
+--- /dev/null
++++ src/components/NewComponent.tsx
+@@ -0,0 +1,12 @@
++import React from "react";
++
++interface NewComponentProps {{
++  title: string;
++}}
++
++export function NewComponent({{ title }}: NewComponentProps) {{
++  return (
++    <div className="p-4">{{title}}</div>
++  );
++}}
+```"""
+
+SYNTAX_BALANCE_CHECK = """### Syntax Balance Check (REQUIRED before outputting)
+
+Before finalizing each hunk, verify:
+1. Count removed `{{` equals removed `}}`
+2. Count removed `(` equals removed `)`
+3. Count removed `<Tag>` equals removed `</Tag>` or `<Tag />`
+4. If removing an opening line (e.g., `if (condition) {{`), the closing `}}` MUST also be removed
+5. If removing JSX like `{{condition && (`, you MUST also remove the matching `)}}`
+
+If your diff would leave unbalanced syntax, expand the hunk to include the matching closing element."""
 
 
 @dataclass
@@ -366,3 +482,65 @@ def get_diff_application_service() -> DiffApplicationService:
     if _diff_application_service is None:
         _diff_application_service = DiffApplicationService()
     return _diff_application_service
+
+
+def build_diff_prompts(
+    edit_style_prompt: str,
+    file_changes: List[FileChange],
+    user_message: str,
+    *,
+    allow_new_files: bool = False,
+    extra_context: Optional[str] = None,
+) -> tuple[str, str]:
+    """
+    Build system and user prompts for diff-based editing.
+    
+    Args:
+        edit_style_prompt: Handler-specific system prompt (e.g., EDIT_SYSTEM_PROMPT)
+        file_changes: List of FileChange objects representing files to edit
+        user_message: The user's request/context message
+        allow_new_files: Whether to include new file creation instructions
+        extra_context: Optional additional context (data store, MCP tools, etc.)
+    
+    Returns:
+        Tuple of (system_prompt, user_prompt)
+    """
+    # Build system prompt: combine edit_style_prompt with diff format instructions
+    system_prompt = f"""{edit_style_prompt}
+
+{DIFF_OUTPUT_FORMAT}
+
+{HUNK_STRUCTURE_RULES}
+
+{NO_DUPLICATE_HUNKS}"""
+    
+    # Build file context with line numbers
+    files_context_parts = []
+    for file_change in file_changes:
+        numbered_content = format_with_line_numbers(file_change.content)
+        files_context_parts.append(f"### {file_change.path}\n```\n{numbered_content}\n```")
+    
+    files_context = "\n\n".join(files_context_parts) if files_context_parts else "No existing files to modify."
+    
+    # Escape curly braces for JSX (prevents .format() errors)
+    escaped_message = user_message.replace("{", "{{").replace("}", "}}")
+    escaped_files = files_context.replace("{", "{{").replace("}", "}}")
+    
+    # Build user prompt
+    user_prompt_parts = [
+        f"## Request\n{escaped_message}",
+        f"## Current Files (with line numbers)\n{escaped_files}",
+        LINE_NUMBER_INSTRUCTIONS,
+    ]
+    
+    if allow_new_files:
+        user_prompt_parts.append(NEW_FILE_INSTRUCTIONS)
+    
+    user_prompt_parts.append(SYNTAX_BALANCE_CHECK)
+    
+    if extra_context:
+        user_prompt_parts.append(f"\n## Additional Context\n{extra_context}")
+    
+    user_prompt = "\n\n".join(user_prompt_parts)
+    
+    return system_prompt, user_prompt
