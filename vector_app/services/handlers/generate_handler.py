@@ -47,6 +47,131 @@ PROTECTED_FILES = {
 }
 
 
+# =============================================================================
+# STEP EDIT PROMPT TEMPLATE
+# =============================================================================
+# Used when a plan step has operation_type=EDIT to make surgical changes
+# instead of regenerating complete files.
+
+STEP_EDIT_SYSTEM_PROMPT = """You are an expert React/TypeScript developer making targeted, surgical edits to existing code using unified diffs.
+
+## Surgical Edit Rules (CRITICAL)
+
+1. **Preserve Everything Except What's Requested**
+   - You MUST keep all existing functionality intact
+   - Do NOT "improve" or "clean up" adjacent code
+   - Do NOT add features "while you're at it"
+   - Do NOT refactor unless explicitly asked
+
+2. **Minimal Changes Only**
+   - Change ONLY the specific lines needed
+   - Keep existing variable names, patterns, and style
+   - Maintain the exact same imports unless changes require new ones
+   - Do NOT reorganize or restructure code
+
+3. **Match Existing Style Exactly**
+   - Use the same indentation (tabs vs spaces)
+   - Use the same quote style (single vs double)
+   - Use the same semicolon conventions
+   - Match the existing naming conventions
+
+4. **Output Format: Unified Diff**
+   - Output changes as unified diffs (like git diff)
+   - Include 3 lines of context before and after each change
+   - Use `-` prefix for removed lines, `+` for added lines
+   - Space prefix for unchanged context lines
+   - Multiple hunks allowed for non-adjacent changes in the same file
+"""
+
+
+STEP_EDIT_PROMPT_TEMPLATE = """## Step {step_number}: {step_title}
+Description: {step_description}
+
+## User's Original Request
+{user_message}
+
+## Current File Contents (with line numbers)
+{files_context}
+
+**LINE NUMBERS**: The file contents above include line numbers in the format "  42| code here".
+Use these line numbers for your @@ hunk headers. The patch system has fuzz matching (±3 lines tolerance), but accurate numbers improve reliability.
+Do NOT include the line number prefix (e.g., "  42| ") in your diff output.
+
+**CRITICAL - CONTEXT LINES MUST BE EXACT**:
+The patch system can tolerate slight line number errors, but context lines MUST match the source file CHARACTER-FOR-CHARACTER.
+- Copy context lines exactly as shown (same whitespace, same quotes, same everything)
+- Mismatched context lines will cause the patch to fail
+
+{data_store_section}
+
+## Surgical Edit Instructions
+
+1. **Analyze the step description**: Identify exactly what needs to change
+2. **Locate the target**: Find the specific line(s) or section(s) to modify
+3. **Make minimal changes**: Change ONLY what's needed to fulfill the step
+4. **Preserve everything else**: Keep all other code exactly as-is
+
+## Output Format: Unified Diff
+
+For each file you modify, output a unified diff inside a ```diff code block:
+
+```diff
+--- src/path/to/file.tsx
++++ src/path/to/file.tsx
+@@ -LINE,COUNT +LINE,COUNT @@
+ context line (unchanged, starts with space)
+ context line (unchanged, starts with space)
+ context line (unchanged, starts with space)
+-line to remove (starts with minus)
++line to add (starts with plus)
+ context line (unchanged, starts with space)
+ context line (unchanged, starts with space)
+ context line (unchanged, starts with space)
+```
+
+### Diff Rules
+- Start with `--- path` and `+++ path` header lines
+- Each hunk starts with `@@ -old_start,old_count +new_start,new_count @@`
+- Include exactly 3 lines of unchanged context before and after changes
+- Lines starting with ` ` (space) are unchanged context - these MUST be copied EXACTLY from the source file
+- Lines starting with `-` are removed
+- Lines starting with `+` are added
+- For multiple non-adjacent changes in the same file, use multiple hunks
+- **CRITICAL**: Context lines must match the source file EXACTLY
+
+### Hunk Structure Rule (CRITICAL)
+
+Within each hunk, lines MUST appear in this exact order:
+1. Context lines (space prefix) - unchanged lines before the change
+2. ALL removed lines (minus prefix) - grouped together consecutively
+3. ALL added lines (plus prefix) - grouped together consecutively
+4. Context lines (space prefix) - unchanged lines after the change
+
+**NEVER interleave removals and additions.** Each contiguous change region gets its own hunk.
+
+### Creating NEW Files
+
+For new files that don't exist yet, use `--- /dev/null`:
+
+```diff
+--- /dev/null
++++ src/components/NewComponent.tsx
+@@ -0,0 +1,12 @@
++import React from "react";
++
++export function NewComponent() {{
++  return <div>New Component</div>;
++}}
+```
+
+## Critical Reminders
+- Output ONLY unified diffs, not complete file contents
+- Do NOT add new features or "improvements" beyond what the step requires
+- Do NOT refactor or reorganize code
+- Context lines MUST be copied exactly from the provided file
+"""
+
+
 class GenerateHandler(BaseHandler):
     """
     Handler for full app generation from scratch.
@@ -995,10 +1120,73 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
         allow_table_creation: bool = True,
     ) -> Generator[AgentEvent, None, None]:
         """
-        Execute a plan step using a single LLM call (original behavior).
+        Execute a plan step using a single LLM call.
         
-        This is the fallback when sub-agents cannot be used.
+        Dispatches to either generate or edit mode based on step.operation_type:
+        - GENERATE: Creates complete file content (default behavior)
+        - EDIT: Uses diff-based surgical edits for modifying existing files
         """
+        # Dispatch based on operation type
+        if step.operation_type == PlanOperationType.EDIT:
+            # Use diff-based approach for edit operations
+            logger.info(f"[STEP {step_index}] Using diff-based edit mode for operation_type=EDIT")
+            yield from self._execute_step_via_edit(
+                step=step,
+                step_index=step_index,
+                user_message=user_message,
+                context=context,
+                existing_files=existing_files,
+                registry_surface=registry_surface,
+                model=model,
+                app=app,
+                version=version,
+                data_store_context=data_store_context,
+                mcp_tools_context=mcp_tools_context,
+                allow_table_creation=allow_table_creation,
+            )
+        else:
+            # Use full file generation for generate operations (default)
+            logger.info(f"[STEP {step_index}] Using generate mode for operation_type={step.operation_type}")
+            yield from self._execute_step_via_generate(
+                step=step,
+                step_index=step_index,
+                user_message=user_message,
+                context=context,
+                existing_files=existing_files,
+                registry_surface=registry_surface,
+                model=model,
+                app=app,
+                version=version,
+                data_store_context=data_store_context,
+                mcp_tools_context=mcp_tools_context,
+                allow_table_creation=allow_table_creation,
+            )
+
+    def _execute_step_via_generate(
+        self,
+        step: PlanStep,
+        step_index: int,
+        user_message: str,
+        context: Dict[str, Any],
+        existing_files: List[FileChange],
+        registry_surface: Dict[str, Any],
+        model: str,
+        app: Optional["InternalApp"] = None,
+        version: Optional["AppVersion"] = None,
+        data_store_context: Optional[str] = None,
+        mcp_tools_context: Optional[str] = None,
+        allow_table_creation: bool = True,
+    ) -> Generator[AgentEvent, None, None]:
+        """
+        Execute a plan step by generating complete file content.
+        
+        This is the original behavior - generates full file blocks from scratch.
+        Used when operation_type is GENERATE, SCHEMA, ADD_FEATURE, etc.
+        """
+        logger.info(
+            f"🚀 [STEP {step_index}] Starting GENERATE mode: '{step.title}' "
+            f"(operation_type={step.operation_type}, target_files={getattr(step, 'target_files', [])})"
+        )
         has_data_store = context.get('has_data_store', False)
 
         # Build prompts
@@ -1057,6 +1245,229 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
             logger.error(f"Step execution error: {e}")
             yield self.emit_thinking(f"Error during step: {str(e)}", "reflection")
             raise
+
+    def _execute_step_via_edit(
+        self,
+        step: PlanStep,
+        step_index: int,
+        user_message: str,
+        context: Dict[str, Any],
+        existing_files: List[FileChange],
+        registry_surface: Dict[str, Any],
+        model: str,
+        app: Optional["InternalApp"] = None,
+        version: Optional["AppVersion"] = None,
+        data_store_context: Optional[str] = None,
+        mcp_tools_context: Optional[str] = None,
+        allow_table_creation: bool = True,
+    ) -> Generator[AgentEvent, None, None]:
+        """
+        Execute a plan step using diff-based surgical edits.
+        
+        Used when operation_type is EDIT. This approach:
+        - Shows existing file contents with line numbers
+        - Requests unified diffs from the LLM
+        - Applies diffs to existing files for minimal changes
+        - Falls back to generate mode if no existing files to edit
+        """
+        logger.info(
+            f"🚀 [STEP {step_index}] Starting EDIT mode (diff-based): '{step.title}' "
+            f"(target_files={getattr(step, 'target_files', [])}, existing_files_count={len(existing_files)})"
+        )
+        # Build map of existing file contents
+        file_contents: Dict[str, str] = {}
+        for f in existing_files:
+            file_contents[f.path] = f.content
+        
+        # Also include files from version if available
+        if version:
+            try:
+                for vf in VersionFile.objects.filter(app_version=version):
+                    if vf.path not in file_contents:
+                        file_contents[vf.path] = vf.content or ""
+            except Exception as e:
+                logger.warning(f"[EDIT] Error fetching version files: {e}")
+        
+        # Get target files for this step
+        target_files = getattr(step, 'target_files', None) or []
+        
+        # Filter to only files that exist (for editing)
+        files_to_edit = {path: content for path, content in file_contents.items() 
+                         if path in target_files or not target_files}
+        
+        # If no existing files to edit, fall back to generate mode
+        if not files_to_edit:
+            logger.info(f"[STEP {step_index}] No existing files to edit, falling back to generate mode")
+            yield from self._execute_step_via_generate(
+                step=step,
+                step_index=step_index,
+                user_message=user_message,
+                context=context,
+                existing_files=existing_files,
+                registry_surface=registry_surface,
+                model=model,
+                app=app,
+                version=version,
+                data_store_context=data_store_context,
+                mcp_tools_context=mcp_tools_context,
+                allow_table_creation=allow_table_creation,
+            )
+            return
+        
+        # Build edit prompt
+        prompt = self._build_step_edit_prompt(
+            step=step,
+            step_index=step_index,
+            user_message=user_message,
+            file_contents=files_to_edit,
+            data_store_context=data_store_context,
+        )
+        
+        try:
+            full_content = ""
+            chunk_count = 0
+            
+            # Create streaming validator for real-time checks
+            validator = self.create_streaming_validator()
+            
+            for chunk in self.stream_llm_response(
+                system_prompt=STEP_EDIT_SYSTEM_PROMPT,
+                user_prompt=prompt,
+                model=model,
+                temperature=0.2,  # Lower temperature for more consistent edits
+            ):
+                full_content += chunk
+                chunk_count += 1
+                
+                # Real-time validation during streaming
+                streaming_warnings = validator.check_chunk(chunk, full_content)
+                for warning in streaming_warnings:
+                    yield self.emit_streaming_warning(warning)
+                
+                if chunk_count % 10 == 0:
+                    yield self.emit_step_progress(step_index, min(80, chunk_count), "Applying edits...")
+            
+            # Final validation check
+            final_warnings = validator.final_check(full_content)
+            for warning in final_warnings:
+                yield self.emit_streaming_warning(warning)
+            
+            # Parse unified diffs from LLM response
+            diffs = parse_diffs(full_content)
+            
+            logger.debug(f"[EDIT STEP] Parsed {len(diffs)} diff(s) from LLM response")
+            
+            files: List[FileChange] = []
+            
+            if diffs:
+                # Apply diffs to original files
+                for diff in diffs:
+                    # Skip protected files
+                    if diff.path in PROTECTED_FILES:
+                        logger.info(f"[EDIT STEP] Skipping protected file: {diff.path}")
+                        continue
+                    
+                    original = file_contents.get(diff.path, "")
+                    
+                    if not original and diff.path.startswith('---'):
+                        # New file being created via diff (--- /dev/null)
+                        # The content comes from the + lines
+                        new_content = "\n".join(
+                            line[1:] for hunk in diff.hunks 
+                            for line in hunk.split('\n') 
+                            if line.startswith('+') and not line.startswith('+++')
+                        )
+                        file_change = FileChange(
+                            path=diff.path.replace('/dev/null', '').strip() if '/dev/null' in diff.path else diff.path,
+                            action="create",
+                            language=self.get_language(diff.path),
+                            content=new_content,
+                            lines_added=diff.lines_added,
+                            lines_removed=0,
+                        )
+                    elif not original:
+                        logger.warning(f"[EDIT STEP] No original content for {diff.path}, skipping")
+                        continue
+                    else:
+                        # Apply diff to existing file
+                        new_content = apply_diff(original, diff)
+                        file_change = FileChange(
+                            path=diff.path,
+                            action="modify",
+                            language=self.get_language(diff.path),
+                            content=new_content,
+                            previous_content=original,
+                            lines_added=diff.lines_added,
+                            lines_removed=diff.lines_removed,
+                        )
+                    
+                    files.append(file_change)
+                    yield self.emit_file_generated(file_change)
+                    
+                logger.info(f"[EDIT STEP] Applied {len(files)} diff(s) successfully")
+            else:
+                # Fallback: try parsing as complete file blocks
+                logger.warning("[EDIT STEP] No diffs found in LLM response, falling back to full file parsing")
+                files = self.parse_code_blocks(full_content)
+                files = exclude_protected_files(files, PROTECTED_FILES)
+                
+                for f in files:
+                    # Mark as modify if file existed, create otherwise
+                    f.action = "modify" if f.path in file_contents else "create"
+                    yield self.emit_file_generated(f)
+            
+            # Validate and fix field names (same as generate path)
+            for event in self._validate_and_fix_fields(files, full_content, app, version, model):
+                if isinstance(event, list):
+                    files = event
+                    break
+                yield event
+                
+        except Exception as e:
+            logger.error(f"[EDIT STEP] Execution error: {e}")
+            yield self.emit_thinking(f"Error during edit step: {str(e)}", "reflection")
+            raise
+
+    def _build_step_edit_prompt(
+        self,
+        step: PlanStep,
+        step_index: int,
+        user_message: str,
+        file_contents: Dict[str, str],
+        data_store_context: Optional[str] = None,
+    ) -> str:
+        """
+        Build prompt for diff-based step execution.
+        
+        Shows existing file contents with line numbers and requests unified diffs.
+        """
+        # Build files context with line numbers
+        files_context = ""
+        for path, content in file_contents.items():
+            numbered_content = format_with_line_numbers(content)
+            files_context += f"\n### {path}\n```\n{numbered_content}\n```\n"
+        
+        if not files_context:
+            files_context = "No existing files to modify."
+        
+        # Build data store section
+        data_store_section = ""
+        if data_store_context and "No data tables" not in data_store_context:
+            data_store_section = f"## Available Data Store\n{data_store_context}"
+        
+        # Escape curly braces for .format()
+        escaped_files_context = files_context.replace("{", "{{").replace("}", "}}")
+        escaped_user_message = user_message.replace("{", "{{").replace("}", "}}")
+        escaped_data_store = data_store_section.replace("{", "{{").replace("}", "}}")
+        
+        return STEP_EDIT_PROMPT_TEMPLATE.format(
+            step_number=step_index + 1,
+            step_title=getattr(step, "title", ""),
+            step_description=getattr(step, "description", ""),
+            user_message=escaped_user_message,
+            files_context=escaped_files_context,
+            data_store_section=escaped_data_store,
+        )
 
     def _parse_table_definitions(self, content: str) -> List[Dict[str, Any]]:
         """Parse TABLE_DEFINITION blocks from agent output."""
