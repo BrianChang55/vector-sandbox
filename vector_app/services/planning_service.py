@@ -17,6 +17,7 @@ from vector_app.ai.models import AIModel
 from vector_app.ai.types import LLMSettings
 from vector_app.prompts.agentic.planning import build_plan_prompt
 from vector_app.services.validation_service import get_validation_service
+from vector_app.services.intent_classifier import UserIntent
 from vector_app.utils.enum_utils import safe_str_enum
 
 logger = logging.getLogger(__name__)
@@ -79,7 +80,9 @@ class PlanningService:
         self,
         user_message: str,
         context: Dict[str, Any],
-        model: AIModel = AIModel.CLAUDE_OPUS_4_5,
+        model: str = AIModel.CLAUDE_OPUS_4_5,
+        intent_type: Optional[UserIntent] = None,
+        existing_files: Optional[List[str]] = None,
     ) -> AgentPlan:
         """
         Create an execution plan for the app generation.
@@ -88,6 +91,8 @@ class PlanningService:
             user_message: The user's request/requirement
             context: Context dictionary with app info, resources, etc.
             model: LLM model to use for plan generation
+            intent_type: The classified intent (GENERATE_NEW, ADD_FEATURE, etc.)
+            existing_files: List of existing file paths (for features, empty for new apps)
             
         Returns:
             AgentPlan with steps and reasoning
@@ -95,8 +100,16 @@ class PlanningService:
         if FORCE_OPUS_PLAN_GENERATION:
             model = AIModel.CLAUDE_OPUS_4_5
 
+        # Use [] if existing_files is None
+        existing_files = existing_files or []
+
         # Use AI to generate a smart plan
-        plan_prompt = build_plan_prompt(user_message, context)
+        plan_prompt = build_plan_prompt(
+            user_message,
+            context,
+            intent_type=intent_type,
+            existing_files=existing_files,
+        )
 
         try:
             result = get_llm_client().run(

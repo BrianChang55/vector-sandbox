@@ -20,6 +20,8 @@ from vector_app.services.types import (
     CompilationError,
     ValidationResult,
 )
+from vector_app.services.intent_classifier import UserIntent
+
 if TYPE_CHECKING:
     from vector_app.models import InternalApp
 
@@ -1353,28 +1355,32 @@ export const dataStore: DataStore = {} as DataStore;
 
     # ===== Plan Validation Methods =====
 
-    def validate_plan(self, plan: Any) -> List[str]:
+    def validate_plan(self, plan: Any, intent_type: Optional[UserIntent] = None) -> List[str]:
         """
         Validate the generated plan meets all requirements.
 
         Args:
             plan: The generated AgentPlan to validate
+            intent_type: Optional intent type (ADD_FEATURE skips App.tsx validation)
 
         Returns:
             List of validation error messages (empty if valid)
         """
         errors = []
-        has_app_tsx = any(
-            "src/App.tsx" in step.target_files
-            for step in plan.steps
-        )
-
-        if not has_app_tsx:
-            errors.append(
-                "CRITICAL: Plan is missing 'src/App.tsx' in target_files. "
-                "Every React app MUST have an App.tsx entry point. "
-                "At least one step must include 'src/App.tsx' in its target_files array."
+        
+        # Skip App.tsx validation for feature additions (App.tsx already exists)
+        if intent_type != UserIntent.ADD_FEATURE:
+            has_app_tsx = any(
+                "src/App.tsx" in step.target_files
+                for step in plan.steps
             )
+
+            if not has_app_tsx:
+                errors.append(
+                    "CRITICAL: Plan is missing 'src/App.tsx' in target_files. "
+                    "Every React app MUST have an App.tsx entry point. "
+                    "At least one step must include 'src/App.tsx' in its target_files array."
+                )
 
         return errors
 
