@@ -14,10 +14,6 @@ import os
 import sys
 import json
 import time
-from vector_app.models import UserOrganizationRole
-from vector_app.models import UserOrganizationRole
-
-
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -30,7 +26,9 @@ import django
 django.setup()
 
 from rest_framework_simplejwt.tokens import RefreshToken
-from vector_app.models import User, Organization, UserOrganization, InternalApp, CodeGenerationJob
+from accounts.models import User, Organization, UserOrganization
+from accounts.types import UserOrganizationRole
+from vector_app.models import InternalApp, CodeGenerationJob
 
 
 BASE_URL = "http://localhost:8001/api/v1"

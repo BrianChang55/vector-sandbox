@@ -17,9 +17,9 @@ from django.urls import reverse
 from rest_framework.test import APITestCase, APIClient
 from rest_framework import status
 
+from accounts.models import User, Organization, UserOrganization
 from vector_app.models import (
-    User, Organization, UserOrganization, InternalApp,
-    AppDataTable, AppDataRow
+    InternalApp, AppDataTable, AppDataRow
 )
 from vector_app.services.schema_validator import SchemaValidator
 from vector_app.services.app_data_service import AppDataService
