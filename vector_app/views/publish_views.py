@@ -74,7 +74,6 @@ def publish_app(request, pk=None):
             source=AppVersion.SOURCE_PUBLISH,
             intent_message=latest_stable.intent_message,
             spec_json=latest_stable.spec_json,
-            scope_snapshot_json=scope_snapshot,
             created_by=request.user,
         )
         

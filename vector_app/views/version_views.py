@@ -419,7 +419,6 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
             'version_id': str(version.id),
             'version_number': version.version_number,
             'tables': snapshot.tables_json,
-            'resources': snapshot.resources_json,
             'total_tables': snapshot.total_tables,
             'total_rows': snapshot.total_rows,
             'file_count': snapshot.file_count,

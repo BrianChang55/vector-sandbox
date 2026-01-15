@@ -1584,10 +1584,13 @@ class ConnectorCache(BaseModel):
     connector_name = models.CharField(
         max_length=255, help_text='Display name (e.g., "Jira", "Linear", "Slack")'
     )
+    #move to json
     category = models.CharField(
         max_length=100, help_text='Category (e.g., "project_management", "communication")'
     )
+    #deprecate
     logo_url = models.URLField(blank=True, null=True, help_text="URL to connector logo image")
+    
     source_url = models.URLField(
         blank=True, null=True, help_text='Source website URL (e.g., "https://linear.app")'
     )
