@@ -17,6 +17,10 @@ from rest_framework.request import Request
 
 from ..models import InternalApp, AppVersion, VersionFile, UserOrganization
 from ..services.version_service import VersionService
+from vector_app.models import AppVersionGenerationStatus
+from vector_app.models import AppVersionGenerationStatus
+
+
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +110,7 @@ class AppPreviewView(View):
                 # Only look at stable versions for fallback
                 for candidate in AppVersion.objects.filter(
                     internal_app=app,
-                    generation_status=AppVersion.GEN_STATUS_COMPLETE
+                    generation_status=AppVersionGenerationStatus.COMPLETE
                 ).order_by('-version_number'):
                     if self._has_pages(candidate):
                         fallback_version = candidate

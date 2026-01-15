@@ -10,10 +10,12 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, TYPE_CHECKING
 
 from vector_app.models import (
-    ConnectorExecutionLog,
-    AppVersion,
-    ChatMessage,
     AppDataTable,
+    AppVersion,
+    AppVersionGenerationStatus,
+    ChatMessage,
+    ChatMessageRole,
+    ConnectorExecutionLog,
 )
 
 if TYPE_CHECKING:
@@ -229,7 +231,7 @@ class ContextAnalyzer:
         return AppVersion.objects.filter(
             internal_app=app,
             is_active=True,
-            generation_status=AppVersion.GEN_STATUS_COMPLETE,
+            generation_status=AppVersionGenerationStatus.COMPLETE,
         ).order_by('-version_number').first()
     
     def _get_user_message_history(self, session: 'ChatSession') -> List[str]:
@@ -243,7 +245,7 @@ class ContextAnalyzer:
             # Get all user messages from the session, ordered by creation time
             user_messages = ChatMessage.objects.filter(
                 session=session,
-                role=ChatMessage.ROLE_USER,
+                role=ChatMessageRole.USER,
             ).order_by('created_at').values_list('content', flat=True)
             
             # Convert to list and exclude the last message (current request)

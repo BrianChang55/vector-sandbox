@@ -13,7 +13,8 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from ..models import Organization, UserOrganization, OrganizationInvite, User
+from internal_apps.utils.enum import choices
+from ..models import Organization, OrganizationInvite, User, UserOrganization, UserOrganizationRole
 from ..serializers.member_serializers import (
     OrgMemberSerializer,
     OrgMemberUpdateSerializer,
@@ -177,7 +178,7 @@ class OrgMemberDetailView(APIView):
             if member.is_admin():
                 admin_count = UserOrganization.objects.filter(
                     organization=organization,
-                    role=UserOrganization.ROLE_ADMIN
+                    role=UserOrganizationRole.ADMIN
                 ).count()
                 if admin_count <= 1:
                     return Response(
@@ -262,7 +263,7 @@ class OrgInviteListView(APIView):
             last = invite.invited_by.last_name or ''
             inviter_name = f"{first} {last}".strip() or invite.invited_by.email
         
-        role_display = dict(UserOrganization.ROLE_CHOICES).get(invite.role, invite.role)
+        role_display = dict(choices(UserOrganizationRole)).get(invite.role, invite.role)
         
         try:
             html_message = render_to_string('reception/invite_email.html', {
@@ -417,7 +418,7 @@ class OrgInviteResendView(APIView):
             last = invite.invited_by.last_name or ''
             inviter_name = f"{first} {last}".strip() or invite.invited_by.email
         
-        role_display = dict(UserOrganization.ROLE_CHOICES).get(invite.role, invite.role)
+        role_display = dict(choices(UserOrganizationRole)).get(invite.role, invite.role)
         
         try:
             html_message = render_to_string('reception/invite_email.html', {
@@ -492,7 +493,7 @@ class InviteVerifyView(APIView):
                 last = invite.invited_by.last_name or ''
                 inviter_name = f"{first} {last}".strip() or invite.invited_by.email
             
-            role_display = dict(UserOrganization.ROLE_CHOICES).get(invite.role, invite.role)
+            role_display = dict(choices(UserOrganizationRole)).get(invite.role, invite.role)
             
             return Response({
                 'organization_name': invite.organization.name,

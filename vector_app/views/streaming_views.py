@@ -20,8 +20,20 @@ from rest_framework import status as http_status
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.request import Request
 
-from ..models import InternalApp, AppVersion, VersionFile, VersionAuditLog
-from ..models import ChatSession, ChatMessage, CodeGenerationJob
+from ..models import (
+    AppVersion,
+    AppVersionGenerationStatus,
+    AppVersionSource,
+    ChatMessage,
+    ChatMessageRole,
+    ChatMessageStatus,
+    ChatSession,
+    CodeGenerationJob,
+    CodeGenerationJobStatus,
+    InternalApp,
+    VersionAuditLog,
+    VersionFile,
+)
 from ..ai.models import AIModel
 from ..ai.client import get_llm_client
 from ..ai.types import LLMSettings
@@ -336,9 +348,9 @@ class StreamingGenerateView(View):
         # Save user message
         user_message = ChatMessage.objects.create(
             session=session,
-            role=ChatMessage.ROLE_USER,
+            role=ChatMessageRole.USER,
             content=message,
-            status=ChatMessage.STATUS_COMPLETE,
+            status=ChatMessageStatus.COMPLETE,
         )
         if not session.title or session.title.strip() == "" or session.title == "New Chat":
             session.title = message[:50] + "..." if len(message) > 50 else message
@@ -351,9 +363,9 @@ class StreamingGenerateView(View):
         # Create assistant message placeholder
         assistant_message = ChatMessage.objects.create(
             session=session,
-            role=ChatMessage.ROLE_ASSISTANT,
+            role=ChatMessageRole.ASSISTANT,
             content="",
-            status=ChatMessage.STATUS_STREAMING,
+            status=ChatMessageStatus.STREAMING,
             model_id=model,
         )
         yield sse_event("assistant_start", {
@@ -432,7 +444,7 @@ class StreamingGenerateView(View):
                     # Update assistant message
                     duration_ms = int((time.time() - start_time) * 1000)
                     assistant_message.content = accumulated_content
-                    assistant_message.status = ChatMessage.STATUS_COMPLETE
+                    assistant_message.status = ChatMessageStatus.COMPLETE
                     assistant_message.duration_ms = duration_ms
                     
                     if spec_json:
@@ -465,7 +477,7 @@ class StreamingGenerateView(View):
                                 version = AppVersion.objects.create(
                                     internal_app=app,
                                     version_number=next_version_number,
-                                    source=AppVersion.SOURCE_AI,
+                                    source=AppVersionSource.AI,
                                     spec_json=spec_json,
                                     created_by=user if user.is_authenticated else None,
                                     is_active=False,  # Start inactive until files are generated
@@ -504,7 +516,7 @@ class StreamingGenerateView(View):
                             })
                     
                 elif chunk.type == "error":
-                    assistant_message.status = ChatMessage.STATUS_ERROR
+                    assistant_message.status = ChatMessageStatus.ERROR
                     assistant_message.error_message = chunk.content
                     assistant_message.content = accumulated_content
                     assistant_message.save()
@@ -518,7 +530,7 @@ class StreamingGenerateView(View):
             
         except Exception as e:
             logger.error(f"Streaming error: {e}")
-            assistant_message.status = ChatMessage.STATUS_ERROR
+            assistant_message.status = ChatMessageStatus.ERROR
             assistant_message.error_message = str(e)
             assistant_message.content = accumulated_content
             assistant_message.save()
@@ -585,7 +597,7 @@ class NonStreamingGenerateView(APIView):
             # Save user message
             user_message = ChatMessage.objects.create(
                 session=session,
-                role=ChatMessage.ROLE_USER,
+                role=ChatMessageRole.USER,
                 content=message,
             )
             if not session.title or session.title.strip() == "" or session.title == "New Chat":
@@ -619,7 +631,7 @@ class NonStreamingGenerateView(APIView):
             # Save assistant message
             assistant_message = ChatMessage.objects.create(
                 session=session,
-                role=ChatMessage.ROLE_ASSISTANT,
+                role=ChatMessageRole.ASSISTANT,
                 content=json.dumps(spec_json, indent=2),
                 model_id=model,
                 duration_ms=duration_ms,
@@ -638,7 +650,7 @@ class NonStreamingGenerateView(APIView):
                 version = AppVersion.objects.create(
                     internal_app=app,
                     version_number=next_version_number,
-                    source=AppVersion.SOURCE_AI,
+                    source=AppVersionSource.AI,
                     spec_json=spec_json,
                     created_by=request.user,
                     is_active=False,  # Start inactive until files are generated
@@ -756,7 +768,7 @@ class AgenticGenerateView(View):
             user_message=message,
             model_id=model,
             created_by=user,
-            status=CodeGenerationJob.STATUS_QUEUED,
+            status=CodeGenerationJobStatus.QUEUED,
         )
         
         # Queue the Celery task
@@ -820,7 +832,7 @@ class AgenticGenerateView(View):
             user_message=message,
             model_id=model,
             created_by=user,
-            status=CodeGenerationJob.STATUS_QUEUED,
+            status=CodeGenerationJobStatus.QUEUED,
         )
         
         # Queue the Celery task
@@ -877,9 +889,9 @@ class AgenticGenerateView(View):
             
             # Check if job is done
             if job.status in [
-                CodeGenerationJob.STATUS_COMPLETE,
-                CodeGenerationJob.STATUS_FAILED,
-                CodeGenerationJob.STATUS_CANCELLED,
+                CodeGenerationJobStatus.COMPLETE,
+                CodeGenerationJobStatus.FAILED,
+                CodeGenerationJobStatus.CANCELLED,
             ]:
                 break
             
@@ -888,7 +900,7 @@ class AgenticGenerateView(View):
             waited += poll_interval
             
             # Timeout if job never starts
-            if job.status == CodeGenerationJob.STATUS_QUEUED and waited > max_wait_for_start:
+            if job.status == CodeGenerationJobStatus.QUEUED and waited > max_wait_for_start:
                 yield sse_event("agent_error", {
                     "message": "Job timed out waiting to start. The background worker may need to be restarted.",
                     "phase": "error",
@@ -974,13 +986,13 @@ class JobStreamView(View):
             
             # Check if job is done
             if job.status in [
-                CodeGenerationJob.STATUS_COMPLETE,
-                CodeGenerationJob.STATUS_FAILED,
-                CodeGenerationJob.STATUS_CANCELLED,
+                CodeGenerationJobStatus.COMPLETE,
+                CodeGenerationJobStatus.FAILED,
+                CodeGenerationJobStatus.CANCELLED,
             ]:
                 # Emit final done event with job status
                 yield sse_event("done", {
-                    "success": job.status == CodeGenerationJob.STATUS_COMPLETE,
+                    "success": job.status == CodeGenerationJobStatus.COMPLETE,
                     "status": job.status,
                     "version_id": str(job.version_id) if job.version_id else None,
                 })
@@ -991,7 +1003,7 @@ class JobStreamView(View):
             waited += poll_interval
             
             # Timeout if job never starts
-            if job.status == CodeGenerationJob.STATUS_QUEUED and waited > max_wait_for_start:
+            if job.status == CodeGenerationJobStatus.QUEUED and waited > max_wait_for_start:
                 yield sse_event("agent_error", {
                     "message": "Job timed out waiting to start. The background worker may need to be restarted.",
                     "phase": "error",
@@ -1044,9 +1056,9 @@ class JobStatusView(APIView):
             "completed_at": job.completed_at.isoformat() if job.completed_at else None,
             "error_message": job.error_message,
             "is_active": job.status in [
-                CodeGenerationJob.STATUS_QUEUED,
-                CodeGenerationJob.STATUS_PROCESSING,
-                CodeGenerationJob.STATUS_STREAMING,
+                CodeGenerationJobStatus.QUEUED,
+                CodeGenerationJobStatus.PROCESSING,
+                CodeGenerationJobStatus.STREAMING,
             ],
         })
 
@@ -1077,9 +1089,9 @@ class LatestJobView(APIView):
         active_job = CodeGenerationJob.objects.filter(
                     internal_app=app,
             status__in=[
-                CodeGenerationJob.STATUS_QUEUED,
-                CodeGenerationJob.STATUS_PROCESSING,
-                CodeGenerationJob.STATUS_STREAMING,
+                CodeGenerationJobStatus.QUEUED,
+                CodeGenerationJobStatus.PROCESSING,
+                CodeGenerationJobStatus.STREAMING,
             ]
         ).order_by('-created_at').first()
         
@@ -1137,13 +1149,13 @@ class JobCancelView(APIView):
             return Response({"error": "Access denied"}, status=http_status.HTTP_403_FORBIDDEN)
         
         # Only cancel if still running
-        if job.status in [CodeGenerationJob.STATUS_QUEUED, CodeGenerationJob.STATUS_PROCESSING, CodeGenerationJob.STATUS_STREAMING]:
-            job.status = CodeGenerationJob.STATUS_CANCELLED
+        if job.status in [CodeGenerationJobStatus.QUEUED, CodeGenerationJobStatus.PROCESSING, CodeGenerationJobStatus.STREAMING]:
+            job.status = CodeGenerationJobStatus.CANCELLED
             job.save(update_fields=['status', 'updated_at'])
             
             # Cancel the version if it exists
             if job.version:
-                job.version.generation_status = AppVersion.GEN_STATUS_ERROR
+                job.version.generation_status = AppVersionGenerationStatus.ERROR
                 job.version.generation_error = "Cancelled by user"
                 job.version.save(update_fields=['generation_status', 'generation_error', 'updated_at'])
             
@@ -1294,8 +1306,8 @@ class LatestGenerationView(APIView):
                 "error": version.generation_error,
                 "files": files,
                 "file_count": len(files),
-                "is_complete": version.generation_status == AppVersion.GEN_STATUS_COMPLETE,
-                "is_generating": version.generation_status == AppVersion.GEN_STATUS_GENERATING,
+                "is_complete": version.generation_status == AppVersionGenerationStatus.COMPLETE,
+                "is_generating": version.generation_status == AppVersionGenerationStatus.GENERATING,
                 "created_at": version.created_at.isoformat(),
                 # Stable version info for fallback
                 "latest_stable_version_id": str(latest_stable.id) if latest_stable else None,
@@ -1359,7 +1371,7 @@ class ApplyGeneratedCodeView(APIView):
             version = AppVersion.objects.create(
                 internal_app=app,
                 version_number=next_version_number,
-                source=AppVersion.SOURCE_AI,
+                source=AppVersionSource.AI,
                 spec_json=spec_json,
                 created_by=request.user,
             )
