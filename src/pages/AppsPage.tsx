@@ -260,19 +260,23 @@ export function AppsPage() {
 
     try {
       if (formMode === 'create') {
-        await createApp.mutateAsync({
+        const newApp = await createApp.mutateAsync({
           orgId: selectedOrgId!,
           data: { name: cleanedName, description: cleanedDescription, backend_connection: undefined },
         })
+        setFormDialogOpen(false)
+        resetFormDialog()
+        // Navigate to the App Builder for the newly created app
+        navigate(`/apps/${newApp.id}`)
       } else if (formMode === 'edit' && formAppId) {
         setSavingAppId(formAppId)
         await updateApp.mutateAsync({
           appId: formAppId,
           data: { name: cleanedName, description: cleanedDescription },
         })
+        setFormDialogOpen(false)
+        resetFormDialog()
       }
-      setFormDialogOpen(false)
-      resetFormDialog()
     } catch (error) {
       console.error('Failed to save app', error)
     } finally {
@@ -449,6 +453,19 @@ export function AppsPage() {
         </div>
         {filteredApps.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {/* New App card - shown at front of list for editors/admins */}
+            {canEditApps && (
+              <button
+                onClick={openCreateDialog}
+                className="group flex flex-col items-center justify-center bg-white rounded-lg border-2 border-dashed border-gray-200 p-5 min-h-[180px]
+                         hover:border-gray-300 hover:bg-gray-50/50 transition-all cursor-pointer"
+              >
+                <div className="flex items-center gap-2 text-gray-400 group-hover:text-gray-500 transition-colors">
+                  <Plus className="h-5 w-5" />
+                  <span className="text-sm font-medium">New app</span>
+                </div>
+              </button>
+            )}
             {filteredApps.map((app) => {
                 // Viewers click to go to published view, editors/admins to builder
                 const handleAppClick = () => {

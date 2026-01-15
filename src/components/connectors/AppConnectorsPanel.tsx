@@ -2,14 +2,15 @@
  * App Connectors Panel
  * 
  * Displays organization's connected integrations available for use in the app.
- * Read-only view - connections are managed at the organization level in Resources.
+ * Connections can be initiated directly from here (admin only).
  * 
  * Organization-level integration model:
  * - Connectors are connected once per organization
  * - All org members share the connected integrations
  */
-import { useState } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useAgentHandlerLink } from '@mergeapi/react-agent-handler-link'
 import {
   Plug,
   Loader2,
@@ -25,7 +26,10 @@ import { useApp } from '@/hooks/useApps'
 import {
   useHasIntegrations,
   useConnectors,
+  useGenerateLinkToken,
+  useHandleLinkCallback,
 } from '@/hooks/useIntegrations'
+import { useOrgMembers } from '@/hooks/useMembers'
 import { Button } from '@/components/ui/button'
 import type { Connector } from '@/types/models'
 
@@ -40,7 +44,11 @@ export function AppConnectorsPanel({ appId, className = '' }: AppConnectorsPanel
   const orgId = app?.organization || null
   const { hasIntegrations, provider, isLoading: loadingProvider } = useHasIntegrations(orgId)
   
-  const { data: connectors, isLoading: loadingConnectors } = useConnectors(provider?.id || null)
+  const { data: connectors, isLoading: loadingConnectors, refetch: refetchConnectors } = useConnectors(provider?.id || null)
+  
+  // Check if user is admin
+  const { data: membersData } = useOrgMembers(orgId)
+  const isAdmin = membersData?.current_user_role === 'admin'
   
   const [selectedConnector, setSelectedConnector] = useState<Connector | null>(null)
 
@@ -117,7 +125,12 @@ export function AppConnectorsPanel({ appId, className = '' }: AppConnectorsPanel
       {/* Right Panel - Connector Details */}
       <div className="flex-1 min-w-0 flex flex-col">
         {selectedConnector ? (
-          <ConnectorDetails connector={selectedConnector} />
+          <ConnectorDetails 
+            connector={selectedConnector} 
+            providerId={provider?.id || ''}
+            isAdmin={isAdmin}
+            onConnected={() => refetchConnectors()}
+          />
         ) : (
           <div className="flex flex-col items-center justify-center h-full">
             <div className="h-16 w-16 rounded-xl bg-gray-100 flex items-center justify-center mb-4">
@@ -177,16 +190,76 @@ function EmptyState({ message, description }: EmptyStateProps) {
 
 interface NotConnectedBannerProps {
   connector: Connector
+  providerId: string
+  isAdmin: boolean
+  onConnected: () => void
 }
 
-function NotConnectedBanner({ connector }: NotConnectedBannerProps) {
-  const navigate = useNavigate()
+function NotConnectedBanner({ connector, providerId, isAdmin, onConnected }: NotConnectedBannerProps) {
+  const [connecting, setConnecting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [linkToken, setLinkToken] = useState<string | undefined>(undefined)
   
-  const handleConnect = () => {
-    const integrationParam = connector.id || connector.connector_id || connector.name
-    const url = `/integrations${integrationParam ? `?integration=${encodeURIComponent(integrationParam)}` : ''}`
-    navigate(url)
-  }
+  const generateLinkToken = useGenerateLinkToken()
+  const handleCallback = useHandleLinkCallback()
+  
+  // Use the Merge Agent Handler Link React hook
+  const { open: openLink, isReady } = useAgentHandlerLink({
+    linkToken: linkToken || '',
+    onSuccess: async () => {
+      // Verify connection with the backend
+      try {
+        const result = await handleCallback.mutateAsync({
+          providerId,
+          connectorId: connector.connector_id,
+        })
+        
+        if (result.success && result.is_connected) {
+          onConnected()
+        } else {
+          setError(result.message || 'Connection was not completed. Please try again.')
+        }
+      } catch (err: any) {
+        const errorMsg = err.response?.data?.error || err.response?.data?.message || 'Failed to verify connection'
+        setError(errorMsg)
+      }
+      setConnecting(false)
+      setLinkToken(undefined)
+    },
+    onExit: () => {
+      // User closed without completing
+      setConnecting(false)
+      setLinkToken(undefined)
+    },
+  })
+  
+  // Open link when it's ready and we have a token
+  useEffect(() => {
+    if (isReady && linkToken && connecting) {
+      openLink()
+    }
+  }, [isReady, linkToken, connecting, openLink])
+  
+  const handleConnect = useCallback(async () => {
+    if (!isAdmin) return
+    
+    setConnecting(true)
+    setError(null)
+    try {
+      // Generate link token from backend
+      const { link_token } = await generateLinkToken.mutateAsync({
+        providerId,
+        connectorId: connector.connector_id,
+      })
+      
+      // Set the link token - this will trigger the useEffect to open the link
+      setLinkToken(link_token)
+    } catch (err: any) {
+      console.error('Failed to connect:', err)
+      setError(err.response?.data?.error || err.message || 'Failed to start connection flow')
+      setConnecting(false)
+    }
+  }, [connector.connector_id, generateLinkToken, providerId, isAdmin])
   
   return (
     <div className="mx-4 mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
@@ -194,15 +267,38 @@ function NotConnectedBanner({ connector }: NotConnectedBannerProps) {
         <strong>Not connected:</strong> This integration needs to be connected by an organization 
         admin before it can be used in apps.
       </p>
-      <Button
-        variant="outline"
-        size="sm"
-        className="mt-2 text-amber-800 border-amber-300 hover:bg-amber-100"
-        onClick={handleConnect}
-      >
-        <Link className="h-3 w-3 mr-1.5" />
-        Connect
-      </Button>
+      {error && (
+        <p className="mt-2 text-sm text-red-600">{error}</p>
+      )}
+      <div className="relative inline-block mt-2">
+        <Button
+          variant="outline"
+          size="sm"
+          className={`text-amber-800 border-amber-300 hover:bg-amber-100 ${
+            !isAdmin ? 'opacity-50 cursor-not-allowed' : ''
+          }`}
+          onClick={handleConnect}
+          disabled={!isAdmin || connecting}
+          title={!isAdmin ? 'Only organization admins can connect integrations' : undefined}
+        >
+          {connecting ? (
+            <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />
+          ) : (
+            <Link className="h-3 w-3 mr-1.5" />
+          )}
+          {connecting ? 'Connecting...' : 'Connect'}
+        </Button>
+        {!isAdmin && (
+          <div className="absolute left-0 bottom-full mb-1 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-10">
+            Only admins can connect integrations
+          </div>
+        )}
+      </div>
+      {!isAdmin && (
+        <p className="mt-1.5 text-xs text-amber-700">
+          Contact an organization admin to connect this integration.
+        </p>
+      )}
     </div>
   )
 }
@@ -289,9 +385,12 @@ function ConnectorList({
 
 interface ConnectorDetailsProps {
   connector: Connector
+  providerId: string
+  isAdmin: boolean
+  onConnected: () => void
 }
 
-function ConnectorDetails({ connector }: ConnectorDetailsProps) {
+function ConnectorDetails({ connector, providerId, isAdmin, onConnected }: ConnectorDetailsProps) {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
@@ -348,7 +447,12 @@ function ConnectorDetails({ connector }: ConnectorDetailsProps) {
 
       {/* Not Connected Banner */}
       {!connector.is_connected && (
-        <NotConnectedBanner connector={connector} />
+        <NotConnectedBanner 
+          connector={connector} 
+          providerId={providerId}
+          isAdmin={isAdmin}
+          onConnected={onConnected}
+        />
       )}
 
       {/* Tools Section */}
