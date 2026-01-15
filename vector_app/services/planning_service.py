@@ -110,6 +110,8 @@ class PlanningService:
             intent_type=intent_type,
             existing_files=existing_files,
         )
+        # TODO: figure out why the tools arent passed as context
+        logger.debug(f"Plan prompt: {plan_prompt}")
 
         try:
             result = get_llm_client().run(

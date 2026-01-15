@@ -145,8 +145,13 @@ class GenerateHandler(BaseHandler):
         # Apply design style to user message
         styled_user_message = apply_design_style_prompt(
             user_message,
-            data_store_context,
-            mcp_tools_context,
+            data_store_context=None,
+            connectors_context=mcp_tools_context,
+        )
+        styled_user_message_with_data_store = apply_design_style_prompt(
+            styled_user_message,
+            data_store_context=data_store_context,
+            connectors_context=mcp_tools_context,
         )
 
         # ===== PHASE 1: PLANNING =====
@@ -190,7 +195,7 @@ class GenerateHandler(BaseHandler):
             try:
                 schema_content = schema_extraction_service.extract_schema_from_plan(
                     plan,
-                    styled_user_message,
+                    styled_user_message_with_data_store,
                     model
                 )
                 logger.info(f"📋 Schema extraction complete. Content length: {len(schema_content) if schema_content else 0} chars")

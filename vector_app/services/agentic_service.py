@@ -252,8 +252,14 @@ class AgenticService:
         # ===== LEGACY BEHAVIOR (FALLBACK) =====
         styled_user_message = apply_design_style_prompt(
             user_message,
-            data_store_context,
-            mcp_tools_context_str,
+            # exclude data store context from plan prompt
+            data_store_context=None,
+            connectors_context=mcp_tools_context_str,
+        )
+        styled_user_message_with_data_store = apply_design_style_prompt(
+            styled_user_message,
+            data_store_context=data_store_context,
+            connectors_context=mcp_tools_context_str,
         )
 
         # ===== PHASE 1: RESEARCH =====
@@ -274,9 +280,9 @@ class AgenticService:
         )
 
         # Analyze context with data store info
-        # Note: MCP tools context is already included in styled_user_message
+        # Note: MCP tools context is already included in styled_user_message_with_data_store
         context_analysis = self._analyze_context(
-            styled_user_message, current_spec, registry_surface, app_name, app, None
+            styled_user_message_with_data_store, current_spec, registry_surface, app_name, app, None
         )
 
         yield AgentEvent(
@@ -314,7 +320,7 @@ class AgenticService:
         schema_extraction_service = get_schema_extraction_service()
         schema_content = schema_extraction_service.extract_schema_from_plan(
             plan,
-            styled_user_message,
+            styled_user_message_with_data_store,
             model
         )
 
@@ -775,6 +781,7 @@ class AgenticService:
                 yield AgentEvent(item.event_type, item.data)
             elif isinstance(item, FilterMCPToolsResult):
                 matched_tools_context = item.matched_tools_context
+                logger.warning(f"🔍 [INTENT ROUTING] Matched tools context: {matched_tools_context}")
 
         # ===== ROUTE TO APPROPRIATE HANDLER =====
         router = get_intent_router()
