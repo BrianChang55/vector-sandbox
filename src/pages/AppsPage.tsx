@@ -519,7 +519,7 @@ export function AppsPage() {
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <button
-                          className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                          className="p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors focus:outline-none"
                           aria-label="App actions"
                         >
                           <MoreVertical className="h-4 w-4" />
