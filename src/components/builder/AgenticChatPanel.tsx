@@ -795,12 +795,6 @@ export function AgenticChatPanel({
     loadExistingState()
   }, [appId, hasLoadedState, onFilesGenerated, onVersionCreated])
 
-  // Auto-select latest session for this app
-  useEffect(() => {
-    if (sessionId || !chatSessions || chatSessions.length === 0) return
-    onSessionChange(chatSessions[0].id)
-  }, [chatSessions, onSessionChange, sessionId])
-
   // Load persisted chat history for the active session
   useEffect(() => {
     if (!sessionId || !sessionMessages) return
@@ -823,36 +817,28 @@ export function AgenticChatPanel({
     setHydratedSessionId(sessionId)
   }, [hydratedSessionId, mapApiMessageToLocal, messages, sessionId, sessionMessages, isHiddenPromptContent])
 
-  // Auto-create a session if none exists for this app
+  // Single effect: select existing session OR create one if none exist
   useEffect(() => {
-    // Wait for the initial session fetch before deciding to create one
-    if (!chatSessions) return
+    // Wait for sessions to load
+    if (chatSessions === undefined) return
+    // Already have a valid session
+    if (sessionId && chatSessions.some(s => s.id === sessionId)) return
+    // Already creating
+    if (creatingSession) return
 
-    // Always pick the latest session; if none, create one.
-    if (chatSessions && chatSessions.length > 0) {
-      const latest = chatSessions[0]
-      if (!sessionId || !chatSessions.some(s => s.id === sessionId)) {
-        onSessionChange(latest.id)
-      }
+    // If sessions exist, use the latest
+    if (chatSessions.length > 0) {
+      onSessionChange(chatSessions[0].id)
       return
     }
-    if (sessionId || creatingSession) return
+
+    // No sessions exist - create one
     let cancelled = false
-    const ensureSession = async () => {
-      try {
-        const session = await createChatSession({ appId })
-        if (!cancelled) {
-          onSessionChange(session.id)
-        }
-      } catch (error) {
-        console.error('Failed to auto-create chat session', error)
-      }
-    }
-    ensureSession()
-    return () => {
-      cancelled = true
-    }
-  }, [appId, chatSessions, createChatSession, creatingSession, onSessionChange, sessionId])
+    createChatSession({ appId }).then(session => {
+      if (!cancelled) onSessionChange(session.id)
+    }).catch(err => console.error('Failed to create chat session', err))
+    return () => { cancelled = true }
+  }, [appId, chatSessions, sessionId, creatingSession, createChatSession, onSessionChange])
 
   // Auto-scroll
   useEffect(() => {
@@ -2312,12 +2298,12 @@ export function AgenticChatPanel({
                 size="sm"
                 placement="up"
               />
-              {/* Dev mode: show red stop button when loading, otherwise show send button */}
+              {/* Dev mode: show stop button when loading, otherwise show send button */}
               {import.meta.env.DEV && isLoading ? (
                 <button
                   onClick={handleCancel}
-                  className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-red-600 text-white
-                             hover:bg-red-700 transition-all shadow-sm"
+                  className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-gray-900 text-white
+                             hover:bg-gray-800 transition-all shadow-sm"
                   title="Cancel generation"
                 >
                   <Square className="h-3 w-3 fill-current" />
