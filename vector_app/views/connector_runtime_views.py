@@ -23,11 +23,12 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
 from ..models import (
+    ConnectorCache,
+    ConnectorExecutionLog,
+    ConnectorExecutionStatus,
     InternalApp,
     MergeIntegrationProvider,
-    ConnectorCache,
     OrganizationConnectorLink,
-    ConnectorExecutionLog,
     User,
     UserOrganization,
 )
@@ -206,7 +207,7 @@ class RuntimeConnectorProxyView(APIView):
                     'id': connector.connector_id,
                     'name': connector.connector_name,
                     'category': connector.category,
-                    'icon_url': connector.icon_url,
+                    'logo_url': connector.logo_url,
                     'tool_count': len(connector.tools_json or []),
                     'is_connected': connector.connector_id in connected_ids,
                 })
@@ -423,7 +424,7 @@ class RuntimeConnectorProxyView(APIView):
                 tool_id=tool_id,
                 params_json=params,
                 result_json=result.data if result.success else None,
-                status=ConnectorExecutionLog.STATUS_SUCCESS if result.success else ConnectorExecutionLog.STATUS_ERROR,
+                status=ConnectorExecutionStatus.SUCCESS if result.success else ConnectorExecutionStatus.ERROR,
                 error_message=result.error if not result.success else None,
                 duration_ms=duration_ms,
             )
@@ -450,7 +451,7 @@ class RuntimeConnectorProxyView(APIView):
                 connector_slug=connector_id,
                 tool_id=tool_id,
                 params_json=params,
-                status=ConnectorExecutionLog.STATUS_ERROR,
+                status=ConnectorExecutionStatus.ERROR,
                 error_message=str(e),
                 duration_ms=duration_ms,
             )
@@ -472,7 +473,7 @@ class RuntimeConnectorProxyView(APIView):
                 connector_slug=connector_id,
                 tool_id=tool_id,
                 params_json=params,
-                status=ConnectorExecutionLog.STATUS_ERROR,
+                status=ConnectorExecutionStatus.ERROR,
                 error_message=str(e),
                 duration_ms=duration_ms,
             )

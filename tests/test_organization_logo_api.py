@@ -13,6 +13,10 @@ import sys
 import uuid
 from io import BytesIO
 from PIL import Image
+from vector_app.models import UserOrganizationRole
+from vector_app.models import UserOrganizationRole
+
+
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -69,7 +73,7 @@ class TestOrganizationLogoAPI:
         UserOrganization.objects.create(
             user=self.user,
             organization=self.org,
-            role=UserOrganization.ROLE_ADMIN
+            role=UserOrganizationRole.ADMIN
         )
         
         print(f"  Created test user: {self.user.email}")

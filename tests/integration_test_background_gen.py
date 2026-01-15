@@ -14,6 +14,10 @@ import os
 import sys
 import json
 import time
+from vector_app.models import UserOrganizationRole
+from vector_app.models import UserOrganizationRole
+
+
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -59,7 +63,7 @@ def get_or_create_test_org(user):
     UserOrganization.objects.get_or_create(
         user=user,
         organization=org,
-        defaults={'role': UserOrganization.ROLE_ADMIN}
+        defaults={'role': UserOrganizationRole.ADMIN}
     )
     
     if created:

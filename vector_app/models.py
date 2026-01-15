@@ -4,16 +4,101 @@ Vector Internal Apps - Data Models
 This module contains all Django models for the Vector Internal Apps platform.
 """
 
-import uuid
-import json
 import hashlib
+import json
+import secrets
+import time
+import uuid
+from datetime import timedelta
+from enum import StrEnum
+
 from django.contrib.auth.models import AbstractUser
-from django.db import models
 from django.core.exceptions import ValidationError
-from vector_app.action_classification.types import ActionType
+from django.db import models
+from django.db.models.functions import Greatest
+from django.utils import timezone
+from django.utils.text import slugify
+
 from internal_apps.utils.base_model import BaseModel
-from .utils.encryption import encrypt_string, decrypt_string
 from internal_apps.utils.enum import choices
+from vector_app.action_classification.types import ActionType
+from .utils.encryption import encrypt_string, decrypt_string
+
+
+class UserOrganizationRole(StrEnum):
+    ADMIN = "admin"
+    EDITOR = "editor"
+    VIEWER = "viewer"
+
+
+class InternalAppStatus(StrEnum):
+    DRAFT = "draft"
+    PUBLISHED = "published"
+
+
+class AppVersionSource(StrEnum):
+    AI_EDIT = "ai_edit"
+    CODE_EDIT = "code_edit"
+    ROLLBACK = "rollback"
+    PUBLISH = "publish"
+    # Legacy aliases (kept for compatibility with existing data/choices)
+    AI = "ai"
+    CODE = "code"
+
+
+class AppVersionGenerationStatus(StrEnum):
+    PENDING = "pending"
+    GENERATING = "generating"
+    COMPLETE = "complete"
+    ERROR = "error"
+
+
+class AppVersionValidationStatus(StrEnum):
+    PENDING = "pending"
+    PASSED = "passed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+class ChatMessageRole(StrEnum):
+    USER = "user"
+    ASSISTANT = "assistant"
+    SYSTEM = "system"
+
+
+class ChatMessageStatus(StrEnum):
+    PENDING = "pending"
+    STREAMING = "streaming"
+    COMPLETE = "complete"
+    ERROR = "error"
+
+
+class CodeGenerationJobStatus(StrEnum):
+    QUEUED = "queued"
+    PROCESSING = "processing"
+    STREAMING = "streaming"
+    COMPLETE = "complete"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class AppDataTableSnapshotOperation(StrEnum):
+    CREATE = "create"
+    UPDATE = "update"
+    DELETE = "delete"
+
+
+class VersionAuditOperation(StrEnum):
+    CREATE = "create"
+    ROLLBACK = "rollback"
+    PUBLISH = "publish"
+    SCHEMA_REVERT = "schema_revert"
+    PREVIEW = "preview"
+
+
+class ConnectorExecutionStatus(StrEnum):
+    SUCCESS = "success"
+    ERROR = "error"
 
 # ============================================================================
 # Base User and Organization Models
@@ -72,8 +157,9 @@ class User(AbstractUser, BaseModel):
         Returns:
             str or None: URL to the profile image
         """
+        # Local import avoids circular import during Django model initialization.
         from .services.image_upload_service import ImageUploadService
-        
+
         # Prefer uploaded image if set
         if self.profile_image_storage_key:
             return ImageUploadService.get_image_url(self.profile_image_storage_key)
@@ -86,8 +172,9 @@ class User(AbstractUser, BaseModel):
     
     def delete_profile_image(self):
         """Delete the uploaded profile image and clear the storage key."""
+        # Local import avoids circular import during Django model initialization.
         from .services.image_upload_service import ImageUploadService
-        
+
         if self.profile_image_storage_key:
             ImageUploadService.delete_image(self.profile_image_storage_key)
             self.profile_image_storage_key = None
@@ -130,8 +217,9 @@ class Organization(BaseModel):
         Returns:
             str or None: URL to the logo image
         """
+        # Local import avoids circular import during Django model initialization.
         from .services.image_upload_service import ImageUploadService
-        
+
         # Prefer new storage key if set
         if self.logo_storage_key:
             return ImageUploadService.get_image_url(self.logo_storage_key)
@@ -144,8 +232,9 @@ class Organization(BaseModel):
     
     def delete_logo(self):
         """Delete the logo from storage and clear both fields."""
+        # Local import avoids circular import during Django model initialization.
         from .services.image_upload_service import ImageUploadService
-        
+
         # Delete from new storage if set
         if self.logo_storage_key:
             ImageUploadService.delete_image(self.logo_storage_key)
@@ -169,25 +258,16 @@ class UserOrganization(BaseModel):
     - Viewer: View/run only - sees published apps, redirected to published view
     """
 
-    ROLE_ADMIN = "admin"
-    ROLE_EDITOR = "editor"
-    ROLE_VIEWER = "viewer"
-
-    # Legacy role alias for backwards compatibility during migration
-    ROLE_MEMBER = "editor"
-
-    ROLE_CHOICES = [
-        (ROLE_ADMIN, "Admin"),
-        (ROLE_EDITOR, "Editor"),
-        (ROLE_VIEWER, "Viewer"),
-    ]
-
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="user_organizations")
     organization = models.ForeignKey(
         Organization, on_delete=models.CASCADE, related_name="user_organizations"
     )
-    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default=ROLE_EDITOR)
+    role = models.CharField(
+        max_length=20,
+        choices=choices(UserOrganizationRole),
+        default=UserOrganizationRole.EDITOR,
+    )
 
     class Meta:
         unique_together = ["user", "organization"]
@@ -197,11 +277,11 @@ class UserOrganization(BaseModel):
 
     def is_admin(self):
         """Check if user has admin role."""
-        return self.role == self.ROLE_ADMIN
+        return self.role == UserOrganizationRole.ADMIN
 
     def is_editor_or_above(self):
         """Check if user has editor or admin role."""
-        return self.role in [self.ROLE_ADMIN, self.ROLE_EDITOR]
+        return self.role in [UserOrganizationRole.ADMIN, UserOrganizationRole.EDITOR]
 
     def can_edit_apps(self):
         """Check if user can edit apps."""
@@ -236,8 +316,8 @@ class OrganizationInvite(BaseModel):
     email = models.EmailField(db_index=True, help_text="Email address this invitation is for")
     role = models.CharField(
         max_length=20,
-        choices=UserOrganization.ROLE_CHOICES,
-        default=UserOrganization.ROLE_EDITOR,
+        choices=choices(UserOrganizationRole),
+        default=UserOrganizationRole.EDITOR,
         help_text="Role the user will have when they accept",
     )
     invited_by = models.ForeignKey(
@@ -269,8 +349,6 @@ class OrganizationInvite(BaseModel):
     @property
     def is_expired(self):
         """Check if the invitation has expired."""
-        from django.utils import timezone
-
         return timezone.now() > self.expires_at
 
     @property
@@ -293,10 +371,6 @@ class OrganizationInvite(BaseModel):
         Returns:
             tuple: (OrganizationInvite instance, raw_token string)
         """
-        import secrets
-        from django.utils import timezone
-        from datetime import timedelta
-
         # Generate a secure random token (32 bytes = 256 bits)
         raw_token = secrets.token_urlsafe(32)
         token_hash = cls.hash_token(raw_token)
@@ -344,8 +418,6 @@ class OrganizationInvite(BaseModel):
         Returns:
             UserOrganization: The created membership
         """
-        from django.utils import timezone
-
         # Create the membership
         membership, created = UserOrganization.objects.get_or_create(
             user=user, organization=self.organization, defaults={"role": self.role}
@@ -366,15 +438,11 @@ class OrganizationInvite(BaseModel):
     @classmethod
     def cleanup_expired(cls):
         """Delete all expired and unaccepted invitations."""
-        from django.utils import timezone
-
         return cls.objects.filter(expires_at__lt=timezone.now(), is_accepted=False).delete()
 
     @classmethod
     def get_pending_for_org(cls, organization):
         """Get all pending invitations for an organization."""
-        from django.utils import timezone
-
         return cls.objects.filter(
             organization=organization, is_accepted=False, expires_at__gt=timezone.now()
         ).select_related("invited_by")
@@ -389,15 +457,6 @@ class InternalApp(BaseModel):
     """
     Internal application created by users.
     """
-
-    STATUS_DRAFT = "draft"
-    STATUS_PUBLISHED = "published"
-
-    STATUS_CHOICES = [
-        (STATUS_DRAFT, "Draft"),
-        (STATUS_PUBLISHED, "Published"),
-    ]
-
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="internal_apps")
     name = models.CharField(max_length=255)
@@ -408,7 +467,11 @@ class InternalApp(BaseModel):
         help_text="URL-friendly identifier for the app (auto-generated from name if not set)",
     )
     description = models.TextField(blank=True)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_DRAFT)
+    status = models.CharField(
+        max_length=20,
+        choices=choices(InternalAppStatus),
+        default=InternalAppStatus.DRAFT,
+    )
     published_version = models.ForeignKey(
         "AppVersion",
         on_delete=models.SET_NULL,
@@ -431,8 +494,6 @@ class InternalApp(BaseModel):
 
     def generate_slug(self):
         """Generate a URL-friendly slug from the app name."""
-        from django.utils.text import slugify
-
         base_slug = slugify(self.name)
         if not base_slug:
             base_slug = "app"
@@ -479,37 +540,6 @@ class AppVersion(BaseModel):
     """
     Version of an internal app (immutable snapshot).
     """
-
-    SOURCE_AI_EDIT = "ai_edit"
-    SOURCE_CODE_EDIT = "code_edit"
-    SOURCE_ROLLBACK = "rollback"
-    SOURCE_PUBLISH = "publish"
-    # Legacy aliases (kept for compatibility with existing data/choices)
-    SOURCE_AI = "ai"
-    SOURCE_CODE = "code"
-
-    SOURCE_CHOICES = [
-        (SOURCE_AI_EDIT, "AI Edit"),
-        (SOURCE_CODE_EDIT, "Code Edit"),
-        (SOURCE_ROLLBACK, "Rollback"),
-        (SOURCE_PUBLISH, "Publish"),
-        (SOURCE_AI, "AI (legacy)"),
-        (SOURCE_CODE, "Code (legacy)"),
-    ]
-
-    # Generation status for agentic workflow
-    GEN_STATUS_PENDING = "pending"
-    GEN_STATUS_GENERATING = "generating"
-    GEN_STATUS_COMPLETE = "complete"
-    GEN_STATUS_ERROR = "error"
-
-    GEN_STATUS_CHOICES = [
-        (GEN_STATUS_PENDING, "Pending"),
-        (GEN_STATUS_GENERATING, "Generating"),
-        (GEN_STATUS_COMPLETE, "Complete"),
-        (GEN_STATUS_ERROR, "Error"),
-    ]
-
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     internal_app = models.ForeignKey(InternalApp, on_delete=models.CASCADE, related_name="versions")
     version_number = models.PositiveIntegerField()
@@ -525,7 +555,11 @@ class AppVersion(BaseModel):
     intent_message = models.TextField(
         null=True, blank=True, help_text="User intent that generated this version (AI edits)"
     )
-    source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default=SOURCE_AI_EDIT)
+    source = models.CharField(
+        max_length=20,
+        choices=choices(AppVersionSource),
+        default=AppVersionSource.AI_EDIT,
+    )
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
 
     # Version activation status
@@ -538,8 +572,8 @@ class AppVersion(BaseModel):
     # Agentic generation tracking
     generation_status = models.CharField(
         max_length=20,
-        choices=GEN_STATUS_CHOICES,
-        default=GEN_STATUS_COMPLETE,
+        choices=choices(AppVersionGenerationStatus),
+        default=AppVersionGenerationStatus.COMPLETE,
         help_text="Status of agentic code generation",
     )
     generation_plan_json = models.JSONField(
@@ -551,22 +585,10 @@ class AppVersion(BaseModel):
     generation_error = models.TextField(null=True, blank=True, help_text="Error message if generation failed")
 
     # Validation status for TypeScript compilation
-    VALIDATION_PENDING = "pending"
-    VALIDATION_PASSED = "passed"
-    VALIDATION_FAILED = "failed"
-    VALIDATION_SKIPPED = "skipped"
-
-    VALIDATION_STATUS_CHOICES = [
-        (VALIDATION_PENDING, "Pending"),
-        (VALIDATION_PASSED, "Passed"),
-        (VALIDATION_FAILED, "Failed"),
-        (VALIDATION_SKIPPED, "Skipped"),
-    ]
-
     validation_status = models.CharField(
         max_length=20,
-        choices=VALIDATION_STATUS_CHOICES,
-        default=VALIDATION_PENDING,
+        choices=choices(AppVersionValidationStatus),
+        default=AppVersionValidationStatus.PENDING,
         help_text="TypeScript compilation validation status",
     )
     validation_errors_json = models.JSONField(
@@ -671,8 +693,6 @@ class MagicLinkToken(BaseModel):
     @property
     def is_expired(self):
         """Check if the token has expired."""
-        from django.utils import timezone
-
         return timezone.now() > self.expires_at
 
     @property
@@ -683,8 +703,6 @@ class MagicLinkToken(BaseModel):
     @classmethod
     def hash_token(cls, raw_token: str) -> str:
         """Hash a raw token using SHA256."""
-        import hashlib
-
         return hashlib.sha256(raw_token.encode()).hexdigest()
 
     @classmethod
@@ -706,10 +724,6 @@ class MagicLinkToken(BaseModel):
         Returns:
             tuple: (MagicLinkToken instance, raw_token string)
         """
-        import secrets
-        from django.utils import timezone
-        from datetime import timedelta
-
         # Generate a secure random token (32 bytes = 256 bits)
         raw_token = secrets.token_urlsafe(32)
         token_hash = cls.hash_token(raw_token)
@@ -761,17 +775,12 @@ class MagicLinkToken(BaseModel):
         Returns:
             Number of requests in the time window
         """
-        from django.utils import timezone
-        from datetime import timedelta
-
         cutoff = timezone.now() - timedelta(minutes=minutes)
         return cls.objects.filter(email=email, created_at__gte=cutoff).count()
 
     @classmethod
     def cleanup_expired(cls):
         """Delete all expired tokens."""
-        from django.utils import timezone
-
         return cls.objects.filter(expires_at__lt=timezone.now()).delete()
 
 
@@ -811,33 +820,15 @@ class ChatMessage(BaseModel):
     Supports user messages, AI responses, and system messages.
     """
 
-    ROLE_USER = "user"
-    ROLE_ASSISTANT = "assistant"
-    ROLE_SYSTEM = "system"
-
-    ROLE_CHOICES = [
-        (ROLE_USER, "User"),
-        (ROLE_ASSISTANT, "Assistant"),
-        (ROLE_SYSTEM, "System"),
-    ]
-
-    STATUS_PENDING = "pending"
-    STATUS_STREAMING = "streaming"
-    STATUS_COMPLETE = "complete"
-    STATUS_ERROR = "error"
-
-    STATUS_CHOICES = [
-        (STATUS_PENDING, "Pending"),
-        (STATUS_STREAMING, "Streaming"),
-        (STATUS_COMPLETE, "Complete"),
-        (STATUS_ERROR, "Error"),
-    ]
-
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     session = models.ForeignKey(ChatSession, on_delete=models.CASCADE, related_name="messages")
-    role = models.CharField(max_length=20, choices=ROLE_CHOICES)
+    role = models.CharField(max_length=20, choices=choices(ChatMessageRole))
     content = models.TextField()
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_COMPLETE)
+    status = models.CharField(
+        max_length=20,
+        choices=choices(ChatMessageStatus),
+        default=ChatMessageStatus.COMPLETE,
+    )
 
     # Metadata
     model_id = models.CharField(max_length=100, blank=True, null=True)
@@ -884,22 +875,6 @@ class CodeGenerationJob(BaseModel):
     SSE endpoint streams them to the client.
     """
 
-    STATUS_QUEUED = "queued"
-    STATUS_PROCESSING = "processing"
-    STATUS_STREAMING = "streaming"
-    STATUS_COMPLETE = "complete"
-    STATUS_FAILED = "failed"
-    STATUS_CANCELLED = "cancelled"
-
-    STATUS_CHOICES = [
-        (STATUS_QUEUED, "Queued"),
-        (STATUS_PROCESSING, "Processing"),
-        (STATUS_STREAMING, "Streaming"),
-        (STATUS_COMPLETE, "Complete"),
-        (STATUS_FAILED, "Failed"),
-        (STATUS_CANCELLED, "Cancelled"),
-    ]
-
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     chat_message = models.OneToOneField(
         ChatMessage,
@@ -928,7 +903,11 @@ class CodeGenerationJob(BaseModel):
     user_message = models.TextField(blank=True)
     model_id = models.CharField(max_length=100, default="anthropic/claude-sonnet-4.5")
 
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_QUEUED)
+    status = models.CharField(
+        max_length=20,
+        choices=choices(CodeGenerationJobStatus),
+        default=CodeGenerationJobStatus.QUEUED,
+    )
 
     # Streaming state - events stored for replay
     chunk_count = models.IntegerField(default=0)
@@ -958,8 +937,6 @@ class CodeGenerationJob(BaseModel):
 
     def append_event(self, event_type: str, data: dict):
         """Append an event to events_json and save."""
-        import time
-
         event = {
             "type": event_type,
             "data": data,
@@ -1029,8 +1006,6 @@ class AppDataTable(BaseModel):
 
     def decrement_row_count(self, delta: int = 1):
         """Decrement the cached row count."""
-        from django.db.models.functions import Greatest
-
         self.row_count = Greatest(models.F("row_count") - delta, 0)
         self.save(update_fields=["row_count", "updated_at"])
         self.refresh_from_db(fields=["row_count"])
@@ -1091,12 +1066,6 @@ class AppDataTableSnapshot(BaseModel):
     linking the schema state to the AppVersion being created.
     """
 
-    OPERATION_CHOICES = [
-        ("create", "Create"),
-        ("update", "Update"),
-        ("delete", "Delete"),
-    ]
-
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     app_version = models.ForeignKey(
@@ -1123,7 +1092,9 @@ class AppDataTableSnapshot(BaseModel):
 
     # What operation created this snapshot
     operation = models.CharField(
-        max_length=20, choices=OPERATION_CHOICES, help_text="Operation that created this snapshot"
+        max_length=20,
+        choices=choices(AppDataTableSnapshotOperation),
+        help_text="Operation that created this snapshot",
     )
 
     # For tracking changes
@@ -1240,8 +1211,6 @@ class VersionStateSnapshot(BaseModel):
         - All data table schemas
         - File counts and metadata
         """
-        from .models import AppDataTable
-
         app = app_version.internal_app
 
         # Capture all tables for this app
@@ -1338,20 +1307,6 @@ class VersionAuditLog(BaseModel):
     This is an append-only log that provides full traceability.
     """
 
-    OPERATION_CREATE = "create"
-    OPERATION_ROLLBACK = "rollback"
-    OPERATION_PUBLISH = "publish"
-    OPERATION_SCHEMA_REVERT = "schema_revert"
-    OPERATION_PREVIEW = "preview"
-
-    OPERATION_CHOICES = [
-        (OPERATION_CREATE, "Create"),
-        (OPERATION_ROLLBACK, "Rollback"),
-        (OPERATION_PUBLISH, "Publish"),
-        (OPERATION_SCHEMA_REVERT, "Schema Revert"),
-        (OPERATION_PREVIEW, "Preview"),
-    ]
-
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     # The app this operation belongs to
@@ -1382,7 +1337,9 @@ class VersionAuditLog(BaseModel):
 
     # Operation details
     operation = models.CharField(
-        max_length=20, choices=OPERATION_CHOICES, help_text="The type of operation performed"
+        max_length=20,
+        choices=choices(VersionAuditOperation),
+        help_text="The type of operation performed",
     )
 
     # User who performed the operation
@@ -1484,9 +1441,6 @@ class VersionAuditLog(BaseModel):
     @classmethod
     def get_user_operations(cls, user: "User", days: int = 30) -> list:
         """Get recent operations by a user."""
-        from django.utils import timezone
-        from datetime import timedelta
-
         cutoff = timezone.now() - timedelta(days=days)
         return list(
             cls.objects.filter(user=user, created_at__gte=cutoff).select_related(
@@ -1599,9 +1553,6 @@ class ConnectorCache(BaseModel):
     )
     description = models.TextField(blank=True, help_text="Description of the connector")
 
-    # Legacy field - kept for backwards compatibility
-    icon_url = models.URLField(blank=True, null=True, help_text="Deprecated: Use logo_url instead")
-
     # Available tools/actions - cached from Merge
     tools_json = models.JSONField(
         default=list, help_text="List of available tools: [{id, name, description, parameters}]"
@@ -1671,8 +1622,6 @@ class OrganizationConnectorLink(BaseModel):
 
     def mark_connected(self, user: User = None):
         """Mark this connector as connected."""
-        from django.utils import timezone
-
         self.is_connected = True
         self.connected_at = timezone.now()
         if user:
@@ -1733,14 +1682,6 @@ class ConnectorExecutionLog(BaseModel):
     Uses the same audit-log pattern for connector operations.
     """
 
-    STATUS_SUCCESS = "success"
-    STATUS_ERROR = "error"
-
-    STATUS_CHOICES = [
-        (STATUS_SUCCESS, "Success"),
-        (STATUS_ERROR, "Error"),
-    ]
-
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     # Context
@@ -1765,7 +1706,11 @@ class ConnectorExecutionLog(BaseModel):
     result_json = models.JSONField(null=True, blank=True, help_text="Execution result")
 
     # Status
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_SUCCESS)
+    status = models.CharField(
+        max_length=20,
+        choices=choices(ConnectorExecutionStatus),
+        default=ConnectorExecutionStatus.SUCCESS,
+    )
     error_message = models.TextField(null=True, blank=True)
     duration_ms = models.IntegerField(null=True, blank=True, help_text="Execution duration in milliseconds")
 

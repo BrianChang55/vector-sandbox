@@ -16,7 +16,15 @@ from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
 from django.db import transaction
 
-from ..models import InternalApp, AppVersion, VersionFile, Organization, VersionAuditLog
+from ..models import (
+    AppVersion,
+    AppVersionSource,
+    InternalApp,
+    Organization,
+    VersionAuditLog,
+    VersionAuditOperation,
+    VersionFile,
+)
 from ..serializers import (
     AppVersionSerializer,
     AppVersionListSerializer,
@@ -143,7 +151,7 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
                 internal_app=app,
                 version_number=next_version_number,
                 parent_version=latest_stable_version,
-                source=AppVersion.SOURCE_AI_EDIT,
+                source=AppVersionSource.AI_EDIT,
                 intent_message=intent_message,
                 spec_json=spec_json,
                 created_by=request.user,
@@ -198,7 +206,7 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
                 internal_app=app,
                 version_number=next_version_number,
                 parent_version=latest_stable,
-                source=AppVersion.SOURCE_CODE_EDIT,
+                source=AppVersionSource.CODE_EDIT,
                 spec_json=latest_stable.spec_json,
                 created_by=request.user,
                 is_active=False,  # Start inactive until files are copied
@@ -350,7 +358,7 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
             VersionAuditLog.log_operation(
                 internal_app=app,
                 app_version=version,
-                operation=VersionAuditLog.OPERATION_PREVIEW,
+                operation=VersionAuditOperation.PREVIEW,
                 user=request.user,
                 details={'action': 'rollback_preview', 'include_schema': include_schema},
                 ip_address=self._get_client_ip(request),
@@ -380,7 +388,7 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
             VersionAuditLog.log_operation(
                 internal_app=app,
                 app_version=version,
-                operation=VersionAuditLog.OPERATION_ROLLBACK,
+                operation=VersionAuditOperation.ROLLBACK,
                 user=request.user,
                 details={'action': 'rollback_failed', 'include_schema': include_schema},
                 ip_address=self._get_client_ip(request),

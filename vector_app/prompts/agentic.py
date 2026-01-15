@@ -1641,7 +1641,7 @@ interface Connector {{
   id: string;
   name: string;
   category: string;
-  icon_url?: string;
+  logo_url?: string;
   tool_count: number;
 }}
 

@@ -11,7 +11,7 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'internal_apps.settings')
 sys.path.insert(0, os.path.dirname(__file__))
 django.setup()
 
-from vector_app.models import User, Organization, UserOrganization, InternalApp
+from vector_app.models import User, Organization, UserOrganization, UserOrganizationRole, InternalApp
 from vector_app.utils.encryption import encrypt_string, decrypt_string, encrypt_json, decrypt_json
 from vector_app.services.validation import AppSpecValidationService
 from vector_app.services.codegen import CodegenService
@@ -52,7 +52,7 @@ def test_models():
     print(f"✓ Created organization: {org.name}")
     
     # Test UserOrganization
-    user_org = UserOrganization(user=user, organization=org, role=UserOrganization.ROLE_ADMIN)
+    user_org = UserOrganization(user=user, organization=org, role=UserOrganizationRole.ADMIN)
     user_org.save()
     print(f"✓ Created membership: {user.email} - {org.name}")
     
@@ -80,7 +80,7 @@ def test_validation():
     # Create minimal setup
     user = User.objects.create_user(email="valtest@example.com", password="test")
     org = Organization.objects.create(name="Val Org", slug="val-org")
-    UserOrganization.objects.create(user=user, organization=org, role=UserOrganization.ROLE_ADMIN)
+    UserOrganization.objects.create(user=user, organization=org, role=UserOrganizationRole.ADMIN)
     app = InternalApp.objects.create(
         organization=org,
         name="Val App",
