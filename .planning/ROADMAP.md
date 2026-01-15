@@ -23,7 +23,7 @@ None
 
 ## Phases
 
-- [ ] **Phase 1: Questioning Service** - Core questioning logic for multi-turn requirement gathering
+- [x] **Phase 1: Questioning Service** - Core questioning logic for multi-turn requirement gathering
 - [ ] **Phase 2: Question Templates** - App-type specific templates (dashboard, form, data viewer)
 - [ ] **Phase 3: Complexity Detection** - LLM-based classification to skip questioning for simple requests
 - [ ] **Phase 4: Build Phase System** - Phase organization (scaffold → core → styling → polish)
@@ -119,7 +119,7 @@ Key deliverables:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Questioning Service | 1/TBD | In progress | - |
+| 1. Questioning Service | 2/2 | Complete | 2026-01-14 |
 | 2. Question Templates | 0/TBD | Not started | - |
 | 3. Complexity Detection | 0/TBD | Not started | - |
 | 4. Build Phase System | 0/TBD | Not started | - |
