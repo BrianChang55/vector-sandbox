@@ -17,6 +17,8 @@ from rest_framework.test import APIClient
 from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from accounts.models import Organization, User, UserOrganization
+from accounts.types import UserOrganizationRole
 from vector_app.models import (
     AppVersion,
     AppVersionGenerationStatus,
@@ -26,10 +28,6 @@ from vector_app.models import (
     CodeGenerationJob,
     CodeGenerationJobStatus,
     InternalApp,
-    Organization,
-    User,
-    UserOrganization,
-    UserOrganizationRole,
 )
 
 

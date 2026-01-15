@@ -17,7 +17,7 @@ if RENDER_EXTERNAL_HOSTNAME:
     ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
 
 # Custom User Model
-AUTH_USER_MODEL = 'vector_app.User'
+AUTH_USER_MODEL = 'accounts.User'
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -29,7 +29,14 @@ INSTALLED_APPS = [
     'corsheaders',
     'rest_framework',
     'django_extensions',
-    'vector_app',
+    # Local apps (in dependency order)
+    'accounts',
+    'apps',
+    'chat',
+    'data_store',
+    'integrations',
+    'audit',
+    'vector_app',  # Legacy - kept temporarily during migration
 ]
 
 MIDDLEWARE = [

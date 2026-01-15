@@ -10,10 +10,6 @@ import os
 import sys
 import json
 import django
-from vector_app.models import UserOrganizationRole
-from vector_app.models import UserOrganizationRole
-
-
 
 # Setup Django
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -23,7 +19,8 @@ django.setup()
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.tokens import RefreshToken
-from vector_app.models import Organization, UserOrganization
+from accounts.models import Organization, UserOrganization
+from accounts.types import UserOrganizationRole
 
 # SECURITY: Only allow in development mode
 if not settings.DEBUG:

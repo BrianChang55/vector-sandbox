@@ -9,12 +9,11 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.shortcuts import get_object_or_404
 
-from ..models import Organization, UserOrganization
-from ..serializers import OrganizationSerializer, OrganizationCreateSerializer, UserOrganizationSerializer
-from ..serializers.organization import OrganizationUpdateSerializer, OrganizationLogoUploadSerializer
-from ..services.image_upload_service import ImageUploadService
-from vector_app.models import UserOrganizationRole
-from vector_app.models import UserOrganizationRole
+from accounts.models import Organization, UserOrganization
+from accounts.types import UserOrganizationRole
+from vector_app.serializers import OrganizationSerializer, OrganizationCreateSerializer, UserOrganizationSerializer
+from vector_app.serializers.organization import OrganizationUpdateSerializer, OrganizationLogoUploadSerializer
+from vector_app.services.image_upload_service import ImageUploadService
 
 
 

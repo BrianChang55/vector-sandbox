@@ -14,15 +14,13 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 import json
 
+from accounts.models import Organization, User, UserOrganization
+from accounts.types import UserOrganizationRole
 from vector_app.models import (
     AppVersion,
     AppVersionSource,
     InternalApp,
     InternalAppStatus,
-    Organization,
-    User,
-    UserOrganization,
-    UserOrganizationRole,
     VersionFile,
 )
 

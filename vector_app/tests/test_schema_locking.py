@@ -14,14 +14,12 @@ from typing import List, Generator
 
 from django.test import TestCase
 
+from accounts.models import Organization, User, UserOrganization
+from accounts.types import UserOrganizationRole
 from vector_app.models import (
     AppDataTable,
     AppVersion,
     InternalApp,
-    Organization,
-    User,
-    UserOrganization,
-    UserOrganizationRole,
 )
 from vector_app.services.handlers.generate_handler import GenerateHandler
 from vector_app.services.handlers.base_handler import FileChange
