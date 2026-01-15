@@ -8,7 +8,12 @@ import logging
 from datetime import datetime
 from typing import Callable, Dict, List, Optional, Tuple
 
-from vector_app.services.types import FileChange, FileVerificationResult, VerificationAttempt
+from vector_app.services.types import (
+    AgentEvent,
+    FileChange,
+    FileVerificationResult,
+    VerificationAttempt,
+)
 from vector_app.services.verifiers import get_verifier_registry
 from vector_app.types import VerificationStatus
 
@@ -278,3 +283,108 @@ class VerificationMixin:
         if "." in file_path:
             return "." + file_path.rsplit(".", 1)[-1]
         return ""
+
+    # Verification Event Emission Methods
+    # These return AgentEvent objects - handlers yield them at appropriate times
+
+    def emit_verification_started(self, file_path: str, verifier_name: str) -> AgentEvent:
+        """
+        Emit event when verification starts for a file.
+
+        Usage in handler:
+            yield self.emit_verification_started(file.path, "typescript")
+            result = self.verify_file(file)
+        """
+        return AgentEvent(
+            "verification_started",
+            {
+                "file_path": file_path,
+                "verifier": verifier_name,
+            },
+        )
+
+    def emit_verification_passed(self, file_path: str, verifier_name: str) -> AgentEvent:
+        """
+        Emit event when verification passes for a file.
+
+        Usage in handler:
+            result = self.verify_file(file)
+            if result.status == VerificationStatus.PASSED:
+                yield self.emit_verification_passed(file.path, result.verifier_name)
+        """
+        return AgentEvent(
+            "verification_passed",
+            {
+                "file_path": file_path,
+                "verifier": verifier_name,
+            },
+        )
+
+    def emit_verification_failed(
+        self,
+        file_path: str,
+        verifier_name: str,
+        error_message: str,
+        is_blocking: bool = True,
+    ) -> AgentEvent:
+        """
+        Emit event when verification fails for a file.
+
+        Usage in handler:
+            result = self.verify_file(file)
+            if result.status == VerificationStatus.FAILED:
+                yield self.emit_verification_failed(
+                    file.path, result.verifier_name, result.error_message, is_blocking=True
+                )
+        """
+        return AgentEvent(
+            "verification_failed",
+            {
+                "file_path": file_path,
+                "verifier": verifier_name,
+                "error_message": error_message,
+                "is_blocking": is_blocking,
+            },
+        )
+
+    def emit_verification_retry_started(
+        self,
+        file_path: str,
+        attempt_number: int,
+        max_attempts: int,
+        previous_error: str,
+    ) -> AgentEvent:
+        """
+        Emit event when a verification retry is starting.
+
+        Usage in handler:
+            yield self.emit_verification_retry_started(
+                file.path, attempt_num, max_attempts, error_message
+            )
+        """
+        return AgentEvent(
+            "verification_retry_started",
+            {
+                "file_path": file_path,
+                "attempt_number": attempt_number,
+                "max_attempts": max_attempts,
+                "previous_error": previous_error,
+            },
+        )
+
+    def emit_verification_skipped(self, file_path: str, reason: str = "no verifier") -> AgentEvent:
+        """
+        Emit event when verification is skipped for a file.
+
+        Usage in handler:
+            result = self.verify_file(file)
+            if result.status == VerificationStatus.SKIPPED:
+                yield self.emit_verification_skipped(file.path)
+        """
+        return AgentEvent(
+            "verification_skipped",
+            {
+                "file_path": file_path,
+                "reason": reason,
+            },
+        )
