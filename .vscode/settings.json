@@ -1,0 +1,7 @@
+{
+  "terminal.integrated.env.osx": {
+    "PATH": "/opt/homebrew/bin:${env:PATH}"
+  },
+  "terminal.integrated.inheritEnv": true,
+  "python.defaultInterpreterPath": "${workspaceFolder}/apps/backend/.venv/bin/python"
+}
