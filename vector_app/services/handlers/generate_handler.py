@@ -1010,8 +1010,9 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
             }
             
             # Emit progress events as files complete
+            total_futures = len(futures)  # Save original count before deletions
             completed_count = 0
-            while completed_count < len(futures):
+            while completed_count < total_futures:
                 try:
                     # Check for events from threads
                     while True:
