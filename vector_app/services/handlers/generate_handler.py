@@ -1010,8 +1010,9 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
             }
             
             # Emit progress events as files complete
+            total_futures = len(futures)  # Save original count before deletions
             completed_count = 0
-            while completed_count < len(futures):
+            while completed_count < total_futures:
                 try:
                     # Check for events from threads
                     while True:
@@ -1044,7 +1045,7 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
                             completed_count += 1
                             del futures[future]
                     
-                    time.sleep(0.1)  # Brief sleep to avoid busy-waiting
+                    time.sleep(0.2)  # Brief sleep to avoid busy-waiting
                     
                 except Exception as e:
                     logger.error(f"[SUBAGENTS] Error in event loop: {e}")
