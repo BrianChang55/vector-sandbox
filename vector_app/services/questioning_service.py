@@ -14,6 +14,9 @@ Key methods:
 - detect_skip_request: Check if user wants to skip questioning
 - generate_question: Create the next clarifying question
 - extract_facts: Extract facts from conversation (no inference)
+
+During the questioning phase, the main agent may see the full chat history.
+After questioning ends, the main agent must never see it again.
 """
 
 import json
