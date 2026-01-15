@@ -119,6 +119,95 @@ class GenerateHandler(BaseHandler):
             self._parallel_executor = create_parallel_executor(max_workers=5)
         return self._parallel_executor
 
+    def _verify_and_fix_syntax(
+        self,
+        files: List[FileChange],
+        model: AIModel,
+        system_prompt: str,
+    ) -> Generator[AgentEvent, None, List[FileChange]]:
+        """
+        Verify generated TypeScript files and retry on syntax errors.
+
+        Emits per-file verification events for frontend visibility.
+        Uses verify_and_retry() with callback that regenerates via LLM.
+
+        Args:
+            files: List of generated FileChange objects
+            model: AI model for regeneration
+            system_prompt: Original system prompt for context
+
+        Yields:
+            AgentEvent for verification status updates
+
+        Returns:
+            List of verified (possibly regenerated) files
+        """
+        verified_files: List[FileChange] = []
+
+        for file in files:
+            # Skip non-TypeScript files (no verifier registered)
+            if not file.path.endswith(('.ts', '.tsx')):
+                verified_files.append(file)
+                continue
+
+            # Emit verification started
+            yield self.emit_verification_started(file.path, "typescript")
+
+            def make_regenerate_callback(
+                orig_file: FileChange,
+                m: AIModel,
+                sys_prompt: str,
+            ) -> Callable[[FileChange, str], FileChange]:
+                """Create closure capturing model and system prompt."""
+                def regenerate(failed_file: FileChange, error: str) -> FileChange:
+                    retry_prompt = build_verification_retry_prompt(
+                        failed_file,
+                        error,
+                        original_prompt=f"Regenerate {failed_file.path} fixing the syntax error.",
+                    )
+                    response = m.complete(system=sys_prompt, user=retry_prompt)
+                    new_content = self._extract_code_from_regeneration(response, failed_file.path)
+                    return FileChange(
+                        path=failed_file.path,
+                        action=failed_file.action,
+                        language=failed_file.language,
+                        content=new_content,
+                        previous_content=failed_file.content,
+                    )
+                return regenerate
+
+            callback = make_regenerate_callback(file, model, system_prompt)
+            final_file, result = self.verify_and_retry(file, callback, max_attempts=3)
+
+            # Emit result event
+            if result.status.value == 'passed':
+                yield self.emit_verification_passed(file.path, result.verifier_name or "typescript")
+            elif result.status.value == 'failed':
+                yield self.emit_verification_failed(
+                    file.path,
+                    result.verifier_name or "typescript",
+                    result.error_message or "Unknown error",
+                    is_blocking=True,
+                )
+            else:
+                yield self.emit_verification_skipped(file.path, "verification skipped")
+
+            verified_files.append(final_file)
+
+        return verified_files
+
+    def _extract_code_from_regeneration(self, response: str, file_path: str) -> str:
+        """Extract code content from LLM regeneration response."""
+        patterns = [
+            r'```(?:typescript|tsx|ts)\n(.*?)```',
+            r'```\n(.*?)```',
+        ]
+        for pattern in patterns:
+            matches = re.findall(pattern, response, re.DOTALL)
+            if matches:
+                return matches[0].strip()
+        return response.strip()
+
     def execute(
         self,
         intent: "IntentResult",
@@ -329,6 +418,24 @@ class GenerateHandler(BaseHandler):
             passed=validation_passed,
             fix_attempts=fix_attempts,
         )
+
+        # Verify generated TypeScript files (syntax verification with retry)
+        if generated_files:
+            system_prompt = build_codegen_system_prompt(registry_surface)
+            verification_gen = self._verify_and_fix_syntax(generated_files, model, system_prompt)
+            try:
+                while True:
+                    yield next(verification_gen)
+            except StopIteration as e:
+                verified_files = e.value if e.value else generated_files
+
+            # Save verification results to database
+            storage = get_verification_storage_service()
+            results = self.get_verification_results()
+            if results:
+                storage.save_verification_results(list(results.values()))
+
+            return verified_files
 
         return generated_files
 
