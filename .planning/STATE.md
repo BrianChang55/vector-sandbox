@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-01-14)
 
 **Core value:** Generated apps are higher quality because the AI truly understands what the user wants before building, and follows structured phases with clear plans.
-**Current focus:** Phase 2 — Question Templates
+**Current focus:** Phase 2 — Main Agent Service
 
 ## Current Position
 
-Phase: 1 of 7 (Questioning Service) — COMPLETE
-Plan: 3 of 3 in current phase
-Status: Phase complete
-Last activity: 2026-01-15 — Completed 01-03-PLAN.md (distillation revision)
+Phase: 2 of 8 (Main Agent Service) — Ready to execute
+Plan: 1 of 1 in current phase
+Status: Ready to execute
+Last activity: 2026-01-15 — Created 02-01-PLAN.md (MainAgentService Core)
 
-Progress: █░░░░░░░░░ 14%
+Progress: █░░░░░░░░░ 12%
 
 ## Performance Metrics
 
@@ -28,6 +28,7 @@ Progress: █░░░░░░░░░ 14%
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1 | 3 | 18 min | 6 min |
+| 2 | 0 | - | - |
 
 **Recent Trend:**
 - Last 5 plans: 01-01 (8 min), 01-02 (8 min), 01-03 (2 min)

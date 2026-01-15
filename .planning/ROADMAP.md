@@ -23,13 +23,14 @@ None
 
 ## Phases
 
-- [ ] **Phase 1: Questioning Service** - Core questioning logic for multi-turn requirement gathering
-- [ ] **Phase 2: Question Templates** - App-type specific templates (dashboard, form, data viewer)
-- [ ] **Phase 3: Complexity Detection** - LLM-based classification to skip questioning for simple requests
-- [ ] **Phase 4: Build Phase System** - Phase organization (scaffold → core → styling → polish)
-- [ ] **Phase 5: Phase-Aware Planning** - Generate separate plans per build phase with context compaction
-- [ ] **Phase 6: Progress Streaming** - Real-time phase and file-level progress events via SSE
-- [ ] **Phase 7: Integration** - Wire into existing agentic workflow before intent classification
+- [x] **Phase 1: Questioning Service** - Core questioning logic for multi-turn requirement gathering
+- [ ] **Phase 2: Main Agent Service** - Orchestrator that uses QuestioningService, decides sufficiency, controls flow
+- [ ] **Phase 3: Question Templates** - App-type specific templates (dashboard, form, data viewer)
+- [ ] **Phase 4: Complexity Detection** - LLM-based classification to skip questioning for simple requests
+- [ ] **Phase 5: Build Phase System** - Phase organization (scaffold → core → styling → polish)
+- [ ] **Phase 6: Phase-Aware Planning** - Generate separate plans per build phase with context compaction
+- [ ] **Phase 7: Progress Streaming** - Real-time phase and file-level progress events via SSE
+- [ ] **Phase 8: Integration** - Wire into existing agentic workflow before intent classification
 
 ## Phase Details
 
@@ -45,9 +46,23 @@ Key deliverables:
 - Prompts for requirement gathering
 - Integration point in message handling flow
 
-### Phase 2: Question Templates
-**Goal**: Create app-type specific question templates that guide the questioning phase
+### Phase 2: Main Agent Service
+**Goal**: Create the orchestrator that uses QuestioningService and makes all decisions
 **Depends on**: Phase 1
+**Research**: Unlikely (builds on QuestioningService)
+**Plans**: TBD
+
+Key deliverables:
+- MainAgentService that orchestrates the questioning flow
+- Sufficiency decision logic (using extracted facts from QuestioningService)
+- Flow control: when to ask more questions, when to stop
+- Integration with existing agentic workflow
+
+This phase implements the "main agent decides" principle established in Phase 1.
+
+### Phase 3: Question Templates
+**Goal**: Create app-type specific question templates that guide the questioning phase
+**Depends on**: Phase 2
 **Research**: Unlikely (internal data structures)
 **Plans**: TBD
 
@@ -56,9 +71,9 @@ Key deliverables:
 - Templates for: dashboard, form, data viewer, CRUD app, etc.
 - Template selection logic based on initial request
 
-### Phase 3: Complexity Detection
+### Phase 4: Complexity Detection
 **Goal**: LLM-based classification to determine when questioning can be skipped
-**Depends on**: Phase 1
+**Depends on**: Phase 2
 **Research**: Unlikely (extends existing intent classifier)
 **Plans**: TBD
 
@@ -67,9 +82,9 @@ Key deliverables:
 - Integration with intent classification flow
 - Skip logic for simple/clear requests
 
-### Phase 4: Build Phase System
+### Phase 5: Build Phase System
 **Goal**: Implement the scaffold → core → styling → polish phase structure
-**Depends on**: Phase 1
+**Depends on**: Phase 2
 **Research**: Unlikely (internal workflow architecture)
 **Plans**: TBD
 
@@ -79,9 +94,9 @@ Key deliverables:
 - Phase state tracking
 - Retry logic for failed phases
 
-### Phase 5: Phase-Aware Planning
+### Phase 6: Phase-Aware Planning
 **Goal**: Generate separate plans for each build phase with compacted context
-**Depends on**: Phase 4
+**Depends on**: Phase 5
 **Research**: Unlikely (extends existing planning service)
 **Plans**: TBD
 
@@ -91,9 +106,9 @@ Key deliverables:
 - Phase plan prompts
 - Context propagation between phases
 
-### Phase 6: Progress Streaming
+### Phase 7: Progress Streaming
 **Goal**: Real-time SSE events for phase and file-level progress
-**Depends on**: Phase 4
+**Depends on**: Phase 5
 **Research**: Unlikely (uses existing SSE infrastructure)
 **Plans**: TBD
 
@@ -103,9 +118,9 @@ Key deliverables:
 - Progress event types and handlers
 - Frontend event consumption (if needed)
 
-### Phase 7: Integration
+### Phase 8: Integration
 **Goal**: Wire everything into the existing agentic workflow
-**Depends on**: Phases 1-6
+**Depends on**: Phases 1-7
 **Research**: Unlikely (wiring existing components)
 **Plans**: TBD
 
@@ -120,9 +135,10 @@ Key deliverables:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Questioning Service | 3/3 | Complete | 2026-01-15 |
-| 2. Question Templates | 0/TBD | Not started | - |
-| 3. Complexity Detection | 0/TBD | Not started | - |
-| 4. Build Phase System | 0/TBD | Not started | - |
-| 5. Phase-Aware Planning | 0/TBD | Not started | - |
-| 6. Progress Streaming | 0/TBD | Not started | - |
-| 7. Integration | 0/TBD | Not started | - |
+| 2. Main Agent Service | 0/1 | In progress | - |
+| 3. Question Templates | 0/TBD | Not started | - |
+| 4. Complexity Detection | 0/TBD | Not started | - |
+| 5. Build Phase System | 0/TBD | Not started | - |
+| 6. Phase-Aware Planning | 0/TBD | Not started | - |
+| 7. Progress Streaming | 0/TBD | Not started | - |
+| 8. Integration | 0/TBD | Not started | - |
