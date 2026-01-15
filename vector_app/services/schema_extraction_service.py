@@ -90,7 +90,7 @@ class SchemaExtractionService:
                 return content
                 
         except Exception as e:
-            logger.error(f"Schema extraction error: {e}")
+            logger.error("Schema extraction error: %s", e)
             return ""
     
     def _build_extraction_prompt(self, plan: List[PlanStep], user_message: str) -> str:

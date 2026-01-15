@@ -71,7 +71,7 @@ class ChatMessageCreateSerializer(serializers.Serializer):
     """Serializer for creating chat messages."""
     session_id = serializers.UUIDField(required=False, allow_null=True)
     message = serializers.CharField(required=True, min_length=1, max_length=50000)
-    model_id = serializers.CharField(required=False, default='anthropic/claude-sonnet-4')
+    model_id = serializers.CharField(required=False, default='anthropic/claude-sonnet-4.5')
     mode = serializers.ChoiceField(
         choices=['appspec', 'code'],
         required=False,
@@ -84,7 +84,7 @@ class GenerationRequestSerializer(serializers.Serializer):
     """Serializer for generation requests."""
     message = serializers.CharField(required=True, min_length=1)
     session_id = serializers.UUIDField(required=False, allow_null=True)
-    model = serializers.CharField(required=False, default='anthropic/claude-sonnet-4')
+    model = serializers.CharField(required=False, default='anthropic/claude-sonnet-4.5')
     mode = serializers.ChoiceField(
         choices=['appspec', 'code'],
         required=False,

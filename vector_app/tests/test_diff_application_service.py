@@ -9,6 +9,7 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock
 from typing import List
 
+from vector_app.ai.models import AIModel
 from vector_app.services.diff_application_service import (
     DiffApplicationService,
     DiffApplicationConfig,
@@ -430,7 +431,7 @@ class TestStreamAndApplyDiffs:
                     system_prompt="You are helpful",
                     user_prompt="Fix the code",
                     file_contents=file_contents,
-                    model="anthropic/claude-sonnet-4",
+                    model=AIModel.CLAUDE_SONNET_4_5,
                 )
                 
                 try:
@@ -477,7 +478,7 @@ class TestStreamAndApplyDiffs:
                     system_prompt="System",
                     user_prompt="User", 
                     file_contents=file_contents,
-                    model="anthropic/claude-sonnet-4",
+                    model=AIModel.CLAUDE_SONNET_4_5,
                     on_chunk=on_chunk,
                 )
                 
@@ -518,7 +519,7 @@ class TestStreamAndApplyDiffs:
                     system_prompt="System",
                     user_prompt="User",
                     file_contents=file_contents,
-                    model="anthropic/claude-sonnet-4",
+                    model=AIModel.CLAUDE_SONNET_4_5,
                     streaming_validator=mock_validator,
                 )
                 

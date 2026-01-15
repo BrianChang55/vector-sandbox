@@ -18,8 +18,6 @@ import logging
 import json
 from typing import List, Optional, Tuple
 
-import httpx
-
 from vector_app.action_classification.types import (
     ActionType,
     ActionResult,
@@ -31,9 +29,10 @@ from vector_app.action_classification.types import (
     SEND_KEYWORDS,
 )
 from vector_app.action_classification.prompts import build_action_classification_prompts
+from vector_app.ai.client import get_llm_client
+from vector_app.ai.types import LLMSettings
 from vector_app.services.context_analyzer import AppContext
 from vector_app.services.intent_classifier import IntentResult
-from vector_app.services.openrouter_service import get_openrouter_service
 
 logger = logging.getLogger(__name__)
 
@@ -222,28 +221,19 @@ class ActionClassifier:
         Returns:
             Tuple of (action_items, description, reasoning)
         """
-        # Use OpenRouter service for classification
-        openrouter = get_openrouter_service()
-        
-        response = httpx.post(
-            openrouter.OPENROUTER_API_URL,
-            headers=openrouter._build_headers(),
-            json={
-                "model": "openai/gpt-5-mini",  # Fast and accurate
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                "response_format": {"type": "json_object"},
-                "temperature": 0.2,  # Low temperature for consistent classification
-            },
-            timeout=30.0,
+        result = get_llm_client().run(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            llm_settings=LLMSettings(
+                model="openai/gpt-5-mini",  # Fast and accurate
+                temperature=0.2,  # Low temperature for consistent classification
+                timeout=30.0,
+            ),
+            json_mode=True,
         )
-        response.raise_for_status()
-        
-        result_data = response.json()
-        content = result_data["choices"][0]["message"]["content"]
-        classification = json.loads(content)
+        classification = result.validated(json.loads, default=None)
+        if not isinstance(classification, dict):
+            raise ValueError("Invalid classification response")
         
         logger.debug("LLM Response: %s", json.dumps(classification, indent=2))
         

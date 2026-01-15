@@ -6,111 +6,15 @@ Includes streaming support for live updates (like Cursor, Lovable, Replit).
 """
 import logging
 import json
-from typing import Dict, Any, List, Optional, Generator, AsyncGenerator
+from typing import Dict, Any, List, Optional, Generator
 from dataclasses import dataclass
-from enum import Enum
-import httpx
-from django.conf import settings
 
+from vector_app.ai.models import AIModel, MODEL_CONFIGS
+from vector_app.ai.client import get_llm_client
+from vector_app.ai.types import LLMSettings
 from vector_app.prompts.openrouter import build_system_prompt, build_user_prompt
 
 logger = logging.getLogger(__name__)
-
-
-class AIModel(Enum):
-    """Available AI models via OpenRouter - Agent-capable models only."""
-    # Claude Models (Agent-capable)
-    CLAUDE_OPUS_4_5 = "anthropic/claude-opus-4"
-    CLAUDE_OPUS_4_5_HIGH = "anthropic/claude-opus-4"  # Same model, different settings
-    CLAUDE_SONNET_4_5 = "anthropic/claude-sonnet-4"
-    CLAUDE_HAIKU_4_5 = "anthropic/claude-haiku-4"
-    
-    # OpenAI Models (Agent-capable)
-    GPT_5_1 = "openai/gpt-4o"  # Best available
-    GPT_5_1_HIGH = "openai/gpt-4o"  # Same model, different settings
-    
-    # Google Models (Agent-capable)
-    GEMINI_3_PRO = "google/gemini-2.0-flash-001"  # Best available
-
-
-@dataclass
-class ModelConfig:
-    """Configuration for an AI model."""
-    model_id: str
-    display_name: str
-    description: str
-    context_length: int
-    supports_streaming: bool
-    supports_json_mode: bool
-    cost_per_million_input: float
-    cost_per_million_output: float
-    category: str
-    recommended_for: List[str]
-
-
-# Model configurations - Agent-capable models only
-MODEL_CONFIGS: Dict[str, ModelConfig] = {
-    "anthropic/claude-opus-4": ModelConfig(
-        model_id="anthropic/claude-opus-4",
-        display_name="Opus 4.5",
-        description="Most capable Claude model for complex agentic tasks",
-        context_length=200000,
-        supports_streaming=True,
-        supports_json_mode=True,
-        cost_per_million_input=15.0,
-        cost_per_million_output=75.0,
-        category="premium",
-        recommended_for=["complex_apps", "agents", "reasoning"],
-    ),
-    "anthropic/claude-sonnet-4": ModelConfig(
-        model_id="anthropic/claude-sonnet-4",
-        display_name="Sonnet 4.5",
-        description="Best balance of speed and capability for agents",
-        context_length=200000,
-        supports_streaming=True,
-        supports_json_mode=True,
-        cost_per_million_input=3.0,
-        cost_per_million_output=15.0,
-        category="standard",
-        recommended_for=["general_coding", "agents", "ui_generation"],
-    ),
-     "anthropic/claude-haiku-4": ModelConfig(
-        model_id="anthropic/claude-haiku-4",
-        display_name="Haiku 4.5",
-        description="Fast and efficient for quick agentic tasks",
-        context_length=200000,
-        supports_streaming=True,
-        supports_json_mode=True,
-        cost_per_million_input=0.8,
-        cost_per_million_output=4.0,
-        category="economy",
-        recommended_for=["quick_edits", "simple_agents", "fast_iteration"],
-    ),
-    "openai/gpt-5.1": ModelConfig(
-        model_id="openai/gpt-5.1",
-        display_name="GPT-5.1",
-        description="OpenAI's most capable agent model",
-        context_length=128000,
-        supports_streaming=True,
-        supports_json_mode=True,
-        cost_per_million_input=2.5,
-        cost_per_million_output=10.0,
-        category="standard",
-        recommended_for=["general_coding", "agents", "api_design"],
-    ),
-    "google/gemini-3-pro-preview": ModelConfig(
-        model_id="google/gemini-3-pro-preview",
-        display_name="Gemini 3 Pro",
-        description="Google's most capable agent model with huge context",
-        context_length=1000000,
-        supports_streaming=True,
-        supports_json_mode=True,
-        cost_per_million_input=1.25,
-        cost_per_million_output=5.0,
-        category="standard",
-        recommended_for=["large_context", "agents", "complex_apps"],
-    ),
-}
 
 
 @dataclass
@@ -133,19 +37,6 @@ class OpenRouterService:
     - Cost tracking
     """
     
-    OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-    
-    def __init__(self):
-        self.api_key = getattr(settings, 'OPENROUTER_API_KEY', None)
-        if not self.api_key:
-            # Fall back to OpenAI key if OpenRouter not set
-            self.api_key = getattr(settings, 'OPENAI_API_KEY', None)
-            if self.api_key:
-                logger.info("Using OpenAI API key for OpenRouter (fallback mode)")
-        
-        self.app_name = getattr(settings, 'OPENROUTER_APP_NAME', 'Internal Apps Builder')
-        self.site_url = getattr(settings, 'BASE_URL', 'http://localhost:8001')
-    
     def get_available_models(self) -> List[Dict[str, Any]]:
         """Get list of available models with their configurations."""
         return [
@@ -166,21 +57,12 @@ class OpenRouterService:
             for key, config in MODEL_CONFIGS.items()
         ]
     
-    def _build_headers(self) -> Dict[str, str]:
-        """Build request headers for OpenRouter."""
-        return {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": self.site_url,
-            "X-Title": self.app_name,
-        }
-    
     def generate_app_spec(
         self,
         intent_message: str,
         current_spec: Optional[Dict[str, Any]],
         registry_surface: Dict[str, Any],
-        model: str = AIModel.CLAUDE_SONNET_4_5.value,
+        model: AIModel = AIModel.CLAUDE_SONNET_4_5,
     ) -> Dict[str, Any]:
         """
         Generate AppSpec JSON from user intent (non-streaming).
@@ -194,42 +76,31 @@ class OpenRouterService:
         Returns:
             AppSpec JSON dictionary
         """
-        if not self.api_key:
-            raise ValueError("OpenRouter/OpenAI API key not configured")
-        
         system_prompt = build_system_prompt(registry_surface, mode="appspec")
         
         user_prompt = build_user_prompt(intent_message, current_spec)
         
         try:
-            with httpx.Client(timeout=180.0) as client:
-                response = client.post(
-                    self.OPENROUTER_API_URL,
-                    headers=self._build_headers(),
-                    json={
-                        "model": model,
-                        "messages": [
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt},
-                        ],
-                        "response_format": {"type": "json_object"},
-                        "temperature": 0.3,
-                    },
-                )
-                response.raise_for_status()
-                
-                result = response.json()
-                content = result["choices"][0]["message"]["content"]
-                spec_json = json.loads(content)
-                
-                # Validate basic structure
-                if not isinstance(spec_json, dict) or 'appName' not in spec_json:
-                    raise ValueError("Invalid AppSpec structure")
-                
-                return spec_json
-                
+            result = get_llm_client().run(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                llm_settings=LLMSettings(
+                    model=model,
+                    temperature=0.3,
+                    timeout=180.0,
+                ),
+                json_mode=True,
+            )
+            spec_json = result.validated(json.loads, default=None)
+
+            # Validate basic structure
+            if not isinstance(spec_json, dict) or 'appName' not in spec_json:
+                raise ValueError("Invalid AppSpec structure")
+
+            return spec_json
+
         except Exception as e:
-            logger.error(f"Error generating AppSpec: {e}")
+            logger.error("Error generating AppSpec: %s", e)
             raise
     
     def generate_app_spec_streaming(
@@ -238,96 +109,68 @@ class OpenRouterService:
         current_spec: Optional[Dict[str, Any]],
         registry_surface: Dict[str, Any],
         chat_history: Optional[List[Dict[str, str]]] = None,
-        model: str = AIModel.CLAUDE_SONNET_4_5.value,
+        model: AIModel = AIModel.CLAUDE_SONNET_4_5,
     ) -> Generator[StreamChunk, None, None]:
         """
         Generate AppSpec with streaming response.
         
         Yields StreamChunk objects for real-time updates.
         """
-        if not self.api_key:
-            yield StreamChunk(type="error", content="API key not configured")
-            return
-        
         system_prompt = build_system_prompt(registry_surface, mode="appspec")
-        
-        messages = [{"role": "system", "content": system_prompt}]
-        
-        # Add chat history if provided
-        if chat_history:
-            for msg in chat_history[-10:]:  # Last 10 messages for context
-                messages.append({
-                    "role": msg.get("role", "user"),
-                    "content": msg.get("content", ""),
-                })
-        
+
         # Add current request
         user_prompt = build_user_prompt(intent_message, current_spec)
-        messages.append({"role": "user", "content": user_prompt})
+        trimmed_history = chat_history[-10:] if chat_history else None
         
         try:
-            with httpx.Client(timeout=180.0) as client:
-                with client.stream(
-                    "POST",
-                    self.OPENROUTER_API_URL,
-                    headers=self._build_headers(),
-                    json={
-                        "model": model,
-                        "messages": messages,
-                        "response_format": {"type": "json_object"},
-                        "temperature": 0.3,
-                        "stream": True,
-                    },
-                ) as response:
-                    response.raise_for_status()
-                    
-                    full_content = ""
-                    for line in response.iter_lines():
-                        if not line:
-                            continue
-                        
-                        if line.startswith("data: "):
-                            data = line[6:]
-                            if data == "[DONE]":
-                                break
-                            
-                            try:
-                                chunk_data = json.loads(data)
-                                delta = chunk_data.get("choices", [{}])[0].get("delta", {})
-                                content = delta.get("content", "")
-                                
-                                if content:
-                                    full_content += content
-                                    yield StreamChunk(
-                                        type="content",
-                                        content=content,
-                                        metadata={"accumulated": len(full_content)},
-                                    )
-                            except json.JSONDecodeError:
-                                continue
-                    
-                    # Parse final JSON
-                    try:
-                        spec_json = json.loads(full_content)
-                        yield StreamChunk(
-                            type="done",
-                            content="",
-                            metadata={"spec_json": spec_json},
-                        )
-                    except json.JSONDecodeError as e:
-                        yield StreamChunk(
-                            type="error",
-                            content=f"Failed to parse response as JSON: {str(e)}",
-                            metadata={"raw_content": full_content},
-                        )
-                        
-        except httpx.HTTPStatusError as e:
-            yield StreamChunk(
-                type="error",
-                content=f"API error: {e.response.status_code}",
+            full_content = ""
+            llm_settings = LLMSettings(
+                model=model,
+                temperature=0.3,
+                timeout=180.0,
             )
+            for chunk in get_llm_client().stream(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                llm_settings=llm_settings,
+                chat_history=trimmed_history,
+                json_mode=True,
+            ):
+                if chunk.error:
+                    yield StreamChunk(
+                        type="error",
+                        content=chunk.error,
+                    )
+                    return
+
+                if chunk.content:
+                    full_content += chunk.content
+                    yield StreamChunk(
+                        type="content",
+                        content=chunk.content,
+                        metadata={"accumulated": len(full_content)},
+                    )
+
+                if chunk.done:
+                    break
+
+            # Parse final JSON
+            try:
+                spec_json = json.loads(full_content)
+                yield StreamChunk(
+                    type="done",
+                    content="",
+                    metadata={"spec_json": spec_json},
+                )
+            except json.JSONDecodeError as e:
+                yield StreamChunk(
+                    type="error",
+                    content=f"Failed to parse response as JSON: {str(e)}",
+                    metadata={"raw_content": full_content},
+                )
+
         except Exception as e:
-            logger.error(f"Streaming error: {e}")
+            logger.error("Streaming error: %s", e)
             yield StreamChunk(type="error", content=str(e))
     
     def generate_code_streaming(
@@ -336,28 +179,15 @@ class OpenRouterService:
         current_files: Optional[Dict[str, str]],
         registry_surface: Dict[str, Any],
         chat_history: Optional[List[Dict[str, str]]] = None,
-        model: str = AIModel.CLAUDE_SONNET_4_5.value,
+        model: AIModel = AIModel.CLAUDE_SONNET_4_5,
     ) -> Generator[StreamChunk, None, None]:
         """
         Generate code files with streaming response.
         
         For direct code generation (bypassing AppSpec when user wants raw code).
         """
-        if not self.api_key:
-            yield StreamChunk(type="error", content="API key not configured")
-            return
-        
         system_prompt = build_system_prompt(registry_surface, mode="code")
-        
-        messages = [{"role": "system", "content": system_prompt}]
-        
-        if chat_history:
-            for msg in chat_history[-10:]:
-                messages.append({
-                    "role": msg.get("role", "user"),
-                    "content": msg.get("content", ""),
-                })
-        
+
         # Build user prompt with current code context
         user_prompt = f"Request: {intent_message}\n\n"
         if current_files:
@@ -366,54 +196,42 @@ class OpenRouterService:
                 user_prompt += f"\n--- {path} ---\n{content[:2000]}...\n"
         
         user_prompt += "\nGenerate the requested code changes. Wrap each file in ```filepath:path/to/file.tsx blocks."
-        messages.append({"role": "user", "content": user_prompt})
+        trimmed_history = chat_history[-10:] if chat_history else None
         
         try:
-            with httpx.Client(timeout=180.0) as client:
-                with client.stream(
-                    "POST",
-                    self.OPENROUTER_API_URL,
-                    headers=self._build_headers(),
-                    json={
-                        "model": model,
-                        "messages": messages,
-                        "temperature": 0.3,
-                        "stream": True,
-                    },
-                ) as response:
-                    response.raise_for_status()
-                    
-                    full_content = ""
-                    for line in response.iter_lines():
-                        if not line:
-                            continue
-                        
-                        if line.startswith("data: "):
-                            data = line[6:]
-                            if data == "[DONE]":
-                                break
-                            
-                            try:
-                                chunk_data = json.loads(data)
-                                delta = chunk_data.get("choices", [{}])[0].get("delta", {})
-                                content = delta.get("content", "")
-                                
-                                if content:
-                                    full_content += content
-                                    yield StreamChunk(type="content", content=content)
-                            except json.JSONDecodeError:
-                                continue
-                    
-                    # Parse files from response
-                    files = self._parse_code_blocks(full_content)
-                    yield StreamChunk(
-                        type="done",
-                        content="",
-                        metadata={"files": files},
-                    )
-                        
+            full_content = ""
+            llm_settings = LLMSettings(
+                model=model,
+                temperature=0.3,
+                timeout=180.0,
+            )
+            for chunk in get_llm_client().stream(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                llm_settings=llm_settings,
+                chat_history=trimmed_history,
+            ):
+                if chunk.error:
+                    yield StreamChunk(type="error", content=chunk.error)
+                    return
+
+                if chunk.content:
+                    full_content += chunk.content
+                    yield StreamChunk(type="content", content=chunk.content)
+
+                if chunk.done:
+                    break
+
+            # Parse files from response
+            files = self._parse_code_blocks(full_content)
+            yield StreamChunk(
+                type="done",
+                content="",
+                metadata={"files": files},
+            )
+
         except Exception as e:
-            logger.error(f"Code generation error: {e}")
+            logger.error("Code generation error: %s", e)
             yield StreamChunk(type="error", content=str(e))
     
     def _parse_code_blocks(self, content: str) -> Dict[str, str]:
