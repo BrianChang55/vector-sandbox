@@ -754,7 +754,7 @@ class TestDataStepInstructions(TestCase):
 
     def test_data_step_detection(self):
         """Test that data steps are correctly identified."""
-        from vector_app.prompts.agentic import build_step_prompt
+        from vector_app.prompts.agentic.execution import build_step_prompt
 
         # Create a data step
         step = PlanStep(
@@ -780,7 +780,7 @@ class TestDataStepInstructions(TestCase):
 
     def test_table_keyword_triggers_data_step_instructions(self):
         """Test that 'table' in title triggers data step instructions."""
-        from vector_app.prompts.agentic import build_step_prompt
+        from vector_app.prompts.agentic.execution import build_step_prompt
 
         # Create step with 'table' in title
         step = PlanStep(

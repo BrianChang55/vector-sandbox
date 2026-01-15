@@ -354,6 +354,7 @@ def _apply_hunks_backwards(original_content: str, diff: FileDiff) -> str:
         if len(locations) == 0:
             # Fallback: try searching with just the removed lines (more resilient to hallucinated context)
             removed_only = _extract_removed_lines_only(hunk)
+            nothing_removed = not removed_only
             if removed_only:
                 locations = _find_hunk_locations(removed_only, file_lines)
                 if len(locations) == 1:
@@ -369,6 +370,9 @@ def _apply_hunks_backwards(original_content: str, diff: FileDiff) -> str:
                     )
                     failed_hunks.append((start_line, hunk))
                     continue
+            if nothing_removed:
+                # TODO: handle pure addition case
+                pass
             
             if len(locations) == 0:
                 formatted_content = format_with_line_numbers(current_content)
