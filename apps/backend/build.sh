@@ -11,14 +11,16 @@ apt-get update && apt-get install -y \
     libffi-dev \
     shared-mime-info
 
-# Upgrade pip
-pip install --upgrade pip
+# Install uv if not present
+if ! command -v uv &> /dev/null; then
+    pip install uv
+fi
 
-# Install Python dependencies
-pip install -r requirements.txt
+# Install Python dependencies with uv
+uv sync --frozen
 
 # Collect static files
-python manage.py collectstatic --no-input
+uv run python manage.py collectstatic --no-input
 
 # Run database migrations
-python manage.py migrate
+uv run python manage.py migrate
