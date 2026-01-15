@@ -45,12 +45,19 @@ description = "Run backend tests"
 dir = "{{config_root}}/apps/backend"
 run = "uv run pytest -v"
 
+[tasks.setup-fe]
+description = "Install frontend dependencies"
+dir = "{{config_root}}/apps/web"
+run = "mise x -- npm install || true"
+
+[tasks.setup-be]
+description = "Install backend dependencies"
+dir = "{{config_root}}/apps/backend"
+run = "mise x -- uv sync"
+
 [tasks.setup]
 description = "Initial setup: install all dependencies"
-run = """
-(cd {{config_root}}/apps/web && npm install) || true
-cd {{config_root}}/apps/backend && uv sync
-"""
+depends = ["setup-fe", "setup-be"]
 
 [tasks.sync]
 description = "Sync backend dependencies with uv"
