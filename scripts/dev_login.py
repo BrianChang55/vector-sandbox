@@ -10,6 +10,10 @@ import os
 import sys
 import json
 import django
+from vector_app.models import UserOrganizationRole
+from vector_app.models import UserOrganizationRole
+
+
 
 # Setup Django
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -54,7 +58,7 @@ def get_or_create_dev_user():
         UserOrganization.objects.create(
             user=user,
             organization=org,
-            role=UserOrganization.ROLE_ADMIN,
+            role=UserOrganizationRole.ADMIN,
         )
     
     return user

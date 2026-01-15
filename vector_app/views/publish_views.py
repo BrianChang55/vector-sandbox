@@ -9,7 +9,14 @@ from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
 from django.db import transaction
 
-from ..models import InternalApp, AppVersion, Organization
+from ..models import (
+    AppVersion,
+    AppVersionSource,
+    AppVersionValidationStatus,
+    InternalApp,
+    InternalAppStatus,
+    Organization,
+)
 from ..services.version_service import VersionService
 from ..serializers import InternalAppSerializer, AppVersionSerializer
 from ..permissions import require_admin
@@ -42,7 +49,7 @@ def publish_app(request, pk=None):
     
     # Check validation status - only allow publishing validated versions
     # Allow 'passed' or 'skipped' (for legacy versions without validation)
-    if latest_stable.validation_status == AppVersion.VALIDATION_FAILED:
+    if latest_stable.validation_status == AppVersionValidationStatus.FAILED:
         return Response(
             {
                 'error': 'Cannot publish a version with validation errors. Please fix the errors first.',
@@ -53,7 +60,7 @@ def publish_app(request, pk=None):
         )
     
     # Log if publishing an unvalidated version
-    if latest_stable.validation_status == AppVersion.VALIDATION_PENDING:
+    if latest_stable.validation_status == AppVersionValidationStatus.PENDING:
         logger.warning(
             f"Publishing version {latest_stable.id} with pending validation status. "
             f"Consider waiting for validation to complete."
@@ -71,7 +78,7 @@ def publish_app(request, pk=None):
             internal_app=app,
             version_number=next_version_number,
             parent_version=latest_stable,
-            source=AppVersion.SOURCE_PUBLISH,
+            source=AppVersionSource.PUBLISH,
             intent_message=latest_stable.intent_message,
             spec_json=latest_stable.spec_json,
             created_by=request.user,
@@ -93,7 +100,7 @@ def publish_app(request, pk=None):
         
         # Set this version as the active published version
         app.published_version = publish_version
-        app.status = InternalApp.STATUS_PUBLISHED
+        app.status = InternalAppStatus.PUBLISHED
         app.save()
     
     # Build published URL for response

@@ -15,8 +15,15 @@ from django.db import transaction
 import json
 
 from vector_app.models import (
-    User, Organization, UserOrganization,
-    InternalApp, AppVersion, VersionFile,
+    AppVersion,
+    AppVersionSource,
+    InternalApp,
+    InternalAppStatus,
+    Organization,
+    User,
+    UserOrganization,
+    UserOrganizationRole,
+    VersionFile,
 )
 
 User = get_user_model()
@@ -51,18 +58,17 @@ def test_models_compliance():
     
     # Test UserOrganization model
     try:
-        assert hasattr(UserOrganization, 'ROLE_ADMIN')
-        assert hasattr(UserOrganization, 'ROLE_MEMBER')
-        assert UserOrganization.ROLE_ADMIN == 'admin'
-        assert UserOrganization.ROLE_MEMBER == 'member'
-        print("✓ UserOrganization model: has role field (admin/member)")
+        assert UserOrganizationRole.ADMIN == 'admin'
+        assert UserOrganizationRole.EDITOR == 'editor'
+        assert UserOrganizationRole.VIEWER == 'viewer'
+        print("✓ UserOrganization model: has role enum")
     except Exception as e:
         errors.append(f"UserOrganization model: {e}")
     
     # Test InternalApp model
     try:
-        assert hasattr(InternalApp, 'STATUS_DRAFT')
-        assert hasattr(InternalApp, 'STATUS_PUBLISHED')
+        assert InternalAppStatus.DRAFT == 'draft'
+        assert InternalAppStatus.PUBLISHED == 'published'
         app = InternalApp(
             organization=org,
             name='Test App',
@@ -70,26 +76,25 @@ def test_models_compliance():
         )
         assert hasattr(app, 'status')
         assert hasattr(app, 'allow_actions_in_preview')
-        print("✓ InternalApp model: has status, allow_actions_in_preview")
+        print("✓ InternalApp model: has status enum, allow_actions_in_preview")
     except Exception as e:
         errors.append(f"InternalApp model: {e}")
     
     # Test AppVersion model
     try:
-        assert hasattr(AppVersion, 'SOURCE_AI_EDIT')
-        assert hasattr(AppVersion, 'SOURCE_CODE_EDIT')
-        assert hasattr(AppVersion, 'SOURCE_ROLLBACK')
-        assert hasattr(AppVersion, 'SOURCE_PUBLISH')
+        assert AppVersionSource.AI_EDIT == 'ai_edit'
+        assert AppVersionSource.CODE_EDIT == 'code_edit'
+        assert AppVersionSource.ROLLBACK == 'rollback'
+        assert AppVersionSource.PUBLISH == 'publish'
         version = AppVersion(
             internal_app=app,
             version_number=1,
-            source=AppVersion.SOURCE_AI_EDIT,
+            source=AppVersionSource.AI_EDIT,
             spec_json={'appName': 'Test', 'pages': []},
             created_by=user
         )
         assert hasattr(version, 'parent_version')
-        assert hasattr(version, 'scope_snapshot_json')
-        print("✓ AppVersion model: has source, spec_json, scope_snapshot_json")
+        print("✓ AppVersion model: has source enum and spec_json")
     except Exception as e:
         errors.append(f"AppVersion model: {e}")
     

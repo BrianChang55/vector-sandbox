@@ -24,8 +24,16 @@ from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from vector_app.models import (
-    User, Organization, UserOrganization, InternalApp,
-    ChatSession, ChatMessage, CodeGenerationJob, AppVersion,
+    AppVersion,
+    ChatMessage,
+    ChatSession,
+    CodeGenerationJob,
+    CodeGenerationJobStatus,
+    InternalApp,
+    Organization,
+    User,
+    UserOrganization,
+    UserOrganizationRole,
 )
 
 
@@ -55,7 +63,7 @@ class BaseTestCase(TestCase):
         UserOrganization.objects.create(
             user=self.user,
             organization=self.org,
-            role=UserOrganization.ROLE_ADMIN,
+            role=UserOrganizationRole.ADMIN,
         )
         
         self.app = InternalApp.objects.create(
@@ -86,7 +94,7 @@ class ConcurrentJobTestCase(TransactionTestCase):
         UserOrganization.objects.create(
             user=self.user,
             organization=self.org,
-            role=UserOrganization.ROLE_ADMIN,
+            role=UserOrganizationRole.ADMIN,
         )
         
         self.app = InternalApp.objects.create(
@@ -148,36 +156,36 @@ class JobStateTransitionTestCase(BaseTestCase):
         job = CodeGenerationJob.objects.create(
             internal_app=self.app,
             user_message='Test',
-            status=CodeGenerationJob.STATUS_QUEUED,
+            status=CodeGenerationJobStatus.QUEUED,
             created_by=self.user,
         )
         
         # Queued -> Processing
-        job.status = CodeGenerationJob.STATUS_PROCESSING
+        job.status = CodeGenerationJobStatus.PROCESSING
         job.started_at = job.created_at
         job.save()
         job.refresh_from_db()
-        self.assertEqual(job.status, CodeGenerationJob.STATUS_PROCESSING)
+        self.assertEqual(job.status, CodeGenerationJobStatus.PROCESSING)
         
         # Processing -> Streaming
-        job.status = CodeGenerationJob.STATUS_STREAMING
+        job.status = CodeGenerationJobStatus.STREAMING
         job.save()
         job.refresh_from_db()
-        self.assertEqual(job.status, CodeGenerationJob.STATUS_STREAMING)
+        self.assertEqual(job.status, CodeGenerationJobStatus.STREAMING)
         
         # Streaming -> Complete
-        job.status = CodeGenerationJob.STATUS_COMPLETE
+        job.status = CodeGenerationJobStatus.COMPLETE
         job.completed_at = job.created_at
         job.save()
         job.refresh_from_db()
-        self.assertEqual(job.status, CodeGenerationJob.STATUS_COMPLETE)
+        self.assertEqual(job.status, CodeGenerationJobStatus.COMPLETE)
     
     def test_cancelled_job_cannot_complete(self):
         """Cancelled job should stay cancelled."""
         job = CodeGenerationJob.objects.create(
             internal_app=self.app,
             user_message='Test',
-            status=CodeGenerationJob.STATUS_CANCELLED,
+            status=CodeGenerationJobStatus.CANCELLED,
             created_by=self.user,
         )
         
@@ -187,14 +195,14 @@ class JobStateTransitionTestCase(BaseTestCase):
         
         self.assertEqual(response.status_code, 200)
         job.refresh_from_db()
-        self.assertEqual(job.status, CodeGenerationJob.STATUS_CANCELLED)
+        self.assertEqual(job.status, CodeGenerationJobStatus.CANCELLED)
     
     def test_failed_job_cannot_be_reprocessed(self):
         """Failed job should stay failed."""
         job = CodeGenerationJob.objects.create(
             internal_app=self.app,
             user_message='Test',
-            status=CodeGenerationJob.STATUS_FAILED,
+            status=CodeGenerationJobStatus.FAILED,
             error_message='Previous error',
             created_by=self.user,
         )
@@ -205,7 +213,7 @@ class JobStateTransitionTestCase(BaseTestCase):
         
         self.assertEqual(response.status_code, 200)
         job.refresh_from_db()
-        self.assertEqual(job.status, CodeGenerationJob.STATUS_FAILED)
+        self.assertEqual(job.status, CodeGenerationJobStatus.FAILED)
 
 
 class LargeEventPayloadTestCase(BaseTestCase):
@@ -216,7 +224,7 @@ class LargeEventPayloadTestCase(BaseTestCase):
         job = CodeGenerationJob.objects.create(
             internal_app=self.app,
             user_message='Test',
-            status=CodeGenerationJob.STATUS_STREAMING,
+            status=CodeGenerationJobStatus.STREAMING,
             created_by=self.user,
         )
         
@@ -239,7 +247,7 @@ class LargeEventPayloadTestCase(BaseTestCase):
         job = CodeGenerationJob.objects.create(
             internal_app=self.app,
             user_message='Test',
-            status=CodeGenerationJob.STATUS_STREAMING,
+            status=CodeGenerationJobStatus.STREAMING,
             created_by=self.user,
         )
         
@@ -266,7 +274,7 @@ class StreamingEdgeCasesTestCase(BaseTestCase):
         job = CodeGenerationJob.objects.create(
             internal_app=self.app,
             user_message='Test',
-            status=CodeGenerationJob.STATUS_COMPLETE,
+            status=CodeGenerationJobStatus.COMPLETE,
             events_json=[],
             created_by=self.user,
         )
@@ -285,7 +293,7 @@ class StreamingEdgeCasesTestCase(BaseTestCase):
         job = CodeGenerationJob.objects.create(
             internal_app=self.app,
             user_message='Test',
-            status=CodeGenerationJob.STATUS_COMPLETE,
+            status=CodeGenerationJobStatus.COMPLETE,
             events_json=[
                 {'type': 'event1', 'data': {}, 'timestamp': time.time(), 'index': 0},
             ],
@@ -306,7 +314,7 @@ class StreamingEdgeCasesTestCase(BaseTestCase):
         job = CodeGenerationJob.objects.create(
             internal_app=self.app,
             user_message='Test',
-            status=CodeGenerationJob.STATUS_CANCELLED,
+            status=CodeGenerationJobStatus.CANCELLED,
             events_json=[
                 {'type': 'agent_start', 'data': {}, 'timestamp': time.time(), 'index': 0},
             ],
@@ -327,7 +335,7 @@ class StreamingEdgeCasesTestCase(BaseTestCase):
         job = CodeGenerationJob.objects.create(
             internal_app=self.app,
             user_message='Test',
-            status=CodeGenerationJob.STATUS_FAILED,
+            status=CodeGenerationJobStatus.FAILED,
             error_message='Generation failed',
             events_json=[
                 {'type': 'agent_start', 'data': {}, 'timestamp': time.time(), 'index': 0},
@@ -415,7 +423,7 @@ class AuthorizationEdgeCasesTestCase(BaseTestCase):
         job = CodeGenerationJob.objects.create(
             internal_app=self.app,
             user_message='Test',
-            status=CodeGenerationJob.STATUS_COMPLETE,
+            status=CodeGenerationJobStatus.COMPLETE,
             created_by=self.user,
         )
         
@@ -441,7 +449,7 @@ class AuthorizationEdgeCasesTestCase(BaseTestCase):
         UserOrganization.objects.create(
             user=other_user,
             organization=other_org,
-            role=UserOrganization.ROLE_ADMIN,
+            role=UserOrganizationRole.ADMIN,
         )
         other_app = InternalApp.objects.create(
             name='Other App',
@@ -452,7 +460,7 @@ class AuthorizationEdgeCasesTestCase(BaseTestCase):
         other_job = CodeGenerationJob.objects.create(
             internal_app=other_app,
             user_message='Test',
-            status=CodeGenerationJob.STATUS_COMPLETE,
+            status=CodeGenerationJobStatus.COMPLETE,
             created_by=other_user,
         )
         
@@ -482,7 +490,7 @@ class AuthorizationEdgeCasesTestCase(BaseTestCase):
         other_job = CodeGenerationJob.objects.create(
             internal_app=other_app,
             user_message='Test',
-            status=CodeGenerationJob.STATUS_STREAMING,
+            status=CodeGenerationJobStatus.STREAMING,
             created_by=other_user,
         )
         
@@ -493,7 +501,7 @@ class AuthorizationEdgeCasesTestCase(BaseTestCase):
         
         # Job should not be cancelled
         other_job.refresh_from_db()
-        self.assertEqual(other_job.status, CodeGenerationJob.STATUS_STREAMING)
+        self.assertEqual(other_job.status, CodeGenerationJobStatus.STREAMING)
 
 
 class EventConsistencyTestCase(BaseTestCase):
@@ -504,7 +512,7 @@ class EventConsistencyTestCase(BaseTestCase):
         job = CodeGenerationJob.objects.create(
             internal_app=self.app,
             user_message='Test',
-            status=CodeGenerationJob.STATUS_STREAMING,
+            status=CodeGenerationJobStatus.STREAMING,
             created_by=self.user,
         )
         
@@ -525,7 +533,7 @@ class EventConsistencyTestCase(BaseTestCase):
         job = CodeGenerationJob.objects.create(
             internal_app=self.app,
             user_message='Test',
-            status=CodeGenerationJob.STATUS_STREAMING,
+            status=CodeGenerationJobStatus.STREAMING,
             created_by=self.user,
         )
         
@@ -546,7 +554,7 @@ class LatestJobEdgeCasesTestCase(BaseTestCase):
         job1 = CodeGenerationJob.objects.create(
             internal_app=self.app,
             user_message='First job',
-            status=CodeGenerationJob.STATUS_COMPLETE,
+            status=CodeGenerationJobStatus.COMPLETE,
             created_by=self.user,
         )
         
@@ -557,7 +565,7 @@ class LatestJobEdgeCasesTestCase(BaseTestCase):
         job2 = CodeGenerationJob.objects.create(
             internal_app=self.app,
             user_message='Second job',
-            status=CodeGenerationJob.STATUS_COMPLETE,
+            status=CodeGenerationJobStatus.COMPLETE,
             created_by=self.user,
         )
         
@@ -572,7 +580,7 @@ class LatestJobEdgeCasesTestCase(BaseTestCase):
         completed_job = CodeGenerationJob.objects.create(
             internal_app=self.app,
             user_message='Completed',
-            status=CodeGenerationJob.STATUS_COMPLETE,
+            status=CodeGenerationJobStatus.COMPLETE,
             created_by=self.user,
         )
         
@@ -582,7 +590,7 @@ class LatestJobEdgeCasesTestCase(BaseTestCase):
         active_job = CodeGenerationJob.objects.create(
             internal_app=self.app,
             user_message='Active',
-            status=CodeGenerationJob.STATUS_STREAMING,
+            status=CodeGenerationJobStatus.STREAMING,
             created_by=self.user,
         )
         
@@ -598,7 +606,7 @@ class LatestJobEdgeCasesTestCase(BaseTestCase):
         job = CodeGenerationJob.objects.create(
             internal_app=self.app,
             user_message='Queued',
-            status=CodeGenerationJob.STATUS_QUEUED,
+            status=CodeGenerationJobStatus.QUEUED,
             created_by=self.user,
         )
         
@@ -627,7 +635,7 @@ class CeleryTaskEdgeCasesTestCase(TransactionTestCase):
         UserOrganization.objects.create(
             user=self.user,
             organization=self.org,
-            role=UserOrganization.ROLE_ADMIN,
+            role=UserOrganizationRole.ADMIN,
         )
         
         self.app = InternalApp.objects.create(
@@ -662,7 +670,7 @@ class CeleryTaskEdgeCasesTestCase(TransactionTestCase):
                 # Cancel after 3rd event
                 if i == 2:
                     job = CodeGenerationJob.objects.get(internal_app=self.app)
-                    job.status = CodeGenerationJob.STATUS_CANCELLED
+                    job.status = CodeGenerationJobStatus.CANCELLED
                     job.save()
         
         mock_service = MagicMock()
@@ -672,7 +680,7 @@ class CeleryTaskEdgeCasesTestCase(TransactionTestCase):
         job = CodeGenerationJob.objects.create(
             internal_app=self.app,
             user_message='Test',
-            status=CodeGenerationJob.STATUS_QUEUED,
+            status=CodeGenerationJobStatus.QUEUED,
             created_by=self.user,
         )
         
@@ -683,7 +691,7 @@ class CeleryTaskEdgeCasesTestCase(TransactionTestCase):
         self.assertLessEqual(len(events_yielded), 5)
         
         job.refresh_from_db()
-        self.assertEqual(job.status, CodeGenerationJob.STATUS_CANCELLED)
+        self.assertEqual(job.status, CodeGenerationJobStatus.CANCELLED)
     
     @patch('vector_app.services.agentic_service.get_agentic_service')
     def test_task_stores_version_from_event(self, mock_get_service):
@@ -702,7 +710,7 @@ class CeleryTaskEdgeCasesTestCase(TransactionTestCase):
         job = CodeGenerationJob.objects.create(
             internal_app=self.app,
             user_message='Test',
-            status=CodeGenerationJob.STATUS_QUEUED,
+            status=CodeGenerationJobStatus.QUEUED,
             created_by=self.user,
         )
         
@@ -711,7 +719,7 @@ class CeleryTaskEdgeCasesTestCase(TransactionTestCase):
         job.refresh_from_db()
         
         # Job should complete successfully
-        self.assertEqual(job.status, CodeGenerationJob.STATUS_COMPLETE)
+        self.assertEqual(job.status, CodeGenerationJobStatus.COMPLETE)
         # Version should be created and linked
         self.assertIsNotNone(job.version_id)
 

@@ -666,7 +666,7 @@ class MergeAgentHandlerService:
                         id=item.get("slug", item.get("id", "")),
                         name=item.get("name", ""),
                         categories=categories,
-                        logo_url=item.get("logo_url", item.get("icon_url", item.get("square_image"))),
+                        logo_url=item.get("logo_url", item.get("square_image")),
                         source_url=item.get("source_url", item.get("website_url")),
                         description=item.get("description", ""),
                         tools=tools,

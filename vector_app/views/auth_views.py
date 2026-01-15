@@ -20,13 +20,13 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from urllib.parse import urlencode
 
-from ..models import User, UserOrganization, Organization, MagicLinkToken
+from ..models import MagicLinkToken, Organization, User, UserOrganization, UserOrganizationRole
 from ..serializers.auth_serializers import (
-    UserSerializer,
-    SignUpSerializer,
     LoginSerializer,
     MagicLinkRequestSerializer,
     MagicLinkVerifySerializer,
+    SignUpSerializer,
+    UserSerializer,
 )
 
 logger = logging.getLogger(__name__)
@@ -84,7 +84,7 @@ class SignUpView(APIView):
                 UserOrganization.objects.create(
                     user=user,
                     organization=default_org,
-                    role=UserOrganization.ROLE_ADMIN
+                    role=UserOrganizationRole.ADMIN
                 )
             
             # Generate JWT tokens
@@ -427,7 +427,7 @@ class MagicLinkVerifyView(APIView):
                     UserOrganization.objects.create(
                         user=user,
                         organization=default_org,
-                        role=UserOrganization.ROLE_ADMIN
+                        role=UserOrganizationRole.ADMIN
                     )
             
             # Generate JWT tokens
@@ -697,7 +697,7 @@ class GoogleOAuthCallbackView(APIView):
                     UserOrganization.objects.create(
                         user=user,
                         organization=default_org,
-                        role=UserOrganization.ROLE_ADMIN
+                        role=UserOrganizationRole.ADMIN
                     )
             
             # Generate JWT tokens

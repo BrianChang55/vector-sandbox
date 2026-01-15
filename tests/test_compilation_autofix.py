@@ -19,6 +19,10 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch, MagicMock
 from io import StringIO
+from vector_app.models import AppVersionGenerationStatus, AppVersionValidationStatus, InternalAppStatus
+from vector_app.models import AppVersionGenerationStatus, AppVersionValidationStatus, InternalAppStatus
+
+
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -394,10 +398,10 @@ class TestAppVersionValidationStatus(TestCase):
     
     def test_validation_status_choices(self):
         """Test all validation status choices exist"""
-        self.assertEqual(AppVersion.VALIDATION_PENDING, 'pending')
-        self.assertEqual(AppVersion.VALIDATION_PASSED, 'passed')
-        self.assertEqual(AppVersion.VALIDATION_FAILED, 'failed')
-        self.assertEqual(AppVersion.VALIDATION_SKIPPED, 'skipped')
+        self.assertEqual(AppVersionValidationStatus.PENDING, 'pending')
+        self.assertEqual(AppVersionValidationStatus.PASSED, 'passed')
+        self.assertEqual(AppVersionValidationStatus.FAILED, 'failed')
+        self.assertEqual(AppVersionValidationStatus.SKIPPED, 'skipped')
     
     def test_default_validation_status(self):
         """Test default validation status is pending"""
@@ -408,7 +412,7 @@ class TestAppVersionValidationStatus(TestCase):
             created_by=self.user
         )
         
-        self.assertEqual(version.validation_status, AppVersion.VALIDATION_PENDING)
+        self.assertEqual(version.validation_status, AppVersionValidationStatus.PENDING)
         self.assertEqual(version.fix_attempts, 0)
     
     def test_set_validation_passed(self):
@@ -417,12 +421,12 @@ class TestAppVersionValidationStatus(TestCase):
             internal_app=self.app,
             version_number=1,
             spec_json={},
-            validation_status=AppVersion.VALIDATION_PASSED,
+            validation_status=AppVersionValidationStatus.PASSED,
             created_by=self.user
         )
         
         version.refresh_from_db()
-        self.assertEqual(version.validation_status, AppVersion.VALIDATION_PASSED)
+        self.assertEqual(version.validation_status, AppVersionValidationStatus.PASSED)
     
     def test_validation_errors_json(self):
         """Test storing validation errors in JSON field"""
@@ -435,7 +439,7 @@ class TestAppVersionValidationStatus(TestCase):
             internal_app=self.app,
             version_number=1,
             spec_json={},
-            validation_status=AppVersion.VALIDATION_FAILED,
+            validation_status=AppVersionValidationStatus.FAILED,
             validation_errors_json=errors,
             fix_attempts=2,
             created_by=self.user
@@ -475,10 +479,10 @@ class TestPublishValidationGate(TestCase):
             internal_app=self.app,
             version_number=1,
             spec_json={"pages": []},
-            validation_status=AppVersion.VALIDATION_FAILED,
+            validation_status=AppVersionValidationStatus.FAILED,
             validation_errors_json=[{"file": "App.tsx", "message": "Error"}],
             is_active=True,
-            generation_status=AppVersion.GEN_STATUS_COMPLETE,
+            generation_status=AppVersionGenerationStatus.COMPLETE,
             created_by=self.user
         )
         VersionFile.objects.create(
@@ -499,9 +503,9 @@ class TestPublishValidationGate(TestCase):
             internal_app=self.app,
             version_number=1,
             spec_json={"pages": []},
-            validation_status=AppVersion.VALIDATION_PASSED,
+            validation_status=AppVersionValidationStatus.PASSED,
             is_active=True,
-            generation_status=AppVersion.GEN_STATUS_COMPLETE,
+            generation_status=AppVersionGenerationStatus.COMPLETE,
             created_by=self.user
         )
         VersionFile.objects.create(
@@ -520,9 +524,9 @@ class TestPublishValidationGate(TestCase):
             internal_app=self.app,
             version_number=1,
             spec_json={"pages": []},
-            validation_status=AppVersion.VALIDATION_PENDING,
+            validation_status=AppVersionValidationStatus.PENDING,
             is_active=True,
-            generation_status=AppVersion.GEN_STATUS_COMPLETE,
+            generation_status=AppVersionGenerationStatus.COMPLETE,
             created_by=self.user
         )
         VersionFile.objects.create(
@@ -558,7 +562,7 @@ class TestFixErrorsEndpoint(TestCase):
             version_number=1,
             spec_json={},
             is_active=True,
-            generation_status=AppVersion.GEN_STATUS_COMPLETE,
+            generation_status=AppVersionGenerationStatus.COMPLETE,
             created_by=self.user
         )
         VersionFile.objects.create(
@@ -851,9 +855,9 @@ class TestIntegrationFlow(TestCase):
             internal_app=self.app,
             version_number=1,
             spec_json={"pages": []},
-            validation_status=AppVersion.VALIDATION_PASSED,
+            validation_status=AppVersionValidationStatus.PASSED,
             is_active=True,
-            generation_status=AppVersion.GEN_STATUS_COMPLETE,
+            generation_status=AppVersionGenerationStatus.COMPLETE,
             created_by=self.user
         )
         
@@ -866,7 +870,7 @@ class TestIntegrationFlow(TestCase):
         
         # 3. Verify version state
         version.refresh_from_db()
-        self.assertEqual(version.validation_status, AppVersion.VALIDATION_PASSED)
+        self.assertEqual(version.validation_status, AppVersionValidationStatus.PASSED)
         self.assertTrue(version.is_active)
         
         # 4. Try to publish via API
@@ -880,7 +884,7 @@ class TestIntegrationFlow(TestCase):
         
         # 5. Verify app is now published
         self.app.refresh_from_db()
-        self.assertEqual(self.app.status, InternalApp.STATUS_PUBLISHED)
+        self.assertEqual(self.app.status, InternalAppStatus.PUBLISHED)
         self.assertIsNotNone(self.app.published_version)
     
     def test_validation_failure_blocks_publish(self):
@@ -890,12 +894,12 @@ class TestIntegrationFlow(TestCase):
             internal_app=self.app,
             version_number=1,
             spec_json={"pages": []},
-            validation_status=AppVersion.VALIDATION_FAILED,
+            validation_status=AppVersionValidationStatus.FAILED,
             validation_errors_json=[
                 {"file": "src/App.tsx", "line": 1, "message": "Syntax error"}
             ],
             is_active=True,
-            generation_status=AppVersion.GEN_STATUS_COMPLETE,
+            generation_status=AppVersionGenerationStatus.COMPLETE,
             created_by=self.user
         )
         VersionFile.objects.create(
@@ -983,15 +987,15 @@ class TestValidationStatusTransitions(TestCase):
             internal_app=self.app,
             version_number=1,
             spec_json={},
-            validation_status=AppVersion.VALIDATION_PENDING,
+            validation_status=AppVersionValidationStatus.PENDING,
             created_by=self.user
         )
         
-        version.validation_status = AppVersion.VALIDATION_PASSED
+        version.validation_status = AppVersionValidationStatus.PASSED
         version.save()
         
         version.refresh_from_db()
-        self.assertEqual(version.validation_status, AppVersion.VALIDATION_PASSED)
+        self.assertEqual(version.validation_status, AppVersionValidationStatus.PASSED)
     
     def test_pending_to_failed_with_errors(self):
         """Test transition from pending to failed with error storage"""
@@ -999,18 +1003,18 @@ class TestValidationStatusTransitions(TestCase):
             internal_app=self.app,
             version_number=1,
             spec_json={},
-            validation_status=AppVersion.VALIDATION_PENDING,
+            validation_status=AppVersionValidationStatus.PENDING,
             created_by=self.user
         )
         
         errors = [{"file": "App.tsx", "line": 1, "message": "Error"}]
-        version.validation_status = AppVersion.VALIDATION_FAILED
+        version.validation_status = AppVersionValidationStatus.FAILED
         version.validation_errors_json = errors
         version.fix_attempts = 2
         version.save()
         
         version.refresh_from_db()
-        self.assertEqual(version.validation_status, AppVersion.VALIDATION_FAILED)
+        self.assertEqual(version.validation_status, AppVersionValidationStatus.FAILED)
         self.assertEqual(len(version.validation_errors_json), 1)
         self.assertEqual(version.fix_attempts, 2)
 
@@ -1256,7 +1260,7 @@ class TestAPIEndpointSecurity(TestCase):
             version_number=1,
             spec_json={},
             is_active=True,
-            generation_status=AppVersion.GEN_STATUS_COMPLETE,
+            generation_status=AppVersionGenerationStatus.COMPLETE,
             created_by=self.user
         )
         VersionFile.objects.create(
@@ -1365,16 +1369,16 @@ class TestPublishValidationIntegration(TestCase):
         app = InternalApp.objects.create(
             organization=self.org,
             name='Status Test App',
-            status=InternalApp.STATUS_DRAFT,
+            status=InternalAppStatus.DRAFT,
             created_by=self.user
         )
         version = AppVersion.objects.create(
             internal_app=app,
             version_number=1,
             spec_json={},
-            validation_status=AppVersion.VALIDATION_PASSED,
+            validation_status=AppVersionValidationStatus.PASSED,
             is_active=True,
-            generation_status=AppVersion.GEN_STATUS_COMPLETE,
+            generation_status=AppVersionGenerationStatus.COMPLETE,
             created_by=self.user
         )
         VersionFile.objects.create(
@@ -1387,7 +1391,7 @@ class TestPublishValidationIntegration(TestCase):
         
         self.assertEqual(response.status_code, 201)
         app.refresh_from_db()
-        self.assertEqual(app.status, InternalApp.STATUS_PUBLISHED)
+        self.assertEqual(app.status, InternalAppStatus.PUBLISHED)
         # Published version should exist and be based on the source version
         self.assertIsNotNone(app.published_version)
     
@@ -1402,9 +1406,9 @@ class TestPublishValidationIntegration(TestCase):
             internal_app=app,
             version_number=1,
             spec_json={},
-            validation_status=AppVersion.VALIDATION_PASSED,
+            validation_status=AppVersionValidationStatus.PASSED,
             is_active=True,
-            generation_status=AppVersion.GEN_STATUS_GENERATING,  # Still generating
+            generation_status=AppVersionGenerationStatus.GENERATING,  # Still generating
             created_by=self.user
         )
         
@@ -1580,14 +1584,14 @@ class TestFixAttemptTracking(TestCase):
             version_number=1,
             spec_json={},
             fix_attempts=2,  # At max
-            validation_status=AppVersion.VALIDATION_FAILED,
+            validation_status=AppVersionValidationStatus.FAILED,
             validation_errors_json=[{"file": "App.tsx", "message": "Error"}],
             created_by=self.user
         )
         
         version.refresh_from_db()
         self.assertEqual(version.fix_attempts, 2)
-        self.assertEqual(version.validation_status, AppVersion.VALIDATION_FAILED)
+        self.assertEqual(version.validation_status, AppVersionValidationStatus.FAILED)
 
 
 class TestMultipleErrorTypes(TestCase):
@@ -1637,7 +1641,7 @@ class TestVersionFileHandling(TestCase):
             version_number=1,
             spec_json={},
             is_active=True,
-            generation_status=AppVersion.GEN_STATUS_COMPLETE,
+            generation_status=AppVersionGenerationStatus.COMPLETE,
             created_by=self.user
         )
         
@@ -1851,9 +1855,9 @@ class TestValidationStatusAPIResponses(TestCase):
             internal_app=self.app,
             version_number=1,
             spec_json={},
-            validation_status=AppVersion.VALIDATION_PASSED,
+            validation_status=AppVersionValidationStatus.PASSED,
             is_active=True,
-            generation_status=AppVersion.GEN_STATUS_COMPLETE,
+            generation_status=AppVersionGenerationStatus.COMPLETE,
             created_by=self.user
         )
         
@@ -1870,10 +1874,10 @@ class TestValidationStatusAPIResponses(TestCase):
             internal_app=self.app,
             version_number=1,
             spec_json={},
-            validation_status=AppVersion.VALIDATION_FAILED,
+            validation_status=AppVersionValidationStatus.FAILED,
             fix_attempts=2,
             is_active=True,
-            generation_status=AppVersion.GEN_STATUS_COMPLETE,
+            generation_status=AppVersionGenerationStatus.COMPLETE,
             created_by=self.user
         )
         
@@ -2109,7 +2113,7 @@ class TestErrorFixIntegration(TestCase):
             internal_app=self.app,
             version_number=1,
             spec_json={},
-            validation_status=AppVersion.VALIDATION_FAILED,
+            validation_status=AppVersionValidationStatus.FAILED,
             validation_errors_json=[
                 {"file": "src/App.tsx", "line": 10, "column": 5, "message": "Type error", "code": "TS2322"},
                 {"file": "src/utils.ts", "line": 5, "column": 1, "message": "Missing return", "code": "TS2355"},

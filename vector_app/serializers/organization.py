@@ -2,7 +2,7 @@
 Organization serializers
 """
 from rest_framework import serializers
-from ..models import Organization, UserOrganization
+from ..models import Organization, UserOrganization, UserOrganizationRole
 
 
 class OrganizationSerializer(serializers.ModelSerializer):
@@ -64,7 +64,7 @@ class OrganizationCreateSerializer(serializers.ModelSerializer):
         UserOrganization.objects.create(
             user=user,
             organization=organization,
-            role=UserOrganization.ROLE_ADMIN
+            role=UserOrganizationRole.ADMIN
         )
         
         return organization
