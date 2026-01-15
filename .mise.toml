@@ -22,7 +22,7 @@ dir = "{{config_root}}/apps/backend"
 run = "uv run celery -A internal_apps worker --loglevel=info"
 
 [tasks.flower]
-description = "Start Flower Celery monitor"
+description = "Start Flower Celery monitor (http://localhost:5555)"
 dir = "{{config_root}}/apps/backend"
 run = "uv run celery -A internal_apps flower --port=5555"
 
@@ -45,18 +45,18 @@ description = "Run backend tests"
 dir = "{{config_root}}/apps/backend"
 run = "uv run pytest -v"
 
-[tasks.test-fe]
-description = "Run frontend lint and build"
-dir = "{{config_root}}/apps/web"
-run = "npm run lint && npm run build"
-
 [tasks.setup]
-description = "Install all dependencies"
+description = "Initial setup: install all dependencies"
 run = """
 cd apps/web && npm install
-cd ../backend && uv sync
+cd ../apps/backend && uv sync
 """
 
+[tasks.sync]
+description = "Sync backend dependencies with uv"
+dir = "{{config_root}}/apps/backend"
+run = "uv sync"
+
 [tasks.dev]
-description = "Start all development services"
+description = "Start all development services (frontend, backend, celery)"
 depends = ["fe", "be", "celery"]
