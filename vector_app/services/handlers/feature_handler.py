@@ -31,7 +31,8 @@ logger = logging.getLogger(__name__)
 
 
 # Import design style and guards from prompts
-from vector_app.prompts.agentic import DESIGN_STYLE_PROMPT, OVER_EAGERNESS_GUARD
+from vector_app.prompts.agentic.design import DESIGN_STYLE_PROMPT
+from vector_app.prompts.agentic.guards import OVER_EAGERNESS_GUARD
 
 
 FEATURE_SYSTEM_PROMPT = f"""You are an expert React/TypeScript developer adding new features to existing applications.

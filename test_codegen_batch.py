@@ -19,12 +19,9 @@ django.setup()
 from vector_app.services.planning_service import PlanStep
 from vector_app.services.handlers.generate_handler import GenerateHandler
 from vector_app.ai.models import AIModel
-from vector_app.prompts.agentic import (
-    build_plan_prompt,
-    build_step_prompt,
-    build_codegen_system_prompt,
-    apply_design_style_prompt,
-)
+from vector_app.prompts.agentic.codegen import build_codegen_system_prompt
+from vector_app.prompts.agentic.execution import apply_design_style_prompt, build_step_prompt
+from vector_app.prompts.agentic.planning import build_plan_prompt
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)

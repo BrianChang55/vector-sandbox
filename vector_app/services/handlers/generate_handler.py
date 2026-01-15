@@ -27,9 +27,10 @@ from ..diff_application_service import (
 )
 from vector_app.models import AppDataTable, VersionFile
 from vector_app.ai.models import AIModel
-from vector_app.prompts.agentic import (
+from vector_app.prompts.agentic.codegen import build_codegen_system_prompt
+from vector_app.prompts.agentic.execution import (
     apply_design_style_prompt,
-    build_codegen_system_prompt,
+    build_file_prompt,
     build_step_prompt,
 )
 from vector_app.services.typescript_types_generator import generate_typescript_types
@@ -38,7 +39,6 @@ from vector_app.services.error_fix_service import get_error_fix_service
 from vector_app.services.planning_service import PlanStep, PlanStepStatus, PlanOperationType, get_planning_service, AgentPlan
 from vector_app.services.types import CompilationError
 from vector_app.services.validation_service import get_validation_service
-from vector_app.prompts.agentic import build_file_prompt
 from vector_app.services.schema_extraction_service import get_schema_extraction_service
 from vector_app.services.datastore.table_creator import create_tables_from_definitions
 

@@ -15,7 +15,7 @@ from .base_handler import BaseHandler, AgentEvent, FileChange
 from .generate_handler import GenerateHandler
 from ..datastore import TableDefinitionParser
 from vector_app.models import AppDataTable
-from vector_app.prompts.agentic import DESIGN_STYLE_PROMPT
+from vector_app.prompts.agentic.design import DESIGN_STYLE_PROMPT
 from vector_app.services.app_data_service import AppDataService
 from vector_app.services.planning_service import PlanStepStatus
 

@@ -23,12 +23,12 @@ from enum import Enum
 from vector_app.ai.client import get_llm_client
 from vector_app.ai.models import AIModel
 from vector_app.ai.types import LLMSettings
-from vector_app.prompts.agentic import (
+from vector_app.prompts.agentic.codegen import build_codegen_system_prompt
+from vector_app.prompts.agentic.execution import (
     FINAL_APP_SYSTEM_PROMPT,
     apply_design_style_prompt,
-    build_step_prompt,
-    build_codegen_system_prompt,
     build_final_app_prompt,
+    build_step_prompt,
 )
 from vector_app.services.datastore.fetcher import (
     get_table_summary,
