@@ -1,223 +1,221 @@
 # External Integrations
 
-**Analysis Date:** 2026-01-14
+## AI/LLM Services
 
-## APIs & External Services
+### OpenRouter (Primary)
 
-**AI/LLM Services:**
+Primary AI API supporting multiple models.
 
-- **OpenRouter** - Primary AI API supporting multiple models
-  - Service File: `vector_app/services/openrouter_service.py`
-  - Client File: `vector_app/ai/client.py`
-  - Models: Claude Opus 4.5, Claude Sonnet 4.5, Claude Haiku 4.5, GPT-5.1, Gemini 3 Pro
-  - Config: `OPENROUTER_API_KEY`, `OPENROUTER_APP_NAME` - `internal_apps/settings.py`
-  - Features: Streaming support, JSON mode, multi-model routing
+| File | Purpose |
+|------|---------|
+| `vector_app/ai/client.py` | LLMClient class |
+| `vector_app/ai/models.py` | AIModel enum |
+| `vector_app/ai/types.py` | LLMSettings, ChatResult |
+| `vector_app/services/openrouter_service.py` | OpenRouter API integration |
 
-- **OpenAI** - Fallback LLM provider
-  - Config: `OPENAI_API_KEY` - `internal_apps/settings.py`
-  - Used as: Fallback if OpenRouter not configured
+**Models Supported:**
+- Claude Opus 4.5 (200K context)
+- Claude Sonnet 4.5 (200K context)
+- Claude Haiku 4.5 (200K context)
+- GPT-5.1 (128K context)
+- Gemini 3 Pro (1M context)
 
-**Email Services:**
+**Configuration:**
+- `OPENROUTER_API_KEY`
+- `OPENROUTER_APP_NAME`
 
-- **Resend** - Email delivery service
-  - Config: SMTP-based configuration
-    - `EMAIL_HOST=smtp.resend.com`
-    - `EMAIL_PORT=465`
-    - `EMAIL_HOST_PASSWORD` (Resend API key)
-    - `EMAIL_HOST_USER=resend`
-    - `DEFAULT_FROM_EMAIL`
-  - Details: `.env.example`
+**Features:** Streaming support, JSON mode, multi-model routing
 
-## Data Storage
+### OpenAI (Fallback)
 
-**Databases:**
+Fallback if OpenRouter not configured.
 
-- **PostgreSQL** - Production database
-  - Connection: `DATABASE_URL` env var
-  - Client: Django ORM
-  - Config: `internal_apps/settings.py`
+**Configuration:** `OPENAI_API_KEY`
 
-- **SQLite** - Development fallback
-  - Connection: `db.sqlite3` file
-  - Used when: No `DATABASE_URL` configured
+## Cloud Storage
 
-**File Storage:**
+### Cloudflare R2
 
-- **Cloudflare R2** - S3-compatible object storage
-  - Service File: `vector_app/services/cloud_storage_service.py`
-  - Image Upload: `vector_app/services/image_upload_service.py`
-  - SDK: boto3 1.34.0+ (S3-compatible)
-  - Config:
-    - `R2_ACCESS_KEY_ID`
-    - `R2_SECRET_ACCESS_KEY`
-    - `R2_BUCKET_NAME`
-    - `R2_ENDPOINT_URL`
-    - `R2_PRESIGNED_URL_EXPIRY` (1 hour default)
-    - `R2_PRESIGNED_URL_EXPIRY_API` (24 hours default)
-  - Features: Private bucket with presigned URLs, local fallback
+S3-compatible object storage for production.
 
-**Caching:**
+| File | Purpose |
+|------|---------|
+| `vector_app/services/cloud_storage_service.py` | Storage abstraction |
+| `vector_app/services/image_upload_service.py` | Image uploads |
 
-- **Redis** - Message broker and cache
-  - Connection: `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`
-  - Default: `redis://localhost:6379/0`
-  - Used for: Celery task queue, result backend
+**Library:** boto3 1.34.0+ (S3-compatible)
 
-## Authentication & Identity
+**Configuration:**
+- `R2_ACCESS_KEY_ID`
+- `R2_SECRET_ACCESS_KEY`
+- `R2_BUCKET_NAME`
+- `R2_ENDPOINT_URL`
+- `R2_PRESIGNED_URL_EXPIRY` (1 hour default)
+- `R2_PRESIGNED_URL_EXPIRY_API` (24 hours default)
 
-**Auth Provider:**
+**Features:** Private bucket with presigned URLs, local fallback
 
-- **Django REST Framework SimpleJWT** - JWT authentication
-  - Config: `internal_apps/settings.py`
-  - Access token: 7-day expiry
-  - Refresh token: 30-day expiry
-  - Token storage: Frontend localStorage
+## Error Tracking & Monitoring
 
-**OAuth Integrations:**
+### Sentry
 
-- **Google OAuth 2.0** - Social login
-  - Frontend Utility: `../internal-apps-web-app/src/utils/googleOAuth.ts`
-  - Backend Callback: `/api/v1/auth/google/callback`
-  - Config:
-    - `GOOGLE_OAUTH_CLIENT_ID`
-    - `GOOGLE_OAUTH_CLIENT_SECRET`
-    - `GOOGLE_OAUTH_REDIRECT_URI`
-  - Scopes: email, profile
+Error tracking and performance monitoring.
 
-**Magic Link Auth:**
+**Library:** sentry-sdk[django] 2.0.0+
 
-- Email-based passwordless authentication
-  - Service: `authService.ts`
-  - Token model: `MagicLinkToken` in `models.py`
+**Configuration:**
+- `SENTRY_DSN`
+- `SENTRY_ENVIRONMENT`
 
-## Monitoring & Observability
+**Location:** `internal_apps/settings.py` (lines 325-356)
 
-**Error Tracking:**
+## Product Analytics
 
-- **Sentry** - Error tracking and performance
-  - Backend: sentry-sdk[django] 2.0.0+ - `requirements.txt`
-  - Frontend: @sentry/react 8.0.0 - `../internal-apps-web-app/package.json`
-  - Backend config: `internal_apps/settings.py` (lines 325-356)
-  - Frontend service: `../internal-apps-web-app/src/services/loggingService.ts`
-  - Config:
-    - `SENTRY_DSN` (backend)
-    - `VITE_SENTRY_DSN` (frontend)
-    - `SENTRY_ENVIRONMENT` / `VITE_SENTRY_ENVIRONMENT`
-  - Features: Error capture, performance profiling (10% sample), session replays
+### Mixpanel
 
-**Analytics:**
+Product and behavioral analytics.
 
-- **Mixpanel** - Product analytics
-  - Backend: mixpanel 5.0.0 - `requirements.txt`
-  - Frontend: mixpanel-browser 2.73.0 - `../internal-apps-web-app/package.json`
-  - Frontend service: `../internal-apps-web-app/src/services/analyticsService.ts`
-  - Config:
-    - `MIXPANEL_TOKEN` (backend)
-    - `VITE_MIXPANEL_TOKEN` (frontend)
-  - Features: User identification, event tracking, session analytics
+**Library:** mixpanel 5.0.0
 
-**Logs:**
+**Configuration:** `MIXPANEL_TOKEN`
 
-- **Vercel logs** - stdout/stderr (production)
-- **Python logging** - Backend structured logging
-- **Console + Sentry** - Frontend logging
+## Email Services
 
-## CI/CD & Deployment
+### Resend
 
-**Hosting:**
+Email delivery via SMTP.
 
-- **Render** - Backend hosting
-  - Detection: `RENDER_EXTERNAL_HOSTNAME`, `RENDER_DISK_MOUNT_PATH`
-  - Deployment: Automatic on push
-  - Env vars: Configured in Render dashboard
+**Configuration:**
+- `EMAIL_HOST=smtp.resend.com`
+- `EMAIL_PORT=465`
+- `EMAIL_HOST_PASSWORD` (Resend API key)
+- `EMAIL_HOST_USER=resend`
+- `DEFAULT_FROM_EMAIL`
 
-**Frontend:**
+## Async Task Processing
 
-- Deployment target not explicitly configured in codebase
-- Build: `npm run build` produces static files
+### Celery
+
+Distributed task queue.
+
+**Configuration:** `internal_apps/settings.py` (lines 359-383)
+
+| Setting | Value |
+|---------|-------|
+| Broker | Redis (`CELERY_BROKER_URL`) |
+| Result Backend | Redis (`CELERY_RESULT_BACKEND`) |
+| Serialization | JSON |
+| Task Timeout | 30 minutes |
+
+**Default:** `redis://localhost:6379/0`
+
+## API Integrations
+
+### Merge Agent Handler API
+
+Third-party API connector platform.
+
+| File | Purpose |
+|------|---------|
+| `vector_app/services/merge_service.py` | API client |
+
+**Configuration:**
+- `MERGE_TOOL_PACK_ID`
+- `MERGE_ACCESS_KEY`
+- `MERGE_API_TIMEOUT` (30 seconds default)
+
+**API Docs:** https://docs.ah.merge.dev/api-reference/overview
+
+**Features:**
+- Connector detection (Linear, Jira, Slack, etc.)
+- Tool action execution
+- Live MCP tool fetching
+
+**Models:** `MergeIntegrationProvider`, `ConnectorCache`, `ConnectorToolAction`
+
+### Database Adapters
+
+Multi-database support via adapters.
+
+| File | Database |
+|------|----------|
+| `vector_app/adapters/postgresql.py` | PostgreSQL |
+| `vector_app/adapters/mysql.py` | MySQL |
+| `vector_app/adapters/supabase.py` | Supabase |
+
+**Libraries:**
+- supabase 2.0.0+
+- postgrest 0.13.0+
+
+## Authentication
+
+### Google OAuth 2.0
+
+Social login integration.
+
+**Callback:** `/api/v1/auth/google/callback`
+
+**Configuration:**
+- `GOOGLE_OAUTH_CLIENT_ID`
+- `GOOGLE_OAUTH_CLIENT_SECRET`
+- `GOOGLE_OAUTH_REDIRECT_URI`
 
 ## Environment Configuration
 
-**Development:**
+### Backend (.env.example)
 
-- Required backend env vars:
-  - `SECRET_KEY`
-  - `DATABASE_URL` (optional, falls back to SQLite)
-  - `OPENROUTER_API_KEY` or `OPENAI_API_KEY`
-- Required frontend env vars:
-  - `VITE_API_BASE_URL`
-- Secrets location: `.env.local` (gitignored)
-- Mock services: Local database, no external services required
+```bash
+# Django
+DJANGO_SECRET_KEY=
+DEBUG=
 
-**Staging:**
+# Database
+DATABASE_URL=
 
-- Uses separate environment variables
-- Same infrastructure, different credentials
+# AI/LLM
+OPENROUTER_API_KEY=
+OPENROUTER_APP_NAME=
+OPENAI_API_KEY=
 
-**Production:**
+# Storage
+R2_ACCESS_KEY_ID=
+R2_SECRET_ACCESS_KEY=
+R2_BUCKET_NAME=
+R2_ENDPOINT_URL=
+ENCRYPTION_KEY=
 
-- Secrets management: Render/Vercel environment variables
-- Database: Production PostgreSQL
-- Storage: Cloudflare R2
-- Monitoring: Sentry with production DSN
+# Email
+EMAIL_HOST=
+EMAIL_PORT=
+EMAIL_HOST_PASSWORD=
+EMAIL_HOST_USER=
+DEFAULT_FROM_EMAIL=
 
-## Webhooks & Callbacks
+# OAuth
+GOOGLE_OAUTH_CLIENT_ID=
+GOOGLE_OAUTH_CLIENT_SECRET=
+GOOGLE_OAUTH_REDIRECT_URI=
 
-**Incoming:**
+# Celery/Redis
+CELERY_BROKER_URL=
+CELERY_RESULT_BACKEND=
 
-- None currently configured
+# Monitoring
+SENTRY_DSN=
+SENTRY_ENVIRONMENT=
+MIXPANEL_TOKEN=
 
-**Outgoing:**
+# Merge
+MERGE_TOOL_PACK_ID=
+MERGE_ACCESS_KEY=
 
-- None currently configured
+# Deployment
+RENDER_EXTERNAL_HOSTNAME=
+API_DOMAIN=
+```
 
-## API Integrations & Connectors
+## Infrastructure Notes
 
-**Merge Agent Handler API:**
-
-- Service: `vector_app/services/merge_service.py`
-- Purpose: Third-party API connector platform
-- Config:
-  - `MERGE_TOOL_PACK_ID`
-  - `MERGE_ACCESS_KEY`
-  - `MERGE_API_TIMEOUT` (30 seconds default)
-- API Docs: https://docs.ah.merge.dev/api-reference/overview
-- Features:
-  - Connector detection (Linear, Jira, Slack, etc.)
-  - Tool action execution
-  - Live MCP tool fetching
-- Models: `MergeIntegrationProvider`, `ConnectorCache`, `OrganizationConnectorLink`
-
-**Database Adapters:**
-
-- Location: `vector_app/adapters/`
-- Supported:
-  - PostgreSQL: `postgresql.py`
-  - MySQL: `mysql.py`
-  - Supabase: `supabase.py`
-- Supabase client: supabase 2.0.0+, postgrest 0.13.0+
-
-## Code Editors & Runtime
-
-**Monaco Editor:**
-
-- Package: @monaco-editor/react 4.6.0
-- Used for: Code editing in IDE
-
-**CodeSandbox Sandpack:**
-
-- Package: @codesandbox/sandpack-react 2.19.8
-- Used for: Code preview and execution
-- CORS: Configured for codesandbox.io domains
-
-## Third-Party SDKs
-
-**Frontend:**
-
-- **@pipedream/sdk** 2.3.5 - Workflow automation
-- **@mergeapi/react-agent-handler-link** 0.0.5 - Merge integration UI
-
----
-
-*Integration audit: 2026-01-14*
-*Update when adding/removing external services*
+- **Development Server:** Port 8001
+- **CORS:** Configured for multiple dev ports + production domains
+- **Media Storage:** Local development with `MEDIA_ROOT` fallback, R2 for production

@@ -1,169 +1,255 @@
 # Coding Conventions
 
-**Analysis Date:** 2026-01-14
+## Architecture
 
-## Naming Patterns
+**Layer separation** - business logic in services, not views:
+- `vector_app/views/` - HTTP handling only
+- `vector_app/serializers/` - validation and transformation
+- `vector_app/services/` - all business logic
+- `vector_app/models.py` - data schema only
 
-**Files:**
-- Python: snake_case for all files (`user_service.py`, `auth_views.py`)
-- TypeScript components: PascalCase (`Button.tsx`, `AgenticChatPanel.tsx`)
-- TypeScript services/hooks: camelCase (`apiService.ts`, `useApps.ts`)
-- Test files: `test_*.py` (Python), none yet (frontend)
-
-**Functions:**
-- Python: snake_case (`get_user_profile`, `create_organization`)
-- TypeScript: camelCase (`getRolePermissions`, `createOrganization`)
-- Async: No special prefix for async functions
-- Handlers: `handle{Event}` for event handlers
-
-**Variables:**
-- Python: snake_case for variables, UPPER_SNAKE_CASE for constants
-- TypeScript: camelCase for variables, UPPER_SNAKE_CASE for constants
-- Private: `_leading_underscore` in Python (no underscore in TS)
-
-**Types:**
-- Python classes: PascalCase (`UserService`, `Organization`)
-- TypeScript interfaces: PascalCase, no `I` prefix (`User`, `Organization`)
-- TypeScript types: PascalCase (`UserConfig`, `ResponseData`)
-- Enums: PascalCase name, UPPER_CASE values
+**Data flow:** Request → ViewSet → Serializer → Service → Model → Response
 
 ## Code Style
 
-**Python Formatting:**
-- Formatter: `black` (line length 110) - `requirements/static.txt`
-- Import sorter: `isort` (profile: black) - `requirements/static.txt`
-- Configuration: `Makefile` commands (`make format`, `make format-all`)
-- Indentation: 4 spaces (PEP 8)
-- Quotes: Double quotes (enforced by Black)
-- Line length: Max 110 characters
+### Formatting
 
-**TypeScript Formatting:**
-- ESLint config: `eslint.config.js`
-- TypeScript strict mode: Enabled (`tsconfig.app.json`)
-- Indentation: 2 spaces
-- Quotes: Single quotes (React convention)
-- Semicolons: Not required
+| Tool | Config | Command |
+|------|--------|---------|
+| black | line-length 110 | `make format` |
+| isort | profile black, line-length 110 | `make format` |
 
-**Linting:**
-- Python: `prospector` 1.12.0 with pylint, pyflakes, pycodestyle - `prospector.yml`
-- Python type checking: `mypy` 1.13.0 with Django stubs - `mypy.ini`
-- TypeScript: ESLint 9.39.1 with TypeScript-ESLint recommended
-- Commands: `make lint` (Python), `npm run lint` (TypeScript)
+### Type Checking
+
+| Tool | Config | Command |
+|------|--------|---------|
+| mypy | `mypy.ini`, Python 3.13 | `make static` |
+
+### Linting
+
+| Tool | Config | Command |
+|------|--------|---------|
+| prospector | `prospector.yml`, max complexity 15 | `make lint` |
+
+## Naming Conventions
+
+| Element | Convention | Example |
+|---------|------------|---------|
+| Classes | PascalCase | `UserService`, `Organization` |
+| Functions | snake_case | `get_user_profile`, `create_organization` |
+| Constants | UPPER_SNAKE_CASE | `MAX_RETRY_ATTEMPTS` |
+| Private methods | _leading_underscore | `_internal_helper` |
+| Files | snake_case | `user_service.py` |
+
+## Django Models
+
+Inherit from `BaseModel` (provides UUID `id`, `created_at`, `updated_at`):
+
+```python
+from internal_apps.utils.base_model import BaseModel
+
+class Organization(BaseModel):
+    name = models.CharField(max_length=255)
+```
+
+## Data Structures
+
+**Prefer dataclasses or Pydantic models over dicts.** Never create large nested dicts.
+
+```python
+# Good - structured and typed
+@dataclass
+class GenerationResult:
+    code: str
+    errors: list[str]
+    metadata: ResultMetadata
+
+# Good - Pydantic with validation (inherit from StrictBaseModel)
+from vector_app.utils.pydantic_utils import StrictBaseModel
+
+class UserRequest(StrictBaseModel):
+    email: str
+    count: int
+
+# Bad - untyped nested dict
+result = {"code": "...", "metadata": {"errors": [...], "info": {...}}}
+```
+
+## Services
+
+Use factory getter pattern. See `vector_app/services/validation_service.py` for canonical example.
+
+```python
+class MyService:
+    def do_thing(self, data: dict) -> Result:
+        # Business logic here
+        pass
+
+def get_my_service() -> MyService:
+    return MyService()
+```
+
+## Query Optimization
+
+Always use `select_related()` for ForeignKey and `prefetch_related()` for reverse/M2M:
+
+```python
+# Avoid N+1
+Organization.objects.select_related('owner').prefetch_related('members')
+```
+
+## Calling LLMs via LLMClient
+
+When implementing AI features, use `LLMClient` from `vector_app.ai`.
+
+### Basic Call
+
+```python
+from vector_app.ai.client import get_llm_client
+from vector_app.ai.models import AIModel
+from vector_app.ai.types import LLMSettings
+
+result = get_llm_client().run(
+    system_prompt=SYSTEM_PROMPT,
+    user_prompt=formatted_prompt,
+    llm_settings=LLMSettings(
+        model=AIModel.CLAUDE_SONNET_4_5,
+        temperature=0.2,
+        max_tokens=500,
+        timeout=30.0,
+    ),
+)
+content = result.validated(default="")
+```
+
+### Model Selection
+
+- `CLAUDE_HAIKU_4_5` - Fast/cheap, simple classification
+- `CLAUDE_SONNET_4_5` - Default, general tasks
+- `CLAUDE_OPUS_4_5` - Complex reasoning, agentic tasks
+
+### Temperature Guidelines
+
+- `0.0-0.2` - Classification, structured output, deterministic
+- `0.5-0.7` - Generation, creative tasks
+
+### Result Handling
+
+Always use `result.validated(formatter, default=)`:
+
+```python
+# Raw content
+content = result.validated(default="")
+
+# JSON parsing
+data = result.validated(json.loads, default=None)
+
+# Custom parser
+data = result.validated(self._parse_json, default=None)
+```
+
+### Prompt Organization
+
+Store prompts in `vector_app/prompts/` with:
+- System prompt constant: `FEATURE_SYSTEM_PROMPT`
+- User prompt template: `FEATURE_PROMPT` with `{placeholders}`
+- Builder function: `build_feature_prompt(...)` to format
+
+### LLM Service Pattern
+
+Follow the pattern in `intent_classifier.py`:
+1. Dataclass for results
+2. Class with `classify()` method
+3. Heuristic classification first (fast path)
+4. LLM classification with try/except fallback
+5. Singleton via `get_*()` factory function
+
+### Error Handling
+
+```python
+try:
+    llm_result = self._llm_classify(...)
+    if llm_result:
+        return llm_result
+except Exception as e:
+    logger.warning("LLM classification failed: %s", e)
+
+# Fallback to heuristic or default
+return heuristic_result or default_result
+```
+
+## Avoid
+
+### Inline imports
+
+Keep imports at the top of the file, not inside functions.
+
+```python
+# Bad
+def process():
+    from some_module import helper  # inline import
+    return helper()
+
+# Good - import at top of file
+from some_module import helper
+
+def process():
+    return helper()
+```
+
+### Inline string formatting
+
+Put format helpers in dedicated files (e.g., `prompts/`, `utils/`), not inline.
+
+```python
+# Bad - building complex strings inline
+def generate():
+    prompt = f"You are a {role}. Given {context}, do {task}..."
+
+# Good - use prompt templates/helpers
+from vector_app.prompts.generation import build_generation_prompt
+
+def generate():
+    prompt = build_generation_prompt(role=role, context=context, task=task)
+```
+
+### F-strings in logging
+
+Use lazy `%s` formatting for logs (avoids string interpolation when log level disabled).
+
+```python
+# Bad - f-string always evaluated
+logger.info(f"Processing user {user_id} with data {data}")
+
+# Good - lazy formatting
+logger.info("Processing user %s with data %s", user_id, data)
+```
+
+## Canonical Examples
+
+| Pattern | File |
+|---------|------|
+| ViewSet pattern | `vector_app/views/organization_views.py` |
+| Service pattern | `vector_app/services/validation_service.py` |
+| Serializer pattern | `vector_app/serializers/internal_app.py` |
+| LLM calls | `vector_app/services/intent_classifier.py` |
+| Prompts | `vector_app/prompts/execution_scope.py` |
+| Action classifier | `vector_app/action_classification/action_classifier.py` |
 
 ## Import Organization
 
-**Python:**
 1. Standard library imports
 2. Third-party library imports
-3. Local imports (from internal_apps)
-4. Relative imports
+3. Django imports
+4. Local imports (from internal_apps)
+5. Relative imports
 
-**TypeScript:**
-1. React and React-related imports
-2. Third-party library imports
-3. Internal imports (components, hooks, utils, types)
-4. Relative imports (same directory)
-5. CSS/asset imports
+## Tooling Commands
 
-**Path Aliases:**
-- TypeScript: `@/` maps to `src/` (configured in `tsconfig.json`)
-
-## Error Handling
-
-**Python Patterns:**
-- Services throw custom exceptions with context
-- Views catch and return appropriate HTTP responses
-- Use specific exception types where possible
-- Log error with context before throwing
-
-**TypeScript Patterns:**
-- try/catch at service boundaries
-- Toast notifications for user-facing errors
-- Error boundary components for React crashes
-
-**Error Types:**
-- Throw on: invalid input, missing dependencies, invariant violations
-- Log with context: `logger.error({ context }, 'Message')`
-
-## Logging
-
-**Python Framework:**
-- Python `logging` module
-- Configured per-module: `logger = logging.getLogger(__name__)`
-- Levels: DEBUG, INFO, WARNING, ERROR
-
-**TypeScript Framework:**
-- `loggingService.ts` with Sentry integration
-- Levels: debug, info, warn, error
-- Production: Sentry capture, development: console
-
-**Patterns:**
-- Log at service boundaries
-- Include context objects in logs
-- No `print()` statements in committed code
-
-## Comments
-
-**When to Comment:**
-- Explain why, not what
-- Document business rules and edge cases
-- Explain non-obvious algorithms
-- Avoid obvious comments
-
-**Python Docstrings:**
-- Google/NumPy style (Args/Returns/Raises sections)
-- Required for public functions and classes
-- Module docstrings at top of file
-
-**TypeScript JSDoc:**
-- JSDoc for complex public functions
-- Optional for internal functions with clear signatures
-- Use `@param`, `@returns`, `@throws` tags
-
-**TODO Comments:**
-- Format: `# TODO: description` (Python), `// TODO: description` (TS)
-- Link to issue if exists: `# TODO: Fix race condition (issue #123)`
-
-## Function Design
-
-**Size:**
-- Keep under 50 lines where practical
-- Extract helpers for complex logic
-- One level of abstraction per function
-
-**Parameters:**
-- Max 3-4 parameters
-- Use options object/dict for more
-- Type hints required on all Python functions
-
-**Return Values:**
-- Explicit return statements
-- Return early for guard clauses
-- Consistent return types
-
-## Module Design
-
-**Python:**
-- One class per file for large classes
-- Related functions can share a file
-- `__init__.py` for package exports
-
-**TypeScript:**
-- Named exports preferred
-- Default exports only for React components/pages
-- Barrel exports from index.ts where appropriate
-
-**ViewSets (DRF):**
-- Inherit `ModelViewSet` for CRUD
-- Custom actions via `@action` decorator
-- Override `get_queryset()` for filtering
-
-**Services:**
-- Stateless functions or classes
-- Factory getters: `get_service_name()`
-- Business logic only, no HTTP concerns
-
----
-
-*Convention analysis: 2026-01-14*
-*Update when patterns change*
+| Task | Command |
+|------|---------|
+| Format (changed files) | `make format` |
+| Format (all files) | `make format-all` |
+| Lint | `make lint` |
+| Type check | `make static` |
+| All checks | `make check` |

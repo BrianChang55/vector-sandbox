@@ -1,108 +1,115 @@
 # Technology Stack
 
-**Analysis Date:** 2026-01-14
+## Languages & Runtime
 
-## Languages
+| Technology | Version | Purpose |
+|------------|---------|---------|
+| Python | 3.13.5 | Backend runtime |
+| Django | 4.2.x | Web framework |
+| Django REST Framework | 3.15.x | API framework |
 
-**Primary:**
-- Python 3.13.5 - All backend application code - `manage.py`
-- TypeScript 5.9.3 - All frontend application code - `../internal-apps-web-app/package.json`
+## Package Management
 
-**Secondary:**
-- JavaScript (ES2022) - Target compilation for frontend - `../internal-apps-web-app/tsconfig.app.json`
+- **pip** - Python package manager
+- **requirements.txt** - Main dependencies
+- **requirements/static.txt** - Static analysis tools
 
-## Runtime
+## Database & ORM
 
-**Environment:**
-- Python 3.13+ - Backend runtime
-- Node.js - Frontend runtime (lockfile present)
+| Technology | Purpose |
+|------------|---------|
+| PostgreSQL | Production database (via `DATABASE_URL`) |
+| SQLite | Development default |
+| MySQL | Supported via PyMySQL 1.1.0+ |
+| Django ORM | Database abstraction |
+| SQLAlchemy 2.0.0+ | Database introspection |
 
-**Package Manager:**
-- pip - Python package manager - `requirements.txt`
-- npm - Frontend package manager - `../internal-apps-web-app/package.json`
-- Lockfile: `package-lock.json` present for frontend
+## Authentication
 
-## Frameworks
+- **djangorestframework-simplejwt 5.3.x** - JWT token auth (7-day access, 30-day refresh)
+- **Django Sessions** - 30-day expiry
+- **Google OAuth 2.0** - Social login
+- **Magic Link Auth** - Email-based passwordless
 
-**Core:**
-- Django 4.2.x - Backend REST API framework - `requirements.txt`
-- Django REST Framework 3.15.x - API serialization and viewsets - `requirements.txt`
-- React 19.2.0 - Frontend UI framework - `../internal-apps-web-app/package.json`
-- React Router 7.10.1 - Client-side routing - `../internal-apps-web-app/package.json`
+## Async Processing
 
-**Testing:**
-- Django TestCase - Built-in Django testing framework
-- pytest - Python testing (via `conftest.py` configuration)
-- ESLint - Frontend static analysis (no test framework configured)
+| Technology | Purpose |
+|------------|---------|
+| Celery 5.3.0+ | Task queue |
+| Redis 5.0.0+ | Message broker and result backend |
 
-**Build/Dev:**
-- Vite 7.2.4 - Frontend build tool and dev server - `../internal-apps-web-app/vite.config.ts`
-- TypeScript 5.9.3 - Type checking and compilation
-- Celery 5.3.0+ - Async task queue - `requirements.txt`
+## AI/LLM Integration
 
-## Key Dependencies
+- **OpenRouter** - Primary AI API via `vector_app/ai/client.py`
+  - Claude Opus 4.5 (200K context)
+  - Claude Sonnet 4.5 (200K context)
+  - Claude Haiku 4.5 (200K context)
+  - GPT-5.1 (128K context)
+  - Gemini 3 Pro (1M context)
+- **OpenAI** - Fallback provider
 
-**Critical (Backend):**
-- djangorestframework-simplejwt 5.3.x - JWT authentication - `requirements.txt`, `internal_apps/settings.py`
-- httpx 0.27.0+ - HTTP client for streaming - `requirements.txt`
-- boto3 1.34.0+ - S3-compatible storage (Cloudflare R2) - `requirements.txt`
-- cryptography 41.0.0+ - Encryption for secrets - `requirements.txt`
-- Pillow 12.1.x - Image processing - `requirements.txt`
+## HTTP Clients
 
-**Critical (Frontend):**
-- Redux Toolkit 2.11.0 - Client-side UI state - `../internal-apps-web-app/package.json`
-- TanStack React Query 5.59.0 - Server state and caching - `../internal-apps-web-app/package.json`
-- Axios 1.13.2 - HTTP client library - `../internal-apps-web-app/package.json`
+| Library | Purpose |
+|---------|---------|
+| httpx 0.27.0+ | Async HTTP client for streaming |
+| requests 2.32.x | Sync HTTP requests |
 
-**UI Components:**
-- Radix UI - Headless component library (accordion, dialog, dropdown, etc.)
-- Tailwind CSS 3.4.18 - Utility-first CSS framework
-- Tailwind Merge 3.4.0 - Utility class merging
-- Class Variance Authority 0.7.1 - Component variant system
-- Lucide React 0.556.0 - Icon library
-- Framer Motion 12.23.25 - Animation library
+## Cloud Storage
 
-**Infrastructure:**
-- Redis 5.0.0+ - Message broker for Celery - `requirements.txt`
-- PostgreSQL - Production database (SQLite for development) - `internal_apps/settings.py`
-- WhiteNoise 6.6.0 - Static file serving - `requirements.txt`
+- **boto3 1.34.0+** - S3-compatible client
+- **Cloudflare R2** - Object storage (production)
+- **Local filesystem** - Development fallback
 
-**Code Editors & Development:**
-- @codesandbox/sandpack-react 2.19.8 - Code editor & execution
-- @monaco-editor/react 4.6.0 - Monaco editor integration
+## Image & Document Processing
 
-## Configuration
+| Library | Purpose |
+|---------|---------|
+| Pillow 12.1.x | Image processing |
+| cairosvg 2.7.0+ | SVG to PNG conversion |
+| ReportLab 4.0.0+ | PDF generation |
+| python-pptx 0.6.21+ | PowerPoint generation |
 
-**Environment:**
-- python-dotenv 1.0.x - Environment variable management - `requirements.txt`
-- django-environ 0.11.x - Django-specific environment handling - `requirements.txt`
-- Vite environment variables - Prefixed with `VITE_` - `../internal-apps-web-app/src/services/api.ts`
-- `.env` files - Local configuration (gitignored), `.env.example` files present
+## Security
 
-**Build:**
-- `vite.config.ts` - Vite bundler configuration
-- `tsconfig.json`, `tsconfig.app.json` - TypeScript configuration
-- `tailwind.config.js` - Tailwind CSS configuration
-- `internal_apps/settings.py` - Django settings
+| Library | Purpose |
+|---------|---------|
+| cryptography 41.0.0+ | Fernet encryption for secrets |
+| django-cors-headers 4.0.0+ | CORS handling |
+| WhiteNoise 6.6.0 | Static file serving |
 
-## Platform Requirements
+## Monitoring & Analytics
 
-**Development:**
-- macOS/Linux/Windows (any platform with Python and Node.js)
-- Redis for Celery task queue
-- PostgreSQL recommended (SQLite works for simple testing)
+| Service | Library | Purpose |
+|---------|---------|---------|
+| Sentry | sentry-sdk[django] 2.0.0+ | Error tracking |
+| Mixpanel | mixpanel 5.0.0 | Product analytics |
 
-**Production:**
-- Render (detected by `RENDER_EXTERNAL_HOSTNAME`, `RENDER_DISK_MOUNT_PATH`)
-- Custom domains supported via `API_DOMAIN`
-- Cloudflare R2 for file storage
+## Development Tools
 
-**Ports:**
-- Frontend dev server: 5176
-- Backend dev server: 8001
-- Redis: 6379
+| Tool | Version | Purpose |
+|------|---------|---------|
+| black | 24.10.0 | Code formatting |
+| isort | 5.13.2 | Import sorting |
+| mypy | 1.13.0 | Type checking |
+| prospector | 1.12.0 | Linting |
+| django-stubs | 5.1.1 | Django type stubs |
+| djangorestframework-stubs | 3.15.1 | DRF type stubs |
 
----
+## Utilities
 
-*Stack analysis: 2026-01-14*
-*Update after major dependency changes*
+| Library | Purpose |
+|---------|---------|
+| python-dotenv 1.0.x | Environment variables |
+| django-environ 0.11.x | Django env handling |
+| jsonschema 4.20.0+ | JSON schema validation |
+| whatthepatch 1.0.7 | Unified diff parsing |
+| django-extensions 3.2.0+ | Enhanced Django shell |
+| IPython 8.12.0+ | Interactive shell |
+
+## External APIs
+
+| Integration | Library |
+|-------------|---------|
+| Merge Agent Handler | Custom service (`merge_service.py`) |
+| Supabase | supabase 2.0.0+, postgrest 0.13.0+ |

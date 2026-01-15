@@ -73,6 +73,53 @@ Always use `select_related()` for ForeignKey and `prefetch_related()` for revers
 Organization.objects.select_related('owner').prefetch_related('members')
 ```
 
+## Avoid
+
+### Inline imports
+
+Keep imports at the top of the file, not inside functions.
+
+```python
+# ❌ Bad
+def process():
+    from some_module import helper  # inline import
+    return helper()
+
+# ✅ Good - import at top of file
+from some_module import helper
+
+def process():
+    return helper()
+```
+
+### Inline string formatting
+
+Put format helpers in dedicated files (e.g., `prompts/`, `utils/`), not inline.
+
+```python
+# ❌ Bad - building complex strings inline
+def generate():
+    prompt = f"You are a {role}. Given {context}, do {task}..."
+
+# ✅ Good - use prompt templates/helpers
+from vector_app.prompts.generation import build_generation_prompt
+
+def generate():
+    prompt = build_generation_prompt(role=role, context=context, task=task)
+```
+
+### F-strings in logging
+
+Use lazy `%s` formatting for logs (avoids string interpolation when log level is disabled).
+
+```python
+# ❌ Bad - f-string always evaluated
+logger.info(f"Processing user {user_id} with data {data}")
+
+# ✅ Good - lazy formatting
+logger.info("Processing user %s with data %s", user_id, data)
+```
+
 ## Canonical Examples
 
 - **ViewSet pattern:** `vector_app/views/organization_views.py`

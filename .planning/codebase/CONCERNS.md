@@ -1,162 +1,144 @@
-# Codebase Concerns
+# Technical Debt & Concerns
 
-**Analysis Date:** 2026-01-14
+## High Priority
 
-## Tech Debt
+### Silent Exception Handling
 
-**Monolithic models.py file:**
-- Issue: Single file contains 30+ models (2,174 lines)
-- Files: `vector_app/models.py`
-- Why: Evolved organically during development
-- Impact: Hard to navigate, slow IDE performance, merge conflicts
-- Fix approach: Split into `vector_app/models/` package with domain-specific modules (user.py, app.py, connector.py)
+Bare `pass` in exception handlers swallows errors without logging.
 
-**Large prompt templates file:**
-- Issue: Single file with all agentic prompts (2,156 lines)
-- Files: `vector_app/prompts/agentic.py`
-- Why: Centralized prompt management
-- Impact: Hard to find specific prompts, large diffs for small changes
-- Fix approach: Split into domain-specific files (prompts/react.py, prompts/typescript.py)
+| Location | Issue |
+|----------|-------|
+| `services/validation_service.py:202-203` | `except Exception: pass` |
+| `services/cloud_storage_service.py:280` | Silent exception suppression |
+| `services/datastore/validator.py:414` | Swallowed exception |
+| `services/handlers/feature_handler.py:585` | Silent failure |
 
-**Complex streaming views:**
-- Issue: Streaming logic with complex state management (1,785 lines)
-- Files: `vector_app/views/streaming_views.py`
-- Why: SSE streaming requires stateful generators
-- Impact: Hard to test, debug, or modify streaming behavior
-- Fix approach: Extract generator methods into separate service classes
+**Fix:** Add logging or specific exception handling.
 
-**TODO comments (deferred work):**
-- `vector_app/action_classification/tool_matcher.py:116` - TODO: Need embedding/semantic matching for tool relevance instead of hardcoded limit
-- `vector_app/action_classification/tool_matcher.py:229` - TODO: Handle structured output for target validation
-- `vector_app/services/diff_application_service.py:336` - TODO: Move prompts to centralized location
-- `vector_app/serializers/resource_registry.py:41` - TODO: Add detailed validation for ActionDef structure
+### N+1 Query Problems
 
-## Known Bugs
+Database queries in loops without prefetching.
 
-**No critical bugs identified** - Codebase appears stable
+| Location | Issue |
+|----------|-------|
+| `services/snapshot_service.py:116-117` | `version.files.all()` in loop |
+| `services/handlers/feature_handler.py:573` | Unprefetched file loop |
+| `services/handlers/generate_handler.py:1249` | Same issue |
+| `views/streaming_views.py:98-101` | `s.messages.count()` per session |
+| `views/publish_views.py:95` | Unprefetched `files.all()` |
 
-## Security Considerations
+**Fix:** Add `select_related()` / `prefetch_related()` to querysets.
 
-**Subprocess execution:**
-- Risk: TypeScript compilation and patch application via subprocess
-- Files: `vector_app/services/validation_service.py`, `vector_app/services/diff.py`
-- Current mitigation: Timeout handling, controlled input
-- Recommendations: Ensure file paths are properly escaped, add stricter input validation
+### Weak Input Validation
 
-**Weak input validation:**
-- Risk: Some API endpoints accept data without strict validation
-- Files: `vector_app/views/data_runtime_views.py:75-97`, `vector_app/views/streaming_views.py:216-218`, `vector_app/views/auth_views.py:563-565`
-- Current mitigation: Basic presence checks
-- Recommendations: Add Pydantic/DRF serializer validation for all inputs
+Request data processed without sufficient validation.
 
-## Performance Bottlenecks
+| Location | Issue |
+|----------|-------|
+| `views/data_runtime_views.py:75-97` | Type validation missing |
+| `views/streaming_views.py:216-218` | URL params not validated |
+| `views/auth_views.py:563-565` | OAuth params unvalidated |
 
-**N+1 query patterns:**
-- Problem: Queryset loops without prefetch_related()
-- Files:
-  - `vector_app/services/snapshot_service.py:116-117` - Two loops loading version files
-  - `vector_app/services/handlers/feature_handler.py:573` - Loop through version files
-  - `vector_app/services/handlers/generate_handler.py:1249` - Same issue
-  - `vector_app/views/streaming_views.py:98-101` - Message counts per session
-  - `vector_app/views/publish_views.py:95` - Unprefetched files loop
-- Cause: Missing `select_related()` and `prefetch_related()` calls
-- Improvement path: Add proper prefetching to all queryset-based loops
+**Fix:** Add Pydantic validation schemas.
 
-## Fragile Areas
+## Medium Priority
 
-**Streaming SSE generators:**
-- Files: `vector_app/views/streaming_views.py`
-- Why fragile: Complex state management in generators, error recovery is difficult
-- Common failures: Connection drops, timeout issues, partial event delivery
-- Safe modification: Add extensive logging, test with slow connections
-- Test coverage: Manual testing only
+### Large Files
 
-**Action classification pipeline:**
-- Files: `vector_app/action_classification/`
-- Why fragile: LLM output parsing, tool matching based on string comparisons
-- Common failures: Unexpected LLM output format, target resolution failures
-- Safe modification: Add structured output validation, fallback paths
-- Test coverage: Limited
+Files exceeding recommended complexity (800+ lines).
 
-## Test Coverage Gaps
+| File | Lines | Issue |
+|------|-------|-------|
+| `models.py` | 2,174 | Monolithic models file |
+| `prompts/agentic.py` | 2,156 | Massive prompt file |
+| `views/streaming_views.py` | 1,785 | Complex streaming logic |
+| `services/handlers/generate_handler.py` | 1,632 | Multi-phase orchestrator |
+| `services/validation_service.py` | 1,391 | Mixed responsibilities |
+| `services/agentic_service.py` | 1,338 | Multiple concerns |
+| `services/enhanced_codegen.py` | 1,245 | Should split by language |
 
-**Frontend has zero tests:**
-- What's not tested: All React components, hooks, services
-- Files: `../internal-apps-web-app/src/` (0 test files)
-- Risk: Regressions in UI logic go unnoticed
-- Priority: High
-- Difficulty to test: Need to set up Jest + React Testing Library
+**Fix:** Split into smaller, focused modules.
 
-**Backend service layer coverage:**
-- What's not tested: Most service layer logic
-- Files: `vector_app/services/` (50+ modules, 10 test files)
-- Risk: Business logic regressions
-- Priority: Medium
-- Difficulty to test: Complex LLM mocking required
+### TODO Comments
 
-## Missing Critical Features
+Deferred work acknowledged but not addressed.
 
-**No critical features missing** - Platform is feature-complete for current use cases
+| Location | Issue |
+|----------|-------|
+| `action_classification/tool_matcher.py:116` | Need semantic matching |
+| `action_classification/tool_matcher.py:229` | Need structured output validation |
+| `services/diff_application_service.py:336` | Move prompts to prompts/ |
+| `serializers/resource_registry.py:41` | Need ActionDef validation |
 
-## Dependencies at Risk
+### Broad Exception Catching
 
-**No high-risk dependencies identified** - All dependencies are recent and maintained
+`except Exception as e:` catches too broadly.
 
-## Exception Handling
+| Location |
+|----------|
+| `services/intent_classifier.py:279,484,558` |
+| `services/planning_service.py:167` |
+| `services/error_fix_service.py:202,354` |
+| `services/agentic_service.py:149-160` |
 
-**Silent exception swallowing:**
-- Issue: Bare `except: pass` patterns hide errors
-- Files:
-  - `vector_app/services/validation_service.py:202-203`
-  - `vector_app/services/cloud_storage_service.py:280`
-  - `vector_app/services/datastore/validator.py:414`
-  - `vector_app/services/handlers/feature_handler.py:585`
-- Impact: Errors fail silently without logging
-- Fix approach: Replace with specific exception handling and logging
+**Fix:** Use specific exception types.
 
-**Broad exception catching:**
-- Issue: `except Exception as e:` catches too broadly
-- Files:
-  - `vector_app/services/intent_classifier.py:279,484,558`
-  - `vector_app/services/planning_service.py:167`
-  - `vector_app/services/error_fix_service.py:202,354`
-  - `vector_app/services/agentic_service.py:149-160`
-- Impact: May mask programming errors
-- Fix approach: Use specific exception types
+### Missing Documentation
 
-## Git Artifacts
+Complex algorithms lack explanation.
 
-**Unresolved merge conflict file:**
-- Issue: `Oops.rej` file in git status (untracked)
-- Location: Repository root
-- Impact: Clutter in working directory
-- Fix approach: Resolve or delete, add to .gitignore if needed
+| File | Lines | Issue |
+|------|-------|-------|
+| `services/diff.py` | 830 | Diff parsing undocumented |
+| `services/merge_service.py` | 912 | API workflow undocumented |
+| `services/context_analyzer.py` | 839 | Context priorities unclear |
+| `services/handlers/base_handler.py` | 993 | Streaming thresholds undocumented |
 
----
+## Low Priority
 
-## Summary Statistics
+### DateTime Imports
 
-| Category | Count | Status |
-|----------|-------|--------|
-| TODO comments | 4 | Medium Risk |
-| Files > 800 lines | 7 | Maintainability |
-| Silent exception handlers | 4+ | High Risk |
-| N+1 query issues | 6+ | Performance |
-| Frontend test files | 0 | High Risk |
-| Backend test files | 10 | Low Coverage |
+Multiple inline imports instead of module-level.
 
-## Recommendations (Prioritized)
+| Location | Issue |
+|----------|-------|
+| `models.py` (5 occurrences) | `from datetime import timedelta` inside methods |
+
+### Git Artifact
+
+Unresolved merge conflict file.
+
+| File | Issue |
+|------|-------|
+| `Oops.rej` | Merge reject file needs cleanup |
+
+### Protected Files Hardcoded
+
+```python
+# services/handlers/generate_handler.py:53-55
+PROTECTED_FILES = {...}  # Should be configuration
+```
+
+## Summary
+
+| Category | Count | Priority |
+|----------|-------|----------|
+| Silent exceptions | 4+ | High |
+| N+1 queries | 5+ | High |
+| Weak validation | 3+ | High |
+| Large files | 7 | Medium |
+| TODO comments | 4 | Medium |
+| Broad exceptions | 6+ | Medium |
+| Missing docs | 4 | Medium |
+| Minor issues | 3 | Low |
+
+## Recommendations
 
 1. **CRITICAL**: Add `prefetch_related()` to all queryset loops
-2. **CRITICAL**: Set up frontend test infrastructure
-3. **HIGH**: Replace bare `except: pass` with specific handling + logging
-4. **HIGH**: Add input validation schemas to all endpoints
-5. **MEDIUM**: Split monolithic files (models.py, agentic.py)
-6. **MEDIUM**: Document complex algorithms (diff.py, context_analyzer.py)
+2. **HIGH**: Replace bare `except: pass` with logging
+3. **HIGH**: Add Pydantic input validation schemas
+4. **MEDIUM**: Split monolithic files (models.py, agentic.py)
+5. **MEDIUM**: Document complex algorithms
+6. **MEDIUM**: Use specific exception types
 7. **LOW**: Resolve Oops.rej merge artifact
-8. **LOW**: Address TODO comments
-
----
-
-*Concerns audit: 2026-01-14*
-*Update as issues are fixed or new ones discovered*
+8. **LOW**: Move datetime imports to module level

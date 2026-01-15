@@ -1,243 +1,181 @@
-# Codebase Structure
-
-**Analysis Date:** 2026-01-14
-
-## Directory Layout
+# Directory Structure
 
 ```
 internal-apps-backend/
 ├── manage.py                          # Django CLI entry point
 ├── conftest.py                        # Pytest configuration
-├── requirements.txt                   # Python dependencies
-├── requirements/                      # Additional requirement files
+├── requirements.txt                   # Main dependencies
+├── requirements/
 │   └── static.txt                     # Static analysis tools
 │
 ├── internal_apps/                     # Django project settings
 │   ├── settings.py                    # Database, middleware, apps config
-│   ├── urls.py                        # Root URL configuration
+│   ├── urls.py                        # Root URL config (/api/v1 → vector_app.urls)
 │   ├── wsgi.py                        # Production WSGI entry
 │   ├── asgi.py                        # Async entry point
 │   ├── celery.py                      # Celery task broker config
-│   └── utils/                         # Shared utilities
+│   └── utils/
 │       ├── base_model.py              # Abstract model with timestamps
 │       ├── encryption.py              # Field encryption/decryption
+│       ├── enum.py                    # Enum utilities
 │       └── decorators.py              # Auth decorators
 │
 ├── vector_app/                        # Main Django app
-│   ├── models.py                      # 30+ data models (2100+ lines)
+│   ├── models.py                      # All data models (30+)
 │   ├── urls.py                        # API route definitions
 │   ├── permissions.py                 # Custom DRF permissions
 │   ├── tasks.py                       # Celery async tasks
 │   ├── admin.py                       # Django admin config
 │   │
 │   ├── views/                         # API ViewSets
+│   │   ├── organization_views.py
+│   │   ├── auth_views.py
+│   │   ├── internal_app_views.py
+│   │   ├── version_views.py
+│   │   ├── streaming_views.py
+│   │   ├── connector_views.py
+│   │   ├── member_views.py
+│   │   ├── backend_connection_views.py
+│   │   ├── app_data_views.py
+│   │   ├── data_runtime_views.py
+│   │   ├── action_views.py
+│   │   └── publish_views.py
+│   │
 │   ├── serializers/                   # DRF Serializers
+│   │   ├── auth_serializers.py
+│   │   ├── organization.py
+│   │   ├── internal_app.py
+│   │   ├── version.py
+│   │   ├── chat_serializers.py
+│   │   ├── connector_serializers.py
+│   │   ├── member_serializers.py
+│   │   ├── app_data.py
+│   │   └── backend_connection.py
+│   │
 │   ├── services/                      # Business Logic Layer
+│   │   ├── agentic_service.py         # AI code generation orchestrator
+│   │   ├── enhanced_codegen.py        # Advanced code generation
+│   │   ├── react_codegen.py           # React component generation
+│   │   ├── validation_service.py      # Schema/code validation
+│   │   ├── intent_router.py           # Intent classification routing
+│   │   ├── intent_classifier.py       # LLM-based intent analysis
+│   │   ├── planning_service.py        # Generation planning
+│   │   ├── error_fix_service.py       # Automatic error correction
+│   │   ├── diff.py                    # Diff generation
+│   │   ├── diff_application_service.py
+│   │   ├── execution_scope_classifier.py
+│   │   ├── merge_service.py           # Merge Agent Handler API
+│   │   ├── snapshot_service.py        # State snapshots
+│   │   ├── version_service.py         # Version operations
+│   │   ├── cloud_storage_service.py   # Cloud storage
+│   │   ├── image_upload_service.py    # S3/R2 uploads
+│   │   ├── app_data_service.py        # Data table service
+│   │   ├── connectors_context.py      # Integration context
+│   │   │
+│   │   ├── handlers/                  # Domain-specific handlers
+│   │   │   ├── base_handler.py
+│   │   │   ├── generate_handler.py
+│   │   │   ├── edit_handler.py
+│   │   │   ├── feature_handler.py
+│   │   │   ├── schema_handler.py
+│   │   │   └── parallel_executor.py
+│   │   │
+│   │   └── datastore/                 # Data table operations
+│   │       ├── context_builder.py
+│   │       ├── fetcher.py
+│   │       ├── parser.py
+│   │       ├── schema.py
+│   │       ├── table_creator.py
+│   │       └── validator.py
+│   │
+│   ├── ai/                            # LLM Client Module
+│   │   ├── client.py                  # LLMClient class
+│   │   ├── types.py                   # LLMSettings, ChatResult
+│   │   ├── models.py                  # AIModel enum
+│   │   └── exceptions.py              # ChatFunctionError, APIError
+│   │
 │   ├── prompts/                       # LLM Prompt Templates
+│   │   ├── agentic.py                 # Main agentic prompts
+│   │   ├── intent_classification.py
+│   │   ├── error_fix.py
+│   │   ├── execution_scope.py
+│   │   └── ai.py
+│   │
 │   ├── action_classification/         # Action classification module
-│   ├── adapters/                      # External database adapters
+│   │   ├── action_classifier.py
+│   │   ├── types.py                   # ActionType enum
+│   │   ├── tool_matcher.py
+│   │   ├── build_mcp_context.py
+│   │   └── prompts.py
+│   │
+│   ├── adapters/                      # Database adapters
+│   │   ├── postgresql.py
+│   │   ├── mysql.py
+│   │   └── supabase.py
+│   │
+│   ├── utils/                         # Utility functions
+│   │   ├── encryption.py
+│   │   └── pydantic_utils.py          # StrictBaseModel
+│   │
 │   ├── migrations/                    # Database migrations
-│   └── tests/                         # App tests
-│
-├── scripts/                           # Utility scripts
-├── tests/                             # Root-level tests
-└── venv/                              # Python virtual environment
-```
-
-```
-internal-apps-web-app/
-├── src/
-│   ├── main.tsx                       # React bootstrap
-│   ├── App.tsx                        # Main router component
 │   │
-│   ├── pages/                         # Page-level components
-│   ├── components/                    # Reusable components
-│   │   ├── builder/                   # IDE components
-│   │   ├── ui/                        # Base Radix UI primitives
-│   │   ├── auth/                      # Authentication guards
-│   │   ├── data/                      # Data management
-│   │   └── settings/                  # Settings panels
+│   ├── tests/                         # App tests
+│   │   ├── test_integration.py
+│   │   ├── test_adapters.py
+│   │   ├── test_diff_application_service.py
+│   │   └── ...
 │   │
-│   ├── services/                      # API & business logic
-│   ├── hooks/                         # Custom React hooks
-│   ├── store/                         # Redux state management
-│   │   └── slices/                    # Redux slices
-│   ├── types/                         # TypeScript definitions
-│   ├── lib/                           # Utility libraries
-│   └── utils/                         # Utility functions
+│   └── templates/
+│       └── reception/                 # Email templates
 │
-├── public/                            # Static assets
-├── vite.config.ts                     # Vite build config
-├── tsconfig.json                      # TypeScript config
-├── tailwind.config.ts                 # Tailwind CSS config
-└── package.json                       # Node dependencies
+├── .cursor/
+│   └── rules/                         # Cursor AI rules
+│       ├── style.mdc                  # Backend style guide
+│       └── calling-llms.mdc           # LLM calling conventions
+│
+├── .planning/
+│   └── codebase/                      # Codebase documentation
+│
+├── Makefile                           # Build commands
+├── mypy.ini                           # Type checking config
+├── prospector.yml                     # Linting config
+└── venv/                              # Virtual environment
 ```
-
-## Directory Purposes
-
-### Backend (`internal-apps-backend/`)
-
-**internal_apps/**
-- Purpose: Django project configuration
-- Contains: Settings, URL routing, WSGI/ASGI entry, Celery config
-- Key files: `settings.py` (1200+ lines), `celery.py`
-
-**vector_app/views/**
-- Purpose: API endpoint handlers
-- Contains: DRF ViewSets and custom API views
-- Key files: `organization_views.py`, `auth_views.py`, `streaming_views.py`, `version_views.py`, `internal_app_views.py`, `connector_views.py`
-
-**vector_app/serializers/**
-- Purpose: Request/response data transformation
-- Contains: DRF serializers for all models
-- Key files: `auth_serializers.py`, `internal_app.py`, `version.py`, `chat_serializers.py`, `connector_serializers.py`
-
-**vector_app/services/**
-- Purpose: Business logic layer
-- Contains: All business logic, LLM integration, code generation
-- Key files: `agentic_service.py`, `enhanced_codegen.py`, `validation_service.py`, `intent_router.py`, `diff.py`, `merge_service.py`
-- Subdirectories: `handlers/` (action handlers), `datastore/` (data table operations)
-
-**vector_app/prompts/**
-- Purpose: LLM prompt templates
-- Contains: Prompt definitions for AI features
-- Key files: `agentic.py` (2000+ lines), `intent_classification.py`, `error_fix.py`
-
-**vector_app/action_classification/**
-- Purpose: User intent analysis
-- Contains: Action classifier, tool matcher
-- Key files: `action_classifier.py`, `tool_matcher.py`, `types.py`
-
-**vector_app/adapters/**
-- Purpose: External database adapters
-- Contains: PostgreSQL, MySQL, Supabase adapters
-- Key files: `postgresql.py`, `mysql.py`, `supabase.py`
-
-### Frontend (`internal-apps-web-app/`)
-
-**src/pages/**
-- Purpose: Route-level page components
-- Contains: One component per route
-- Key files: `AppsPage.tsx`, `AppBuilderPage.tsx`, `SettingsPage.tsx`, `ResourcesPage.tsx`
-
-**src/components/builder/**
-- Purpose: IDE and code editing components
-- Contains: Chat panel, code editor, preview, versions
-- Key files: `AgenticChatPanel.tsx` (2000+ lines), `SandpackPreview.tsx`, `VersionsPanel.tsx`, `ModelSelector.tsx`
-
-**src/components/ui/**
-- Purpose: Base UI primitives
-- Contains: Radix UI wrapped components
-- Key files: `button.tsx`, `dialog.tsx`, `input.tsx`, `select.tsx`, `toast.tsx`
-
-**src/services/**
-- Purpose: API communication and external integrations
-- Contains: HTTP clients, authentication, analytics
-- Key files: `apiService.ts` (1000+ lines), `authService.ts`, `agentService.ts`, `loggingService.ts`
-
-**src/hooks/**
-- Purpose: Custom React hooks for data fetching
-- Contains: Domain-specific hooks
-- Key files: `useApps.ts`, `useOrganizations.ts`, `useMembers.ts`, `useIntegrations.ts`, `useDataStore.ts`
-
-**src/store/slices/**
-- Purpose: Redux state management
-- Contains: Auth and UI state slices
-- Key files: `authSlice.ts`, `uiSlice.ts`
-
-**src/types/**
-- Purpose: TypeScript type definitions
-- Contains: Shared types for models and API
-- Key files: `models.ts`, `dataStore.ts`, `agent.ts`, `auth.ts`
 
 ## Key File Locations
 
-**Entry Points:**
-- `manage.py` - Django CLI entry
-- `internal_apps/wsgi.py` - Production WSGI server
-- `internal_apps/celery.py` - Celery worker
-- `../internal-apps-web-app/src/main.tsx` - React bootstrap
+### Entry Points
+- **CLI**: `manage.py`
+- **WSGI**: `internal_apps/wsgi.py`
+- **Celery**: `internal_apps/celery.py`
 
-**Configuration:**
-- `internal_apps/settings.py` - Django settings
-- `../internal-apps-web-app/vite.config.ts` - Vite build
-- `../internal-apps-web-app/tsconfig.json` - TypeScript
-- `.env` / `.env.example` - Environment variables
+### Models
+- All models: `vector_app/models.py` (30+ models, 2100+ lines)
 
-**Core Logic:**
-- `vector_app/services/agentic_service.py` - AI orchestration
-- `vector_app/services/handlers/generate_handler.py` - Code generation
-- `vector_app/views/streaming_views.py` - SSE streaming
-- `../internal-apps-web-app/src/services/apiService.ts` - API client
+### Business Logic
+- Core services: `vector_app/services/`
+- Handlers: `vector_app/services/handlers/`
+- AI client: `vector_app/ai/client.py`
 
-**Testing:**
-- `vector_app/tests/` - Django app tests
-- `tests/` - Root-level integration tests
-- `conftest.py` - Pytest configuration
+### API Endpoints
+- Routes: `vector_app/urls.py`
+- ViewSets: `vector_app/views/`
 
-## Naming Conventions
+### Configuration
+- Django settings: `internal_apps/settings.py`
+- Type checking: `mypy.ini`
+- Linting: `prospector.yml`
+- Style rules: `.cursor/rules/style.mdc`
 
-**Files (Python):**
-- snake_case for all files: `user_service.py`, `auth_views.py`
-- Test files: `test_*.py`
+## Module Boundaries
 
-**Files (TypeScript):**
-- PascalCase for components: `Button.tsx`, `AgenticChatPanel.tsx`
-- camelCase for services/hooks: `apiService.ts`, `useApps.ts`
-- camelCase for types: `models.ts`, `auth.ts`
-
-**Directories:**
-- snake_case for Python: `action_classification/`, `internal_apps/`
-- kebab-case or camelCase for TypeScript: `builder/`, `ui/`
-- Plural for collections: `views/`, `serializers/`, `hooks/`
-
-## Where to Add New Code
-
-**New Feature (Backend):**
-- Models: `vector_app/models.py`
-- API endpoint: `vector_app/views/{domain}_views.py`
-- Serializer: `vector_app/serializers/{domain}.py`
-- Business logic: `vector_app/services/{feature}_service.py`
-- Tests: `vector_app/tests/test_{feature}.py`
-
-**New Feature (Frontend):**
-- Page component: `src/pages/{Feature}Page.tsx`
-- Components: `src/components/{feature}/`
-- API calls: Add to `src/services/apiService.ts`
-- Hook: `src/hooks/use{Feature}.ts`
-- Types: `src/types/{feature}.ts`
-
-**New API Endpoint:**
-- ViewSet: `vector_app/views/{domain}_views.py`
-- URL registration: `vector_app/urls.py`
-- Serializer: `vector_app/serializers/{domain}.py`
-
-**New LLM Prompt:**
-- Prompt definition: `vector_app/prompts/{feature}.py`
-
-## Special Directories
-
-**vector_app/migrations/**
-- Purpose: Django database migrations
-- Source: Auto-generated by `makemigrations`
-- Committed: Yes (track schema changes)
-
-**.planning/**
-- Purpose: Project planning documents (GSD workflow)
-- Source: Created by planning tools
-- Committed: Typically yes
-
-**venv/**
-- Purpose: Python virtual environment
-- Source: Created by `python -m venv venv`
-- Committed: No (in .gitignore)
-
-**node_modules/**
-- Purpose: Node.js dependencies
-- Source: Installed by `npm install`
-- Committed: No (in .gitignore)
-
----
-
-*Structure analysis: 2026-01-14*
-*Update when directory structure changes*
+| Module | Responsibility | Dependencies |
+|--------|----------------|--------------|
+| `views/` | HTTP handling, response serialization | serializers, services |
+| `serializers/` | Input validation, transformation | models |
+| `services/` | Business logic, external APIs | models, prompts, ai |
+| `models.py` | Data schema, relationships | BaseModel |
+| `prompts/` | LLM prompt templates | (none) |
+| `ai/` | LLM client abstraction | types, exceptions |
+| `handlers/` | Domain action implementations | services, models |
+| `tasks.py` | Celery background tasks | services, models |
