@@ -29,6 +29,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'rest_framework',
     'django_extensions',
+    'django_celery_results',
     'vector_app',
 ]
 
@@ -360,7 +361,15 @@ if SENTRY_DSN:
 # =============================================================================
 # Redis broker for async task processing
 CELERY_BROKER_URL = env('CELERY_BROKER_URL', default='redis://localhost:6379/0')
-CELERY_RESULT_BACKEND = env('CELERY_RESULT_BACKEND', default='redis://localhost:6379/0')
+
+# Use Django database for result storage (persistent across restarts)
+# This enables Flower to show task history even after Redis restarts
+CELERY_RESULT_BACKEND = 'django-db'
+CELERY_CACHE_BACKEND = 'django-cache'
+
+# Result storage settings
+CELERY_RESULT_EXTENDED = True  # Store additional task metadata (args, kwargs, etc.)
+CELERY_RESULT_EXPIRES = 60 * 60 * 24 * 7  # Keep results for 7 days (in seconds)
 
 # Celery settings
 CELERY_ACCEPT_CONTENT = ['json']
