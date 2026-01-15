@@ -29,6 +29,7 @@ step_order: 0
 type: component
 operation_type: generate
 target_files: [src/components/KanbanForm.tsx, src/components/KanbanCard.tsx]
+dependent_files: []
 
 Description:
 Build the foundational leaf components for the Kanban system: the task card and the add/edit form modal. These have no dependencies on other Kanban components and will be imported by higher-level components in subsequent steps.
@@ -49,6 +50,7 @@ step_order: 1
 type: component
 operation_type: generate
 target_files: [src/components/KanbanColumn.tsx]
+dependent_files: [src/components/KanbanCard.tsx]
 
 Description:
 Build the column container that displays a vertical list of KanbanCard components. This component imports KanbanCard from the previous step and will be imported by KanbanBoard in the next step.
@@ -64,6 +66,7 @@ step_order: 2
 type: component
 operation_type: generate
 target_files: [src/components/KanbanBoard.tsx]
+dependent_files: [src/components/KanbanColumn.tsx, src/components/KanbanForm.tsx]
 
 Description:
 Build the parent orchestrator component that manages state and renders three KanbanColumn children. This component imports KanbanColumn and KanbanForm from previous steps and handles all drag-and-drop logic and task CRUD operations.
@@ -89,6 +92,7 @@ step_order: 3
 type: integration
 operation_type: generate
 target_files: [src/App.tsx]
+dependent_files: [src/components/KanbanBoard.tsx]
 
 Description:
 Create the main App.tsx entry point that imports and renders the KanbanBoard component. Fetch tasks from dataStore using the 'tasks' table slug. Handle task CRUD operations through dataStore API calls. Wrap the app with proper error boundaries and loading states.
@@ -133,6 +137,7 @@ step_order: 0
 type: code
 operation_type: generate
 target_files: [src/services/overdueNotifications.ts]
+dependent_files: []
 
 Description:
 Create src/services/overdueNotifications.ts with a function checkOverdueTasks(tasks: Task[]) that filters tasks where dueDate < today and status !== 'done'. Export sendOverdueReminder(task: Task) that uses the connectors API to send email via the configured email connector. Include helper getOverdueTasks(tasks: Task[]) to return all overdue tasks sorted by due date (oldest first).
@@ -143,6 +148,7 @@ step_order: 1
 type: integration
 operation_type: edit
 target_files: [src/components/KanbanBoard.tsx]
+dependent_files: [src/services/overdueNotifications.ts]
 
 Description:
 Modify src/components/KanbanBoard.tsx to import the notification service. Add a 'Send Overdue Reminders' button in the header that appears when overdue tasks exist. Show overdue count badge on the button. On click, iterate overdue tasks and call sendOverdueReminder for each. Show toast with success/failure count. Add visual indicator (red border) on overdue task cards.
@@ -158,6 +164,7 @@ step_order: 0
 type: component
 operation_type: edit
 target_files: [src/components/KanbanBoard.tsx]
+dependent_files: []
 
 Description:
 Modify src/components/KanbanBoard.tsx to add a search bar and priority filter dropdown above the columns. Add useState for searchTerm and priorityFilter. Filter tasks before passing to columns: match searchTerm against title/description (case-insensitive), and filter by priority if not 'all'. Show 'No matching tasks' message when filters result in empty columns. Add clear filters button when filters are active.
@@ -173,6 +180,7 @@ step_order: 0
 type: component
 operation_type: edit
 target_files: [src/components/KanbanCard.tsx]
+dependent_files: []
 
 Description:
 Modify src/components/KanbanCard.tsx to display assignee avatar in the bottom-right corner of each card. If assigneeAvatar URL exists, show circular image (24x24px). If no avatar but assigneeName exists, show initials in a colored circle. On hover, show tooltip with full assignee name. If unassigned, show a muted 'Unassigned' placeholder icon. Add subtle hover animation to the avatar.
@@ -188,6 +196,7 @@ step_order: 0
 type: component
 operation_type: generate
 target_files: [src/components/TaskStats.tsx]
+dependent_files: []
 
 Description:
 Create src/components/TaskStats.tsx that accepts tasks: Task[] prop. Display four stat cards in a row: Total Tasks (count), Completed (done status count with percentage), In Progress (in_progress count), Overdue (past due date and not done, show in red). Use existing StatCard component if available, otherwise create inline styled cards. Include progress bar showing overall completion percentage.
@@ -198,6 +207,7 @@ step_order: 1
 type: integration
 operation_type: edit
 target_files: [src/components/KanbanBoard.tsx]
+dependent_files: [src/components/TaskStats.tsx]
 
 Description:
 Modify src/components/KanbanBoard.tsx to import and render TaskStats above the columns. Pass the tasks array to TaskStats. Add a collapsible toggle so users can hide/show stats (default: shown). Persist collapse preference in localStorage.
@@ -284,11 +294,21 @@ edit the plan to include that as a previous step.
 1. **Exact file paths** - Every step must list files it creates or modifies
 2. **Self-contained** - Another AI should be able to execute this step with ONLY its description
 
-## Operation Types and Target Files
+## Operation Types, Target Files, and Dependencies
 
 Each step must specify:
-- **target_files**: Array of file paths this step will create or modify
+- **target_files**: Array of file paths this step will CREATE or MODIFY
+- **dependent_files**: Array of file paths that must EXIST and are generated by other steps before this step runs (files it imports/uses from other steps)
 - **operation_type**: The type of operation being performed
+
+**Dependency Declaration Rules:**
+- If your step imports or uses a component/file created by another step, list that file in `dependent_files`
+- The system uses `dependent_files` to automatically compute the optimal `step_order`
+- Steps with no dependencies (or only pre-existing files) can have `dependent_files: []`
+
+**Example:** If Step A creates `KanbanColumn.tsx` and Step B imports it:
+- Step A: `target_files: ["src/components/KanbanColumn.tsx"]`, `dependent_files: []`
+- Step B: `dependent_files: ["src/components/KanbanColumn.tsx"]`
 
 **Operation Types:**
 - `generate` - Create new files from scratch (new components, new utilities)
@@ -342,6 +362,7 @@ Generate a plan with {step_count_range}. Return JSON:
             "title": "<string>",
             "description": "<detailed description following guidelines above>",
             "target_files": ["<file_path>", ...],
+            "dependent_files": ["<file_path>", ...],
             "operation_type": "<generate|edit|add_feature|fix|refactor>",
             "type": "<step_type>",
             "step_order": <int>,
