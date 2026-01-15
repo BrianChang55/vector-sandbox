@@ -135,16 +135,6 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* Help section */}
-      <div className="p-4 border-t border-gray-200">
-        <div className="p-3 rounded-lg bg-gray-50 border border-gray-100">
-          <p className="text-xs text-gray-500 leading-relaxed">
-            <span className="text-gray-700 font-medium">Tip:</span> Use the AI builder 
-            to create apps instantly. Just describe what you need.
-          </p>
-        </div>
-      </div>
-
       {/* Create Organization Dialog */}
       <CreateOrganizationDialog 
         open={createOrgOpen} 
