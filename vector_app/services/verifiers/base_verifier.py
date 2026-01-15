@@ -3,6 +3,7 @@ Base Verifier
 
 Abstract base class for all file verifiers.
 """
+
 import logging
 from abc import ABC, abstractmethod
 from typing import Optional

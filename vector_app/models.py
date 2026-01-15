@@ -22,6 +22,7 @@ from django.utils.text import slugify
 from internal_apps.utils.base_model import DjangoBaseModel
 from internal_apps.utils.enum import choices
 from vector_app.action_classification.types import ActionType
+from vector_app.services.types import VerificationStatus
 from .utils.encryption import encrypt_string, decrypt_string
 
 
@@ -100,6 +101,7 @@ class ConnectorExecutionStatus(StrEnum):
     SUCCESS = "success"
     ERROR = "error"
 
+
 # ============================================================================
 # Base User and Organization Models
 # ============================================================================
@@ -123,37 +125,37 @@ class User(AbstractUser, DjangoBaseModel):
     google_id = models.CharField(
         max_length=255, unique=True, null=True, blank=True, help_text="Google user ID for OAuth"
     )
-    
+
     # Profile image - supports multiple sources:
     # 1. OAuth provider URL (stored in profile_image_url)
     # 2. Uploaded image (stored in profile_image_storage_key)
     profile_image_url = models.URLField(
         max_length=500, blank=True, null=True, help_text="Profile image URL from OAuth provider (legacy)"
     )
-    
+
     # New storage key field for uploaded profile images (cloud/local unified storage)
     # Format: 'r2://folder/filename.png' or 'local://folder/filename.png'
     profile_image_storage_key = models.CharField(
         max_length=500,
         null=True,
         blank=True,
-        help_text='Storage key for uploaded profile image (supports cloud and local storage)'
+        help_text="Storage key for uploaded profile image (supports cloud and local storage)",
     )
-    
-    USERNAME_FIELD = 'email'
+
+    USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
 
     def __str__(self):
         return self.email
-    
+
     def get_profile_image_url(self):
         """
         Get the profile image URL, preferring uploaded image over OAuth provider URL.
-        
+
         Priority:
         1. Uploaded image (profile_image_storage_key) - if set
         2. OAuth provider URL (profile_image_url) - fallback
-        
+
         Returns:
             str or None: URL to the profile image
         """
@@ -163,13 +165,13 @@ class User(AbstractUser, DjangoBaseModel):
         # Prefer uploaded image if set
         if self.profile_image_storage_key:
             return ImageUploadService.get_image_url(self.profile_image_storage_key)
-        
+
         # Fall back to OAuth provider URL
         if self.profile_image_url:
             return self.profile_image_url
-        
+
         return None
-    
+
     def delete_profile_image(self):
         """Delete the uploaded profile image and clear the storage key."""
         # Local import avoids circular import during Django model initialization.
@@ -178,7 +180,7 @@ class User(AbstractUser, DjangoBaseModel):
         if self.profile_image_storage_key:
             ImageUploadService.delete_image(self.profile_image_storage_key)
             self.profile_image_storage_key = None
-            self.save(update_fields=['profile_image_storage_key', 'updated_at'])
+            self.save(update_fields=["profile_image_storage_key", "updated_at"])
 
 
 class Organization(DjangoBaseModel):
@@ -188,31 +190,31 @@ class Organization(DjangoBaseModel):
 
     name = models.CharField(max_length=255)
     slug = models.SlugField(max_length=255, unique=True)
-    
+
     # Legacy logo field (Django ImageField for local storage)
     logo = models.ImageField(
-        upload_to='org_logos/',
+        upload_to="org_logos/",
         null=True,
         blank=True,
-        help_text='Organization logo image (legacy - use logo_storage_key for new uploads)'
+        help_text="Organization logo image (legacy - use logo_storage_key for new uploads)",
     )
-    
+
     # New storage key field for cloud/local unified storage
     # Format: 'r2://folder/filename.png' or 'local://folder/filename.png'
     logo_storage_key = models.CharField(
         max_length=500,
         null=True,
         blank=True,
-        help_text='Storage key for logo image (supports cloud and local storage)'
+        help_text="Storage key for logo image (supports cloud and local storage)",
     )
 
     def __str__(self):
         return self.name
-    
+
     def get_logo_url(self):
         """
         Get the logo URL, preferring the new storage key over legacy ImageField.
-        
+
         Returns:
             str or None: URL to the logo image
         """
@@ -222,13 +224,13 @@ class Organization(DjangoBaseModel):
         # Prefer new storage key if set
         if self.logo_storage_key:
             return ImageUploadService.get_image_url(self.logo_storage_key)
-        
+
         # Fall back to legacy logo field
         if self.logo:
             return self.logo.url
-        
+
         return None
-    
+
     def delete_logo(self):
         """Delete the logo from storage and clear both fields."""
         # Local import avoids circular import during Django model initialization.
@@ -238,12 +240,12 @@ class Organization(DjangoBaseModel):
         if self.logo_storage_key:
             ImageUploadService.delete_image(self.logo_storage_key)
             self.logo_storage_key = None
-        
+
         # Delete legacy logo if set
         if self.logo:
             self.logo.delete(save=False)
-        
-        self.save(update_fields=['logo', 'logo_storage_key', 'updated_at'])
+
+        self.save(update_fields=["logo", "logo_storage_key", "updated_at"])
 
 
 class UserOrganization(DjangoBaseModel):
@@ -454,6 +456,7 @@ class InternalApp(DjangoBaseModel):
     """
     Internal application created by users.
     """
+
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="internal_apps")
     name = models.CharField(max_length=255)
     slug = models.SlugField(
@@ -535,6 +538,7 @@ class AppVersion(DjangoBaseModel):
     """
     Version of an internal app (immutable snapshot).
     """
+
     internal_app = models.ForeignKey(InternalApp, on_delete=models.CASCADE, related_name="versions")
     version_number = models.PositiveIntegerField()
     parent_version = models.ForeignKey(
@@ -937,6 +941,7 @@ class CodeGenerationJob(DjangoBaseModel):
         self.chunk_count = len(self.events_json)
         self.save(update_fields=["events_json", "chunk_count", "updated_at"])
 
+
 # ============================================================================
 # App Data Store Models
 # ============================================================================
@@ -1054,7 +1059,6 @@ class AppDataTableSnapshot(DjangoBaseModel):
     linking the schema state to the AppVersion being created.
     """
 
-
     app_version = models.ForeignKey(
         AppVersion,
         on_delete=models.CASCADE,
@@ -1161,7 +1165,6 @@ class VersionStateSnapshot(DjangoBaseModel):
     a version is created, enabling enterprise-grade version management
     with schema-only rollback while preserving data.
     """
-
 
     app_version = models.OneToOneField(
         AppVersion,
@@ -1292,7 +1295,6 @@ class VersionAuditLog(DjangoBaseModel):
 
     This is an append-only log that provides full traceability.
     """
-
 
     # The app this operation belongs to
     internal_app = models.ForeignKey(
@@ -1521,13 +1523,13 @@ class ConnectorCache(DjangoBaseModel):
     connector_name = models.CharField(
         max_length=255, help_text='Display name (e.g., "Jira", "Linear", "Slack")'
     )
-    #move to json
+    # move to json
     category = models.CharField(
         max_length=100, help_text='Category (e.g., "project_management", "communication")'
     )
-    #deprecate
+    # deprecate
     logo_url = models.URLField(blank=True, null=True, help_text="URL to connector logo image")
-    
+
     source_url = models.URLField(
         blank=True, null=True, help_text='Source website URL (e.g., "https://linear.app")'
     )
@@ -1625,7 +1627,6 @@ class ConnectorToolAction(DjangoBaseModel):
     and organization.
     """
 
-
     # Foreign key to parent connector cache
     connector_cache = models.ForeignKey(
         ConnectorCache, on_delete=models.CASCADE, related_name="categorized_tools"
@@ -1662,7 +1663,6 @@ class ConnectorExecutionLog(DjangoBaseModel):
     Log of connector tool executions for audit and debugging.
     Uses the same audit-log pattern for connector operations.
     """
-
 
     # Context
     internal_app = models.ForeignKey(
@@ -1704,3 +1704,136 @@ class ConnectorExecutionLog(DjangoBaseModel):
 
     def __str__(self):
         return f"{self.connector_slug}.{self.tool_id} - {self.status}"
+
+
+# ============================================================================
+# File Verification Models (Handler Validation Service)
+# ============================================================================
+
+
+class FileVerificationRecord(DjangoBaseModel):
+    """
+    Record of verifying a single file during code generation.
+
+    Stores the complete audit trail including all retry attempts,
+    enabling analysis of verification patterns and LLM fix effectiveness.
+    """
+
+    # Optional link to the code generation job that triggered this verification
+    code_generation_job = models.ForeignKey(
+        CodeGenerationJob,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="verification_records",
+        help_text="The code generation job that triggered this verification",
+    )
+
+    # File identification
+    file_path = models.CharField(max_length=500, help_text="Path of the verified file")
+    file_type = models.CharField(max_length=20, help_text='File extension (e.g., ".ts", ".tsx")')
+
+    # Verification result
+    status = models.CharField(
+        max_length=20,
+        choices=choices(VerificationStatus),
+        default=VerificationStatus.PENDING,
+        help_text="Final verification status",
+    )
+    verifier_name = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        help_text="Name of the verifier used (e.g., 'typescript')",
+    )
+
+    # Content and errors
+    final_content = models.TextField(
+        null=True,
+        blank=True,
+        help_text="The file content after all retries",
+    )
+    error_message = models.TextField(
+        null=True,
+        blank=True,
+        help_text="Final error message if verification failed",
+    )
+
+    # Timing
+    started_at = models.DateTimeField(null=True, blank=True, help_text="When verification started")
+    completed_at = models.DateTimeField(null=True, blank=True, help_text="When verification completed")
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["code_generation_job", "-created_at"]),
+            models.Index(fields=["status", "-created_at"]),
+            models.Index(fields=["file_type", "-created_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.file_path} ({self.status})"
+
+    @property
+    def attempt_count(self) -> int:
+        """Number of verification attempts made."""
+        return self.attempts.count()  # pylint: disable=no-member
+
+    @property
+    def passed(self) -> bool:
+        """Whether the verification passed."""
+        return self.status == VerificationStatus.PASSED
+
+    @property
+    def duration_seconds(self) -> float | None:
+        """Duration of verification in seconds."""
+        if self.started_at and self.completed_at:
+            return (self.completed_at - self.started_at).total_seconds()
+        return None
+
+
+class VerificationAttemptRecord(DjangoBaseModel):
+    """
+    Record of a single verification attempt (for retry tracking).
+
+    Each attempt captures the code content and result at that point,
+    enabling analysis of how errors evolve across retries.
+    """
+
+    # Parent verification record
+    verification_record = models.ForeignKey(
+        FileVerificationRecord,
+        on_delete=models.CASCADE,
+        related_name="attempts",
+        help_text="The verification record this attempt belongs to",
+    )
+
+    # Attempt metadata
+    attempt_number = models.PositiveIntegerField(help_text="Attempt number (1-based)")
+
+    # Content at this attempt
+    content = models.TextField(help_text="The code content that was verified in this attempt")
+
+    # Result of this attempt
+    status = models.CharField(
+        max_length=20,
+        choices=choices(VerificationStatus),
+        help_text="Status of this specific attempt",
+    )
+    error_message = models.TextField(
+        null=True,
+        blank=True,
+        help_text="Error message if this attempt failed",
+    )
+
+    # Timing
+    timestamp = models.DateTimeField(null=True, blank=True, help_text="When this attempt occurred")
+
+    class Meta:
+        ordering = ["attempt_number"]
+        indexes = [
+            models.Index(fields=["verification_record", "attempt_number"]),
+        ]
+
+    def __str__(self):
+        return f"Attempt {self.attempt_number} for {self.verification_record.file_path}"
