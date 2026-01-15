@@ -851,7 +851,7 @@ class FeatureHandler(BaseHandler):
         
         if use_subagents:
             logger.info(f"[FEATURE] Using sub-agents for {len(target_files)} target files: {target_files}")
-            yield from self._generate_feature_with_subagents(
+            result = yield from self._generate_feature_with_subagents(
                 user_message=user_message,
                 plan_step=plan_step,
                 existing_code=existing_code,
@@ -861,9 +861,10 @@ class FeatureHandler(BaseHandler):
                 mcp_tools_context=mcp_tools_context,
                 used_default_plan=used_default_plan,
             )
+            return result
         else:
             # Single-agent execution (original behavior)
-            yield from self._generate_feature_single_agent(
+            result = yield from self._generate_feature_single_agent(
                 user_message=user_message,
                 plan_step=plan_step,
                 existing_code=existing_code,
@@ -873,6 +874,7 @@ class FeatureHandler(BaseHandler):
                 mcp_tools_context=mcp_tools_context,
                 used_default_plan=used_default_plan,
             )
+            return result
 
     def _generate_feature_with_subagents(
         self,
