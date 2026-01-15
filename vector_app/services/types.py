@@ -7,18 +7,9 @@ Common dataclasses used across validation, error fixing, and code generation ser
 import json
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
 from typing import Any, Dict, List, Optional
 
-
-class VerificationStatus(str, Enum):
-    """Status of a file verification."""
-
-    PENDING = "pending"  # Not yet verified
-    PASSED = "passed"  # Verification succeeded
-    FAILED = "failed"  # Verification failed (code has errors)
-    SKIPPED = "skipped"  # No verifier available for file type
-    ERROR = "error"  # Verifier service error (tsc not found, timeout)
+from vector_app.types import VerificationStatus
 
 
 @dataclass

@@ -22,7 +22,7 @@ from django.utils.text import slugify
 from internal_apps.utils.base_model import DjangoBaseModel
 from internal_apps.utils.enum import choices
 from vector_app.action_classification.types import ActionType
-from vector_app.services.types import VerificationStatus
+from vector_app.types import VerificationStatus
 from .utils.encryption import encrypt_string, decrypt_string
 
 
