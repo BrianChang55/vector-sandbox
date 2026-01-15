@@ -130,9 +130,10 @@ export function AppsPage() {
           
           // Clear the template data (keep pending_hidden_prompt for the builder)
           clearStoredTemplateData()
-          localStorage.removeItem('pending_prompt')
+          // NOTE: Don't remove pending_prompt here - AppBuilderPage needs it for auto-submission
+          // It will be removed after the chat panel consumes it
           
-          // Navigate to the builder - pending_hidden_prompt will be picked up there
+          // Navigate to the builder - pending prompts will be picked up there
           navigate(`/apps/${newApp.id}`)
         } catch (error) {
           console.error('Failed to create app from landing page:', error)
@@ -455,7 +456,7 @@ export function AppsPage() {
                     navigate(app.published_url)
                   } else if (isViewer) {
                     // Published but no URL? Go to preview
-                    navigate(`/preview/apps/${app.id}`)
+                    navigate(`/preview/apps/${app.id}/`)
                   } else {
                     navigate(`/apps/${app.id}`)
                   }

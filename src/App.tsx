@@ -1,6 +1,7 @@
 /**
  * Main App component with routing
  */
+import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { Provider } from 'react-redux'
 import { QueryProvider } from './providers/QueryProvider'
@@ -25,6 +26,11 @@ import { AppPreviewPage } from './pages/AppPreviewPage'
 import { PublishedAppPage } from './pages/PublishedAppPage'
 import { InviteAcceptPage } from './pages/InviteAcceptPage'
 import { AdminTemplatePage } from './pages/AdminTemplatePage'
+
+// Dynamic import for dev-only page - excluded from production bundle via tree-shaking
+const DevAuthPage = import.meta.env.DEV
+  ? lazy(() => import('./pages/DevAuthPage').then(m => ({ default: m.DevAuthPage })))
+  : null
 
 function App() {
   return (
@@ -75,7 +81,7 @@ function App() {
               }
             />
             <Route
-              path="/preview/apps/:appId"
+              path="/preview/apps/:appId/"
               element={
                 <AuthGuard>
                   <AppPreviewPage />
@@ -102,6 +108,22 @@ function App() {
                 </AuthGuard>
               }
             />
+            
+            {/* Dev-only route for auto-login - excluded from production builds */}
+            {DevAuthPage && (
+              <Route
+                path="/dev-auth"
+                element={
+                  <Suspense fallback={
+                    <div className="flex h-screen items-center justify-center bg-white">
+                      <div className="h-8 w-8 animate-spin rounded-full border-2 border-gray-300 border-t-gray-900" />
+                    </div>
+                  }>
+                    <DevAuthPage />
+                  </Suspense>
+                }
+              />
+            )}
             
             {/* Published App - Full-screen immersive runtime */}
             {/* Place this route last to avoid conflicts with other routes */}
