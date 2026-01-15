@@ -26,6 +26,7 @@ from ..diff_application_service import (
     DiffApplicationConfig,
 )
 from vector_app.models import AppDataTable, VersionFile
+from vector_app.ai.models import AIModel
 from vector_app.prompts.agentic import (
     apply_design_style_prompt,
     build_codegen_system_prompt,
@@ -124,7 +125,7 @@ class GenerateHandler(BaseHandler):
         current_spec: Optional[Dict[str, Any]],
         registry_surface: Dict[str, Any],
         app_name: str,
-        model: str,
+        model: AIModel,
         app: Optional["InternalApp"] = None,
         version: Optional["AppVersion"] = None,
         **kwargs,
@@ -415,7 +416,7 @@ class GenerateHandler(BaseHandler):
         user_message: str,
         context: Dict[str, Any],
         registry_surface: Dict[str, Any],
-        model: str,
+        model: AIModel,
         app: Optional['InternalApp'] = None,
         version: Optional['AppVersion'] = None,
         data_store_context: Optional[str] = None,
@@ -470,7 +471,7 @@ class GenerateHandler(BaseHandler):
         user_message: str,
         context: Dict[str, Any],
         registry_surface: Dict[str, Any],
-        model: str,
+        model: AIModel,
         app: Optional["InternalApp"] = None,
         version: Optional["AppVersion"] = None,
         data_store_context: Optional[str] = None,
@@ -538,7 +539,7 @@ class GenerateHandler(BaseHandler):
         return generated_files
 
     def _stream_llm_with_validation(
-        self, system_prompt: str, user_prompt: str, model: str, step_index: int
+        self, system_prompt: str, user_prompt: str, model: AIModel, step_index: int
     ) -> Generator[tuple, None, str]:
         """Stream LLM response with real-time validation. Yields (warnings, content_so_far), returns full_content."""
         validator = self.create_streaming_validator()
@@ -701,7 +702,7 @@ FILES WITH LINE NUMBERS:
         full_content: str,
         app: Optional["InternalApp"],
         version: Optional["AppVersion"],
-        model: str,
+        model: AIModel,
     ) -> Generator[AgentEvent, None, List[FileChange]]:
         """Validate field names and request fix if needed. Returns final files."""
         if not (app and files):
@@ -850,7 +851,7 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
         context: Dict[str, Any],
         existing_files: List[FileChange],
         registry_surface: Dict[str, Any],
-        model: str,
+        model: AIModel,
         app: Optional["InternalApp"] = None,
         version: Optional["AppVersion"] = None,
         data_store_context: Optional[str] = None,
@@ -907,7 +908,7 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
         context: Dict[str, Any],
         existing_files: List[FileChange],
         registry_surface: Dict[str, Any],
-        model: str,
+        model: AIModel,
         app: Optional["InternalApp"] = None,
         version: Optional["AppVersion"] = None,
         data_store_context: Optional[str] = None,
@@ -1081,7 +1082,7 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
         context: Dict[str, Any],
         existing_files: List[FileChange],
         registry_surface: Dict[str, Any],
-        model: str,
+        model: AIModel,
         app: Optional["InternalApp"] = None,
         version: Optional["AppVersion"] = None,
         data_store_context: Optional[str] = None,
@@ -1139,7 +1140,7 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
         context: Dict[str, Any],
         existing_files: List[FileChange],
         registry_surface: Dict[str, Any],
-        model: str,
+        model: AIModel,
         app: Optional["InternalApp"] = None,
         version: Optional["AppVersion"] = None,
         data_store_context: Optional[str] = None,
@@ -1223,7 +1224,7 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
         context: Dict[str, Any],
         existing_files: List[FileChange],
         registry_surface: Dict[str, Any],
-        model: str,
+        model: AIModel,
         app: Optional["InternalApp"] = None,
         version: Optional["AppVersion"] = None,
         data_store_context: Optional[str] = None,
@@ -1521,7 +1522,7 @@ Description: {getattr(step, 'description', '')}
         self,
         generated_files: List[FileChange],
         context_files: List[FileChange],
-        model: str,
+        model: AIModel,
     ) -> Generator[AgentEvent, None, tuple]:
         """
         Validate generated code and attempt to fix errors.

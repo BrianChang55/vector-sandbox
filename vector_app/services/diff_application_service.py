@@ -9,14 +9,13 @@ Consolidates the common pattern used across handlers:
 4. Fall back to full file parsing if no diffs found
 """
 
-import json
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Generator, List, Optional, Set
 
-import httpx
-from django.conf import settings
-
+from vector_app.ai.models import AIModel
+from vector_app.ai.client import get_llm_client
+from vector_app.ai.types import LLMSettings
 from vector_app.services.diff import parse_diffs, apply_diff, FileDiff, format_with_line_numbers
 from vector_app.services.types import FileChange, AgentEvent
 
@@ -309,20 +308,6 @@ class DiffApplicationService:
     LLM integration with diff parsing and application.
     """
     
-    OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-    
-    def __init__(self):
-        self.api_key = getattr(settings, 'OPENROUTER_API_KEY', None)
-    
-    def _build_headers(self) -> Dict[str, str]:
-        """Build headers for OpenRouter API requests."""
-        return {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://relay.app",
-            "X-Title": "Relay Internal Apps",
-        }
-    
     def apply_diffs(
         self,
         llm_response: str,
@@ -357,7 +342,7 @@ class DiffApplicationService:
         system_prompt: str,
         user_prompt: str,
         file_contents: Dict[str, str],
-        model: str,
+        model: AIModel,
         *,
         temperature: float = 0.2,
         timeout: float = 120.0,
@@ -375,7 +360,7 @@ class DiffApplicationService:
             system_prompt: System prompt for the LLM
             user_prompt: User prompt for the LLM
             file_contents: Dict mapping file paths to their original content
-            model: Model identifier (e.g., "anthropic/claude-sonnet-4")
+            model: Model identifier (e.g., "anthropic/claude-sonnet-4.5")
             temperature: LLM temperature (default 0.2 for consistent edits)
             timeout: HTTP timeout in seconds
             config: Optional DiffApplicationConfig
@@ -393,59 +378,42 @@ class DiffApplicationService:
         chunk_count = 0
         
         try:
-            with httpx.Client(timeout=timeout) as client:
-                with client.stream(
-                    "POST",
-                    self.OPENROUTER_API_URL,
-                    headers=self._build_headers(),
-                    json={
-                        "model": model,
-                        "messages": [
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt},
-                        ],
-                        "temperature": temperature,
-                        "stream": True,
-                    },
-                ) as response:
-                    response.raise_for_status()
+            llm_settings = LLMSettings(
+                model=model,
+                temperature=temperature,
+                timeout=timeout,
+            )
+            for chunk in get_llm_client().stream(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                llm_settings=llm_settings,
+            ):
+                if chunk.error:
+                    logger.error("LLM streaming error: %s", chunk.error)
+                    raise RuntimeError(chunk.error)
 
-                    for line in response.iter_lines():
-                        if not line:
-                            continue
-                        
-                        if line.startswith("data: "):
-                            data = line[6:]
-                            if data == "[DONE]":
-                                break
-                            
-                            try:
-                                chunk_data = json.loads(data)
-                                delta = chunk_data.get("choices", [{}])[0].get("delta", {})
-                                content = delta.get("content", "")
-                                
-                                if content:
-                                    full_content += content
-                                    chunk_count += 1
-                                    
-                                    # Streaming validation
-                                    if streaming_validator:
-                                        warnings = streaming_validator.check_chunk(content, full_content)
-                                        for warning in warnings:
-                                            yield AgentEvent(
-                                                "streaming_warning",
-                                                {"warning": warning, "severity": "low"},
-                                            )
+                if chunk.content:
+                    full_content += chunk.content
+                    chunk_count += 1
 
-                                    # Progress callback
-                                    if on_chunk:
-                                        event = on_chunk(content, chunk_count)
-                                        if event:
-                                            yield event
-                            
-                            except json.JSONDecodeError:
-                                continue
-        
+                    # Streaming validation
+                    if streaming_validator:
+                        warnings = streaming_validator.check_chunk(chunk.content, full_content)
+                        for warning in warnings:
+                            yield AgentEvent(
+                                "streaming_warning",
+                                {"warning": warning, "severity": "low"},
+                            )
+
+                    # Progress callback
+                    if on_chunk:
+                        event = on_chunk(chunk.content, chunk_count)
+                        if event:
+                            yield event
+
+                if chunk.done:
+                    break
+
         except Exception as e:
             logger.error(f"LLM streaming error: {e}")
             raise

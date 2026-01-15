@@ -12,6 +12,7 @@ import logging
 import time
 from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
+from vector_app.ai.models import AIModel
 from vector_app.services.intent_classifier import UserIntent, IntentResult
 from vector_app.services.context_analyzer import AppContext
 from vector_app.services.types import AgentEvent, FileChange
@@ -65,7 +66,7 @@ class IntentRouter:
         current_spec: Optional[Dict[str, Any]],
         registry_surface: Dict[str, Any],
         app_name: str,
-        model: str,
+        model: AIModel,
         app: Optional['InternalApp'] = None,
         version: Optional['AppVersion'] = None,
         **kwargs,

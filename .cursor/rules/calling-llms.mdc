@@ -1,0 +1,127 @@
+---
+alwaysApply: false
+description: Conventions for calling LLMs via OpenRouter using LLMClient. Covers client usage, model selection, prompt organization, result handling, and error patterns.
+---
+
+# Calling LLMs via LLMClient
+
+When implementing AI features that need to call OpenRouter, use `LLMClient` from `vector_app.ai`.
+
+## Core Module
+
+All LLM types and client are in `vector_app/ai/`:
+- `client.py` - `LLMClient` class and `get_llm_client()` singleton
+- `types.py` - `LLMSettings`, `ChatResult`, `StreamChunk` dataclasses
+- `models.py` - `AIModel` enum with available models
+- `exceptions.py` - `ChatFunctionError`, `APIError`
+
+## Canonical Examples
+
+**Intent Classifier** - Best example of the full pattern:
+- Service: `vector_app/services/intent_classifier.py`
+- Prompts: `vector_app/prompts/intent_classification.py`
+
+Shows: heuristics-first approach, LLM fallback, JSON parsing, result dataclass, singleton pattern.
+
+**Execution Scope Classifier** - Simple classification:
+- Service: `vector_app/services/execution_scope_classifier.py`
+- Prompts: `vector_app/prompts/execution_scope.py`
+
+Shows: minimal prompts, low temperature, short max_tokens, fast Haiku model.
+
+**Action Classifier** - JSON mode with multiple outputs:
+- Service: `vector_app/action_classification/action_classifier.py`
+- Prompts: `vector_app/action_classification/prompts.py`
+
+Shows: `json_mode=True`, parsing multiple actions, keyword fallback.
+
+## Key Patterns
+
+### 1. Basic Call
+
+```python
+from vector_app.ai.client import get_llm_client
+from vector_app.ai.models import AIModel
+from vector_app.ai.types import LLMSettings
+
+result = get_llm_client().run(
+    system_prompt=SYSTEM_PROMPT,
+    user_prompt=formatted_prompt,
+    llm_settings=LLMSettings(
+        model=AIModel.CLAUDE_SONNET_4_5,
+        temperature=0.2,
+        max_tokens=500,
+        timeout=30.0,
+    ),
+)
+content = result.validated(default="")
+```
+
+### 2. Model Selection
+
+- `CLAUDE_HAIKU_4_5` - Fast/cheap, simple classification
+- `CLAUDE_SONNET_4_5` - Default, general tasks
+- `CLAUDE_OPUS_4_5` - Complex reasoning, agentic tasks
+
+### 3. Temperature Guidelines
+
+- `0.0-0.2` - Classification, structured output, deterministic
+- `0.5-0.7` - Generation, creative tasks
+
+### 4. Result Handling
+
+Always use `result.validated(formatter, default=)`:
+
+```python
+# Raw content
+content = result.validated(default="")
+
+# JSON parsing
+data = result.validated(json.loads, default=None)
+
+# Custom parser (see intent_classifier._load_json_response for example)
+data = result.validated(self._parse_json, default=None)
+```
+
+### 5. Prompt Organization
+
+Store prompts in `vector_app/prompts/` with:
+- System prompt constant: `FEATURE_SYSTEM_PROMPT`
+- User prompt template: `FEATURE_PROMPT` with `{placeholders}`
+- Builder function: `build_feature_prompt(...)` to format
+
+See `vector_app/prompts/execution_scope.py` for a minimal example.
+
+### 6. Service Structure
+
+Follow the pattern in `intent_classifier.py`:
+1. Dataclass for results
+2. Class with `classify()` method
+3. Heuristic classification first (fast path)
+4. LLM classification with try/except fallback
+5. Singleton via `get_*()` factory function
+
+### 7. Error Handling
+
+```python
+try:
+    llm_result = self._llm_classify(...)
+    if llm_result:
+        return llm_result
+except Exception as e:
+    logger.warning("LLM classification failed: %s", e)
+
+# Fallback to heuristic or default
+return heuristic_result or default_result
+```
+
+## Conventions Summary
+
+1. Get client via `get_llm_client()` singleton
+2. Configure with `LLMSettings` dataclass
+3. Use `AIModel` enum for model selection
+4. Use `result.validated(formatter, default=)` for safe extraction
+5. Store prompts in `vector_app/prompts/` with builder functions
+6. Try heuristics first, LLM as fallback
+7. Handle errors gracefully with sensible defaults
+8. Use singleton pattern with `get_*()` factory

@@ -8,7 +8,7 @@ import json
 import logging
 import time
 import uuid
-from typing import Generator
+from typing import Generator, Optional
 from django.http import StreamingHttpResponse, JsonResponse
 from django.views import View
 from django.utils.decorators import method_decorator
@@ -22,11 +22,15 @@ from rest_framework.request import Request
 
 from ..models import InternalApp, AppVersion, VersionFile, VersionAuditLog
 from ..models import ChatSession, ChatMessage, CodeGenerationJob
+from ..ai.models import AIModel
+from ..ai.client import get_llm_client
+from ..ai.types import LLMSettings
 from ..services.openrouter_service import (
     get_openrouter_service,
     StreamChunk,
     MODEL_CONFIGS,
 )
+from ..utils.enum_utils import safe_str_enum
 from ..services.validation import AppSpecValidationService
 from ..services.codegen import CodegenService
 from ..services.agentic_service import get_agentic_service
@@ -61,7 +65,7 @@ class AvailableModelsView(APIView):
         return Response({
             "models": models,
             "grouped": grouped,
-            "default": "anthropic/claude-sonnet-4",
+            "default": AIModel.CLAUDE_SONNET_4_5.value,
         })
 
 
@@ -120,7 +124,7 @@ class ChatSessionViewSet(APIView):
             session = ChatSession.objects.create(
                 internal_app=app,
                 title=request.data.get("title", "New Chat"),
-                model_id=request.data.get("model_id", "anthropic/claude-sonnet-4"),
+                model_id=_parse_model(request.data.get("model_id")),
                 created_by=request.user,
             )
             
@@ -192,6 +196,10 @@ def sse_event(event_type: str, data: dict) -> str:
     return f"event: {event_type}\ndata: {json_data}\n\n"
 
 
+def _parse_model(raw_model: Optional[str]) -> AIModel:
+    return safe_str_enum(raw_model, AIModel.CLAUDE_SONNET_4_5, AIModel)
+
+
 @method_decorator(csrf_exempt, name='dispatch')
 class StreamingGenerateView(View):
     """
@@ -207,7 +215,7 @@ class StreamingGenerateView(View):
         # Get parameters
         session_id = request.GET.get('session_id')
         message = request.GET.get('message', '')
-        model = request.GET.get('model', 'anthropic/claude-sonnet-4')
+        model = _parse_model(request.GET.get('model'))
         mode = request.GET.get('mode', 'appspec')  # 'appspec' or 'code'
         
         if not message:
@@ -289,7 +297,7 @@ class StreamingGenerateView(View):
         self,
         app: InternalApp,
         message: str,
-        model: str,
+        model: AIModel,
         mode: str,
         session_id: str,
         user,
@@ -563,7 +571,7 @@ class NonStreamingGenerateView(APIView):
                 return error
             
             message = request.data.get('message', '')
-            model = request.data.get('model', 'anthropic/claude-sonnet-4')
+            model = _parse_model(request.data.get('model'))
             session_id = request.data.get('session_id')
             
             if not message:
@@ -739,7 +747,7 @@ class AgenticGenerateView(View):
             return JsonResponse({"error": "Invalid JSON body"}, status=400)
         
         message = body.get('message', '')
-        model = body.get('model', 'anthropic/claude-sonnet-4')
+        model = _parse_model(body.get('model'))
         session_id = body.get('session_id')
         
         if not message:
@@ -806,7 +814,7 @@ class AgenticGenerateView(View):
         # Get parameters from query string
         session_id = request.GET.get('session_id')
         message = request.GET.get('message', '')
-        model = request.GET.get('model', 'anthropic/claude-sonnet-4')
+        model = _parse_model(request.GET.get('model'))
         
         if not message:
             return JsonResponse({"error": "Message is required"}, status=400)
@@ -1509,7 +1517,7 @@ class FixErrorsView(View):
         
         # Get parameters
         errors_b64 = request.GET.get('errors', '')
-        model = request.GET.get('model', 'anthropic/claude-sonnet-4')
+        model = _parse_model(request.GET.get('model'))
         attempt = int(request.GET.get('attempt', '1'))
         
         if not errors_b64:
@@ -1599,7 +1607,7 @@ class FixErrorsView(View):
         self,
         version: AppVersion,
         errors: list,
-        model: str,
+        model: AIModel,
         attempt: int,
         user,
     ) -> Generator[str, None, None]:
@@ -1722,19 +1730,15 @@ class GenerateAppTitleView(APIView):
             )
         
         try:
-            import httpx
-            from django.conf import settings
-            
-            api_key = getattr(settings, 'OPENROUTER_API_KEY', None) or getattr(settings, 'OPENAI_API_KEY', None)
-            
-            if not api_key:
+            client = get_llm_client()
+            if not client.api_key:
                 # Fallback: use prompt as title
                 return Response({
                     "title": prompt[:40],
                     "description": "",
                     "fallback": True,
                 })
-            
+
             # Use GPT-4o-mini for fast, cheap title generation
             system_prompt = """You are a helpful assistant that generates short, catchy app titles and descriptions.
 Given a user's prompt describing what they want to build, generate:
@@ -1747,39 +1751,28 @@ Examples:
 - Prompt: "Build a dashboard to manage user subscriptions" -> {"title": "Subscription Manager", "description": "Track and manage user subscriptions"}
 - Prompt: "Create an order tracking system with refunds" -> {"title": "Order Tracker", "description": "Track orders and process refunds"}
 """
-            
-            with httpx.Client(timeout=15.0) as client:
-                response = client.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": "openai/gpt-4o-mini",
-                        "messages": [
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": f"Prompt: {prompt}"},
-                        ],
-                        "response_format": {"type": "json_object"},
-                        "temperature": 0.3,
-                        "max_tokens": 100,
-                    },
-                )
-                response.raise_for_status()
-                
-                result = response.json()
-                content = result["choices"][0]["message"]["content"]
-                parsed = json.loads(content)
-                
-                title = parsed.get("title", prompt[:40])[:40]
-                description = parsed.get("description", "")[:60]
-                
-                return Response({
-                    "title": title,
-                    "description": description,
-                    "fallback": False,
-                })
+
+            result = client.run(
+                system_prompt=system_prompt,
+                user_prompt=f"Prompt: {prompt}",
+                llm_settings=LLMSettings(
+                    model="openai/gpt-4o-mini",
+                    temperature=0.3,
+                    max_tokens=100,
+                    timeout=15.0,
+                ),
+                json_mode=True,
+            )
+            parsed = result.validated(json.loads, default={})
+
+            title = parsed.get("title", prompt[:40])[:40]
+            description = parsed.get("description", "")[:60]
+
+            return Response({
+                "title": title,
+                "description": description,
+                "fallback": False,
+            })
                 
         except Exception as e:
             logger.warning(f"Failed to generate app title via GPT: {e}")

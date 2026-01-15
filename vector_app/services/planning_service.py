@@ -12,14 +12,16 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, cast
 from enum import StrEnum
 
-from django.conf import settings
-import httpx
-
+from vector_app.ai.client import get_llm_client
+from vector_app.ai.models import AIModel
+from vector_app.ai.types import LLMSettings
 from vector_app.prompts.agentic import build_plan_prompt
-from vector_app.utils.enum_utils import safe_str_enum
-from vector_app.services.openrouter_service import AIModel
 from vector_app.services.validation_service import get_validation_service
+<<<<<<< HEAD
 from vector_app.services.intent_classifier import UserIntent
+=======
+from vector_app.utils.enum_utils import safe_str_enum
+>>>>>>> 17c70b290a97a3dced5d64714330307230ed45dc
 
 logger = logging.getLogger(__name__)
 
@@ -77,28 +79,11 @@ class PlanningService:
     executed in sequence or parallel (based on step_order).
     """
     
-    OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-    
-    def __init__(self):
-        self.api_key = getattr(settings, 'OPENROUTER_API_KEY', None) or \
-                      getattr(settings, 'OPENAI_API_KEY', None)
-        self.app_name = getattr(settings, 'OPENROUTER_APP_NAME', 'Internal Apps Builder')
-        self.site_url = getattr(settings, 'BASE_URL', 'http://localhost:8001')
-    
-    def _build_headers(self) -> Dict[str, str]:
-        """Build API headers."""
-        return {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": self.site_url,
-            "X-Title": self.app_name,
-        }
-    
     def create_plan(
         self,
         user_message: str,
         context: Dict[str, Any],
-        model: str = AIModel.CLAUDE_OPUS_4_5.value,
+        model: str = AIModel.CLAUDE_OPUS_4_5,
         intent_type: Optional[UserIntent] = None,
         existing_files: Optional[List[str]] = None,
     ) -> AgentPlan:
@@ -116,7 +101,7 @@ class PlanningService:
             AgentPlan with steps and reasoning
         """
         if FORCE_OPUS_PLAN_GENERATION:
-            model = AIModel.CLAUDE_OPUS_4_5.value
+            model = AIModel.CLAUDE_OPUS_4_5
 
         # Use [] if existing_files is None
         existing_files = existing_files or []
@@ -130,84 +115,73 @@ class PlanningService:
         )
 
         try:
-            with httpx.Client(timeout=60.0) as client:
-                response = client.post(
-                    self.OPENROUTER_API_URL,
-                    headers=self._build_headers(),
-                    json={
-                        "model": model,
-                        "messages": [
-                            {"role": "user", "content": plan_prompt}
-                        ],
-                        "temperature": 0.3,
-                    },
-                )
-                response.raise_for_status()
-                
-                result = response.json()
-                content = result["choices"][0]["message"]["content"]
-                
-                # Parse the plan from the response
-                plan_data = self._parse_plan_response(content)
-                
-                reasoning = plan_data.get("reasoning", "Building the requested app.")
-                steps_data = plan_data.get("steps", [])
+            result = get_llm_client().run(
+                system_prompt="You are a planning assistant. Follow the instructions and return JSON only.",
+                user_prompt=plan_prompt,
+                llm_settings=LLMSettings(model=model, temperature=0.3, timeout=60.0),
+            )
+            plan_data = result.validated(self._parse_plan_response, default=None)
+            if not plan_data:
+                raise ValueError("Plan response was empty or invalid")
 
-                steps = [
-                    PlanStep(
-                        id=str(uuid.uuid4()),
-                        type=s.get("type", "code"),
-                        title=s.get("title", "Generate Code"),
-                        description=s.get("description", ""),
-                        step_order=s.get("step_order", 0),
-                        target_files=s.get("target_files", []),
-                        operation_type=safe_str_enum(
-                            s.get("operation_type", PlanOperationType.GENERATE.value),
-                            PlanOperationType.GENERATE,
-                            PlanOperationType
-                        ),
-                        status=PlanStepStatus.PENDING,
-                        duration=s.get("duration", None),
-                        output=s.get("output", None),
-                    )
-                    for s in steps_data
-                ]
+            reasoning = plan_data.get("reasoning", "Building the requested app.")
+            steps_data = plan_data.get("steps", [])
 
-                plan = AgentPlan(
+            steps = [
+                PlanStep(
                     id=str(uuid.uuid4()),
-                    goal=user_message,
-                    reasoning=reasoning,
-                    steps=steps,
-                    estimated_duration=len(steps) * 5000,  # 5s per step estimate
+                    type=s.get("type", "code"),
+                    title=s.get("title", "Generate Code"),
+                    description=s.get("description", ""),
+                    step_order=s.get("step_order", 0),
+                    target_files=s.get("target_files", []),
+                    operation_type=safe_str_enum(
+                        s.get("operation_type", PlanOperationType.GENERATE.value),
+                        PlanOperationType.GENERATE,
+                        PlanOperationType
+                    ),
+                    status=PlanStepStatus.PENDING,
+                    duration=s.get("duration", None),
+                    output=s.get("output", None),
                 )
-                
-                # Log the plan details
-                logger.debug("=" * 80)
-                logger.debug("📋 GENERATED PLAN")
-                logger.debug("=" * 80)
-                logger.debug(f"Reasoning: {reasoning}")
-                logger.debug(f"Total Steps: {len(steps)}")
-                logger.debug("-" * 80)
-                for i, step in enumerate(steps, 1):
-                    logger.debug(f"Step {i}: [{step.type}] {step.title} (Order: {step.step_order})")
-                    logger.debug(f"  Description: {step.description}")
-                    logger.debug(f"  Operation Type: {step.operation_type}")
-                    if step.target_files:
-                        logger.debug(f"  Target Files: {', '.join(step.target_files)}")
-                logger.debug("=" * 80)
+                for s in steps_data
+            ]
 
-                # Validate the plan using ValidationService
-                validation_service = get_validation_service()
-                validation_errors = validation_service.validate_plan(plan, intent_type=intent_type)
+            plan = AgentPlan(
+                id=str(uuid.uuid4()),
+                goal=user_message,
+                reasoning=reasoning,
+                steps=steps,
+                estimated_duration=len(steps) * 5000,  # 5s per step estimate
+            )
 
-                if validation_errors:
-                    logger.error("🚨 PLAN VALIDATION FAILED 🚨, validation errors: %s", str(validation_errors))
-                    raise ValueError("Plan validation failed")
+            # Log the plan details
+            logger.debug("=" * 80)
+            logger.debug("📋 GENERATED PLAN")
+            logger.debug("=" * 80)
+            logger.debug("Reasoning: %s", reasoning)
+            logger.debug("Total Steps: %d", len(steps))
+            logger.debug("-" * 80)
+            for i, step in enumerate(steps, 1):
+                logger.debug("Step %d: [%s] %s (Order: %d)", i, step.type, step.title, step.step_order)
+                logger.debug("  Description: %s", step.description)
+                logger.debug("  Operation Type: %s", step.operation_type)
+                if step.target_files:
+                    logger.debug("  Target Files: %s", ', '.join(step.target_files))
+            logger.debug("=" * 80)
 
-                return plan
+            # Validate the plan using ValidationService
+            validation_service = get_validation_service()
+            validation_errors = validation_service.validate_plan(plan)
+
+            if validation_errors:
+                logger.error("🚨 PLAN VALIDATION FAILED 🚨, validation errors: %s", str(validation_errors))
+                raise ValueError("Plan validation failed")
+
+            return plan
 
         except Exception as e:
-            logger.error(f"Plan generation error: {e}")
+            logger.error("Plan generation error: %s", e)
             # Fallback to default plan
             return self._create_fallback_plan(user_message)
 

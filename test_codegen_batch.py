@@ -18,6 +18,7 @@ django.setup()
 
 from vector_app.services.planning_service import PlanStep
 from vector_app.services.handlers.generate_handler import GenerateHandler
+from vector_app.ai.models import AIModel
 from vector_app.prompts.agentic import (
     build_plan_prompt,
     build_step_prompt,
@@ -78,7 +79,7 @@ class TestHandler(GenerateHandler):
     pass
 
 
-def run_single_test(test_case: dict, model: str = "anthropic/claude-sonnet-4") -> dict:
+def run_single_test(test_case: dict, model: AIModel = AIModel.CLAUDE_SONNET_4_5) -> dict:
     """Run a single test case and return results."""
     logger.info(f"\n{'='*60}")
     logger.info(f"Running test: {test_case['name']}")
@@ -201,7 +202,7 @@ def run_single_test(test_case: dict, model: str = "anthropic/claude-sonnet-4") -
         }
 
 
-def run_all_tests(model: str = "anthropic/claude-sonnet-4") -> list:
+def run_all_tests(model: AIModel = AIModel.CLAUDE_SONNET_4_5) -> list:
     """Run all test cases and collect results."""
     results = []
     

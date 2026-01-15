@@ -96,7 +96,7 @@ def test_job_creation(app_id, token):
     }
     data = {
         'message': 'Create a simple hello world app with a button',
-        'model': 'anthropic/claude-sonnet-4',
+        'model': 'anthropic/claude-sonnet-4.5',
     }
     
     response = requests.post(url, headers=headers, json=data)

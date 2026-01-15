@@ -13,6 +13,7 @@ import uuid
 from enum import StrEnum
 from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
+from vector_app.ai.models import AIModel
 from .base_handler import BaseHandler, AgentEvent, FileChange
 from .generate_handler import GenerateHandler
 from vector_app.services.context_analyzer import get_context_analyzer
@@ -312,7 +313,7 @@ class FeatureHandler(BaseHandler):
         current_spec: Optional[Dict[str, Any]],
         registry_surface: Dict[str, Any],
         app_name: str,
-        model: str,
+        model: AIModel,
         app: Optional["InternalApp"] = None,
         version: Optional["AppVersion"] = None,
         **kwargs,
@@ -642,7 +643,7 @@ class FeatureHandler(BaseHandler):
         user_message: str,
         app_structure: str,
         main_app_code: str,
-        model: str,
+        model: AIModel,
     ) -> Dict[str, Any]:
         """Analyze how to add the feature.
 
@@ -780,7 +781,7 @@ class FeatureHandler(BaseHandler):
         user_message: str,
         plan_step: PlanStep,
         existing_code: Dict[str, str],
-        model: str,
+        model: AIModel,
         context: Optional["AppContext"] = None,
         data_store_context: Optional[str] = None,
         mcp_tools_context: Optional[str] = None,

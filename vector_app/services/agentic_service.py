@@ -14,16 +14,15 @@ ENHANCED: Intent-aware routing that intelligently decides between:
 """
 
 import logging
-import json
 import time
 import uuid
 from typing import Dict, Any, List, Optional, Generator, Tuple, TYPE_CHECKING
 from dataclasses import dataclass, asdict
 from enum import Enum
 
-from django.conf import settings
-import httpx
-
+from vector_app.ai.client import get_llm_client
+from vector_app.ai.models import AIModel
+from vector_app.ai.types import LLMSettings
 from vector_app.prompts.agentic import (
     FINAL_APP_SYSTEM_PROMPT,
     apply_design_style_prompt,
@@ -120,24 +119,7 @@ class AgenticService:
     5. Fix: Automatically fix compilation errors (max 2 attempts)
     """
 
-    OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
     MAX_FIX_ATTEMPTS = 2  # Maximum attempts to fix compilation errors
-
-    def __init__(self):
-        self.api_key = getattr(settings, "OPENROUTER_API_KEY", None) or getattr(
-            settings, "OPENAI_API_KEY", None
-        )
-        self.app_name = getattr(settings, "OPENROUTER_APP_NAME", "Internal Apps Builder")
-        self.site_url = getattr(settings, "BASE_URL", "http://localhost:8001")
-
-    def _build_headers(self) -> Dict[str, str]:
-        """Build API headers."""
-        return {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": self.site_url,
-            "X-Title": self.app_name,
-        }
 
     def _gather_context_parallel(
         self,
@@ -205,7 +187,7 @@ class AgenticService:
         current_spec: Optional[Dict[str, Any]],
         registry_surface: Dict[str, Any],
         app_name: str,
-        model: str = "anthropic/claude-sonnet-4",
+        model: AIModel = AIModel.CLAUDE_SONNET_4_5,
         app: Optional["InternalApp"] = None,
         version: Optional["AppVersion"] = None,
         use_intent_routing: bool = True,
@@ -703,7 +685,7 @@ class AgenticService:
         current_spec: Optional[Dict[str, Any]],
         registry_surface: Dict[str, Any],
         app_name: str,
-        model: str,
+        model: AIModel,
         app: Optional["InternalApp"],
         version: Optional["AppVersion"],
         session_id: str,
@@ -855,7 +837,7 @@ class AgenticService:
         context: Dict[str, Any],
         existing_files: List[FileChange],
         registry_surface: Dict[str, Any],
-        model: str,
+        model: AIModel,
         app: Optional["InternalApp"] = None,
         version: Optional["AppVersion"] = None,
         data_store_context: Optional[str] = None,
@@ -885,89 +867,67 @@ class AgenticService:
             },
         )
 
+        llm_settings = LLMSettings(
+            model=model,
+            temperature=0.3,
+            timeout=180.0,
+        )
+
         try:
-            with httpx.Client(timeout=180.0) as client:
-                with client.stream(
-                    "POST",
-                    self.OPENROUTER_API_URL,
-                    headers=self._build_headers(),
-                    json={
-                        "model": model,
-                        "messages": [
-                            {
-                                "role": "system",
-                                "content": build_codegen_system_prompt(registry_surface, has_data_store),
-                            },
-                            {"role": "user", "content": prompt},
-                        ],
-                        "temperature": 0.3,
-                        "stream": True,
-                    },
-                ) as response:
-                    response.raise_for_status()
+            full_content = ""
+            chunk_count = 0
 
-                    full_content = ""
-                    current_file_path = None
-                    file_content_buffer = ""
-                    chunk_count = 0
+            for chunk in get_llm_client().stream(
+                system_prompt=build_codegen_system_prompt(registry_surface, has_data_store),
+                user_prompt=prompt,
+                llm_settings=llm_settings,
+            ):
+                if chunk.error:
+                    raise RuntimeError(chunk.error)
 
-                    for line in response.iter_lines():
-                        if not line:
-                            continue
+                if chunk.content:
+                    full_content += chunk.content
+                    chunk_count += 1
 
-                        if line.startswith("data: "):
-                            data = line[6:]
-                            if data == "[DONE]":
-                                break
-
-                            try:
-                                chunk_data = json.loads(data)
-                                delta = chunk_data.get("choices", [{}])[0].get("delta", {})
-                                content = delta.get("content", "")
-
-                                if content:
-                                    full_content += content
-                                    chunk_count += 1
-
-                                    # Emit code chunks periodically
-                                    if chunk_count % 5 == 0:
-                                        yield AgentEvent(
-                                            "step_progress",
-                                            {
-                                                "step_index": step_index,
-                                                "progress": min(90, chunk_count * 2),
-                                                "message": f"Generating code...",
-                                            },
-                                        )
-
-                            except json.JSONDecodeError:
-                                continue
-
-                    # Parse and apply table definitions if app and version are provided
-                    if app and version:
-                        table_defs = self._parse_table_definitions(full_content)
-                        if table_defs:
-                            yield AgentEvent(
-                                "thinking",
-                                {
-                                    "content": f"Creating {len(table_defs)} data table(s)...",
-                                    "type": "decision",
-                                },
-                            )
-                            # Apply table definitions - this is a generator
-                            for event in self._apply_table_definitions(table_defs, app, version):
-                                yield event
-
-                    # Parse generated files from response
-                    files = self._parse_code_response(full_content, step)
-
-                    for file in files:
+                    # Emit code chunks periodically
+                    if chunk_count % 5 == 0:
                         yield AgentEvent(
-                            "file_generated",
+                            "step_progress",
                             {
-                                "file": asdict(file),
+                                "step_index": step_index,
+                                "progress": min(90, chunk_count * 2),
+                                "message": "Generating code...",
                             },
                         )
+
+                if chunk.done:
+                    break
+
+            # Parse and apply table definitions if app and version are provided
+            if app and version:
+                table_defs = self._parse_table_definitions(full_content)
+                if table_defs:
+                    yield AgentEvent(
+                        "thinking",
+                        {
+                            "content": f"Creating {len(table_defs)} data table(s)...",
+                            "type": "decision",
+                        },
+                    )
+                    # Apply table definitions - this is a generator
+                    for event in self._apply_table_definitions(table_defs, app, version):
+                        yield event
+
+            # Parse generated files from response
+            files = self._parse_code_response(full_content, step)
+
+            for file in files:
+                yield AgentEvent(
+                    "file_generated",
+                    {
+                        "file": asdict(file),
+                    },
+                )
 
         except Exception as e:
             logger.error("Step execution error: %s", e)
@@ -1142,7 +1102,7 @@ class AgenticService:
         context: Dict[str, Any],
         existing_files: List[FileChange],
         registry_surface: Dict[str, Any],
-        model: str,
+        model: AIModel,
     ) -> Generator[AgentEvent, None, None]:
         """Generate the final integrated App.tsx that uses all generated components."""
 
@@ -1168,79 +1128,62 @@ class AgenticService:
 
         prompt = build_final_app_prompt(user_message, context, components_info, other_files)
 
+        llm_settings = LLMSettings(
+            model=model,
+            temperature=0.3,
+            timeout=180.0,
+        )
+
         try:
-            with httpx.Client(timeout=180.0) as client:
-                with client.stream(
-                    "POST",
-                    self.OPENROUTER_API_URL,
-                    headers=self._build_headers(),
-                    json={
-                        "model": model,
-                        "messages": [
-                            {"role": "system", "content": FINAL_APP_SYSTEM_PROMPT},
-                            {"role": "user", "content": prompt},
-                        ],
-                        "temperature": 0.3,
-                        "stream": True,
+            full_content = ""
+
+            for chunk in get_llm_client().stream(
+                system_prompt=FINAL_APP_SYSTEM_PROMPT,
+                user_prompt=prompt,
+                llm_settings=llm_settings,
+            ):
+                if chunk.error:
+                    raise RuntimeError(chunk.error)
+
+                if chunk.content:
+                    full_content += chunk.content
+
+                if chunk.done:
+                    break
+
+            # Parse the App.tsx from response
+            import re
+
+            # Look for the App.tsx code block
+            patterns = [
+                r"```src/App\.tsx\n(.*?)```",
+                r"```App\.tsx\n(.*?)```",
+                r"```tsx\n(.*?)```",
+            ]
+
+            app_content = None
+            for pattern in patterns:
+                match = re.search(pattern, full_content, re.DOTALL)
+                if match:
+                    app_content = match.group(1).strip()
+                    break
+
+            if app_content and len(app_content) > 100:
+                # Remove old App.tsx from existing_files list (will be replaced)
+                yield AgentEvent(
+                    "file_generated",
+                    {
+                        "file": {
+                            "path": "src/App.tsx",
+                            "action": "create",
+                            "language": "tsx",
+                            "content": app_content,
+                        }
                     },
-                ) as response:
-                    response.raise_for_status()
-
-                    full_content = ""
-
-                    for line in response.iter_lines():
-                        if not line:
-                            continue
-
-                        if line.startswith("data: "):
-                            data = line[6:]
-                            if data == "[DONE]":
-                                break
-
-                            try:
-                                chunk_data = json.loads(data)
-                                delta = chunk_data.get("choices", [{}])[0].get("delta", {})
-                                content = delta.get("content", "")
-
-                                if content:
-                                    full_content += content
-
-                            except json.JSONDecodeError:
-                                continue
-
-                    # Parse the App.tsx from response
-                    import re
-
-                    # Look for the App.tsx code block
-                    patterns = [
-                        r"```src/App\.tsx\n(.*?)```",
-                        r"```App\.tsx\n(.*?)```",
-                        r"```tsx\n(.*?)```",
-                    ]
-
-                    app_content = None
-                    for pattern in patterns:
-                        match = re.search(pattern, full_content, re.DOTALL)
-                        if match:
-                            app_content = match.group(1).strip()
-                            break
-
-                    if app_content and len(app_content) > 100:
-                        # Remove old App.tsx from existing_files list (will be replaced)
-                        yield AgentEvent(
-                            "file_generated",
-                            {
-                                "file": {
-                                    "path": "src/App.tsx",
-                                    "action": "create",
-                                    "language": "tsx",
-                                    "content": app_content,
-                                }
-                            },
-                        )
-                        logger.info("Generated final App.tsx: %s chars", len(app_content))
-                    else:
-                        logger.warning("Failed to generate final App.tsx, keeping existing")
+                )
+                logger.info("Generated final App.tsx: %s chars", len(app_content))
+            else:
+                logger.warning("Failed to generate final App.tsx, keeping existing")
 
         except Exception as e:
             logger.error("Final app generation error: %s", e)
