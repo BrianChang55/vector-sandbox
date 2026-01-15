@@ -494,6 +494,7 @@ columns:
             over_eagerness_guard=OVER_EAGERNESS_GUARD,
         ) + data_step_instruction
     )
+
 SINGLE_FILE_PROMPT_TEMPLATE = """## Generate: {file_path}
 
 You are generating a SINGLE FILE: `{file_path}`
@@ -527,10 +528,19 @@ You are generating a SINGLE FILE: `{file_path}`
    - Make sure your imports match what they will export
    - Use consistent naming and types
 
-4. **OUTPUT FORMAT**:
-```{file_path}
-// Your complete file content here
-```
+4. **OUTPUT FORMAT** (CRITICAL - follow exactly):
+   - Start the code block with the FILE PATH, NOT a language like "typescript" or "tsx"
+   - The parser extracts files by path, so using a language marker will cause the file to be lost
+   
+   CORRECT format:
+   ```{file_path}
+   // Your complete file content here
+   ```
+   
+   WRONG format (DO NOT USE):
+   ```typescript
+   // This will NOT be parsed correctly!
+   ```
 
 Requirements:
 - Use TypeScript with proper types
