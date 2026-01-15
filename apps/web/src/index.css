@@ -1,0 +1,150 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Durations */
+  --internal-apps-duration-instant: 100ms;
+  --internal-apps-duration-fast: 160ms;
+  --internal-apps-duration-standard: 220ms;
+  --internal-apps-duration-slow: 300ms;
+  --internal-apps-duration-slow-plus: 380ms;
+
+  /* Easings */
+  --internal-apps-ease-out-soft: cubic-bezier(0.16, 1, 0.3, 1);
+  --internal-apps-ease-in-soft: cubic-bezier(0.7, 0, 0.84, 0);
+  --internal-apps-ease-in-out-soft: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@layer base {
+  html, body {
+    overscroll-behavior: none;
+  }
+  body {
+    @apply bg-zinc-950 text-zinc-100 font-sans antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: "Source Serif 4", serif;
+  }
+  
+  /* Scrollbar styling for dark theme */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(63 63 70 / 0.5);
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgb(82 82 91 / 0.7);
+  }
+}
+
+@layer utilities {
+  .fade-out {
+    opacity: 0;
+    transition: opacity 0.3s ease-out;
+  }
+  
+  /* Gradient text utility */
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-violet-400 to-fuchsia-400;
+  }
+  
+  /* Glass effect */
+  .glass {
+    @apply bg-zinc-900/50 backdrop-blur-xl border border-zinc-800/50;
+  }
+
+  /* Animation utilities for Radix dialogs/drawers */
+  [data-state="open"] {
+    animation-fill-mode: forwards;
+  }
+  
+  [data-state="closed"] {
+    animation-fill-mode: forwards;
+  }
+
+  /* Black accent for checkboxes and date inputs */
+  input[type="checkbox"] {
+    accent-color: #111827;
+  }
+  
+  input[type="date"],
+  input[type="datetime-local"] {
+    accent-color: #111827;
+    color-scheme: light;
+  }
+  
+  input[type="date"]::-webkit-calendar-picker-indicator,
+  input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+    filter: grayscale(1);
+    opacity: 0.6;
+    cursor: pointer;
+  }
+  
+  input[type="date"]::-webkit-calendar-picker-indicator:hover,
+  input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
+    opacity: 0.8;
+  }
+
+  /* Hide scrollbars until the user is actively scrolling */
+  .scrollbar-auto-hide {
+    scrollbar-width: none;
+  }
+
+  .scrollbar-auto-hide::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+
+  .scrollbar-auto-hide.scrolling {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(148 163 184 / 0.6) transparent;
+  }
+
+  .scrollbar-auto-hide.scrolling::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .scrollbar-auto-hide.scrolling::-webkit-scrollbar-thumb {
+    background: rgb(148 163 184 / 0.6);
+    border-radius: 4px;
+  }
+
+  .scrollbar-auto-hide.scrolling::-webkit-scrollbar-thumb:hover {
+    background: rgb(100 116 139 / 0.8);
+  }
+
+  /* Sandpack full-height fix:
+     Sandpack's internal wrappers often default to intrinsic heights, so flexbox alone
+     won't make the editor/preview fill the available space. Scope this to our preview. */
+  .sandpack-fullheight,
+  .sandpack-fullheight .sp-wrapper,
+  .sandpack-fullheight .sp-layout,
+  .sandpack-fullheight .sp-stack,
+  .sandpack-fullheight .sp-code-editor,
+  .sandpack-fullheight .sp-editor,
+  .sandpack-fullheight .sp-preview-container,
+  .sandpack-fullheight .sp-preview,
+  .sandpack-fullheight iframe {
+    height: 100%;
+    min-height: 0;
+  }
+
+  .sandpack-fullheight .sp-wrapper,
+  .sandpack-fullheight .sp-layout,
+  .sandpack-fullheight .sp-stack {
+    display: flex;
+    flex-direction: column;
+  }
+}
+
