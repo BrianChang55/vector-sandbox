@@ -1,12 +1,17 @@
 """
-Questioning Phase Prompts
+Questioning Phase Prompts - Distillation Layer
 
 Prompts for multi-turn requirement gathering before app generation.
 
-Three prompt pairs:
-1. Question Generation - Ask clarifying questions one at a time
-2. Sufficiency Check - Determine if enough info has been gathered
-3. Synthesis - Create structured requirements from conversation
+ARCHITECTURAL PRINCIPLE: This module is a pure distillation layer.
+- It extracts ONLY what the user explicitly said
+- It does NOT decide sufficiency or when to stop questioning
+- It does NOT infer requirements or fill gaps with defaults
+- The main agent receives extracted facts and makes all decisions
+
+Two prompt pairs:
+1. Question Generation - Ask clarifying questions one at a time (always generates)
+2. Extraction - Extract facts from conversation (no inference)
 """
 
 # =============================================================================
@@ -29,11 +34,7 @@ Key areas to explore:
 - How will users interact with it (views, forms, dashboards)?
 - Any specific UI preferences or constraints?
 
-Stop asking questions when you have a clear picture of:
-- The core purpose of the app
-- The data model (entities and relationships)
-- The main user workflows
-- Key features to build"""
+IMPORTANT: Always generate a question. The main agent decides when questioning is complete."""
 
 QUESTION_GENERATION_PROMPT = """Based on the user's request and our conversation so far, ask a clarifying question.
 
@@ -46,70 +47,35 @@ QUESTION_GENERATION_PROMPT = """Based on the user's request and our conversation
 ## Questions Asked: {question_count}
 
 Generate your next clarifying question. Be specific and build on what you've learned.
-If you feel you have enough information, say "I have enough information to proceed."
 
-Return ONLY your question (or the proceed statement), no other text."""
-
-# =============================================================================
-# Sufficiency Check Prompts
-# =============================================================================
-
-SUFFICIENCY_CHECK_SYSTEM_PROMPT = """You are an expert at evaluating whether enough requirements have been gathered.
-Your job is to analyze the conversation and determine if we have enough information to build the app.
-
-Minimum requirements for sufficiency:
-- Clear understanding of what the app should do
-- Data requirements are understood (what data, how structured)
-- At least one or two key features/workflows are defined
-- Any critical constraints are known
-
-Err on the side of having MORE information rather than less.
-A few extra questions are better than building the wrong thing.
-
-Return your analysis as JSON with:
-- has_enough: boolean - true if we can proceed
-- reasoning: string - explain your decision
-- missing_info: list - what's still unclear (if has_enough is false)"""
-
-SUFFICIENCY_CHECK_PROMPT = """Evaluate whether we have gathered enough requirements.
-
-## Original Request
-{initial_request}
-
-## Conversation So Far
-{chat_history}
-
-## What We Know
-{gathered_info}
-
-Analyze whether we have sufficient information to build this app.
-
-Return ONLY valid JSON:
-{{
-  "has_enough": true/false,
-  "reasoning": "explanation of your decision",
-  "missing_info": ["item1", "item2"] // empty if has_enough is true
-}}"""
+Return ONLY your question, no other text."""
 
 # =============================================================================
-# Synthesis Prompts
+# Extraction Prompts (Distillation Only - NO INFERENCE)
 # =============================================================================
 
-SYNTHESIS_SYSTEM_PROMPT = """You are an expert at synthesizing requirements from conversations.
-Your job is to create a structured requirements document from the Q&A conversation.
+EXTRACTION_SYSTEM_PROMPT = """You are an expert at extracting information from conversations.
+Your job is to identify what the user EXPLICITLY stated — nothing more.
 
-Output a JSON document with:
-- app_type: string (dashboard, form, data viewer, CRUD app, report builder, etc.)
-- description: string (one paragraph summary of what the app does)
-- data_requirements: list of data entities with their fields
-- features: list of key features to build
-- ui_preferences: any mentioned UI preferences (colors, layout, style)
-- constraints: any mentioned constraints (performance, compatibility, etc.)
+CRITICAL RULES:
+- Extract ONLY what the user actually said
+- DO NOT infer anything not explicitly stated
+- DO NOT fill gaps with "reasonable defaults"
+- DO NOT assume anything the user didn't mention
+- If something wasn't mentioned, it goes in "unknowns"
 
-Be comprehensive but concise. Include everything needed to build the app.
-Infer reasonable defaults for anything not explicitly stated."""
+Output structure:
+- goals: List of explicitly stated goals/purposes
+- explicit_requirements: List of requirements the user actually mentioned
+- ui_mentions: List of UI/UX specifics the user said they want
+- unknowns: List of things NOT answered OR answers that were unclear/vague
 
-SYNTHESIS_PROMPT = """Create a structured requirements document from this conversation.
+For unknowns, include things like:
+- Questions that were asked but not answered
+- Vague answers that need clarification
+- Critical aspects not discussed (data source, user types, etc.)"""
+
+EXTRACTION_PROMPT = """Extract facts from this conversation. NO INFERENCE — only what was explicitly said.
 
 ## Original Request
 {initial_request}
@@ -117,18 +83,18 @@ SYNTHESIS_PROMPT = """Create a structured requirements document from this conver
 ## Full Conversation
 {chat_history}
 
-Synthesize all gathered information into a structured requirements document.
+Extract information into these categories:
+- goals: What the user explicitly said they want to achieve
+- explicit_requirements: Features/capabilities the user actually mentioned
+- ui_mentions: Any UI/UX preferences or specifics the user stated
+- unknowns: Things not answered, unclear, or not discussed
 
 Return ONLY valid JSON:
 {{
-  "app_type": "string",
-  "description": "string",
-  "data_requirements": [
-    {{"entity": "name", "fields": ["field1", "field2"]}}
-  ],
-  "features": ["feature1", "feature2"],
-  "ui_preferences": {{}},
-  "constraints": []
+  "goals": ["explicitly stated goal 1", "explicitly stated goal 2"],
+  "explicit_requirements": ["user said they want X", "user mentioned Y"],
+  "ui_mentions": ["user said dark mode", "user wants sidebar"],
+  "unknowns": ["data source not specified", "unclear if real-time needed"]
 }}"""
 
 
@@ -156,36 +122,20 @@ def build_question_generation_prompt(
     )
 
 
-def build_sufficiency_check_prompt(
-    initial_request: str,
-    chat_history: str,
-    gathered_info: str,
-) -> str:
-    """Build the sufficiency check prompt.
-
-    Args:
-        initial_request: The user's original request that triggered questioning
-        chat_history: Formatted Q&A conversation so far
-        gathered_info: Summary of what we know so far
-    """
-    return SUFFICIENCY_CHECK_PROMPT.format(
-        initial_request=initial_request,
-        chat_history=chat_history or "No conversation yet.",
-        gathered_info=gathered_info or "No information gathered yet.",
-    )
-
-
-def build_synthesis_prompt(
+def build_extraction_prompt(
     initial_request: str,
     chat_history: str,
 ) -> str:
-    """Build the synthesis prompt.
+    """Build the extraction prompt.
+
+    NOTE: This extracts facts only — no inference, no gap-filling.
+    The main agent receives this and decides what to do next.
 
     Args:
         initial_request: The user's original request that triggered questioning
         chat_history: Full Q&A conversation
     """
-    return SYNTHESIS_PROMPT.format(
+    return EXTRACTION_PROMPT.format(
         initial_request=initial_request,
         chat_history=chat_history,
     )
