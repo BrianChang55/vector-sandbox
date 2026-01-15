@@ -11,10 +11,9 @@ apt-get update && apt-get install -y \
     libffi-dev \
     shared-mime-info
 
-# Install uv if not present
-if ! command -v uv &> /dev/null; then
-    pip install uv
-fi
+# Install uv via official installer
+curl -LsSf https://astral.sh/uv/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
 
 # Install Python dependencies with uv
 uv sync --frozen
