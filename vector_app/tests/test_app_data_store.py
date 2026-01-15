@@ -19,7 +19,7 @@ from rest_framework import status
 
 from vector_app.models import (
     User, Organization, UserOrganization, InternalApp,
-    AppDataTable, AppDataRow, AppDataQuery
+    AppDataTable, AppDataRow
 )
 from vector_app.services.schema_validator import SchemaValidator
 from vector_app.services.app_data_service import AppDataService

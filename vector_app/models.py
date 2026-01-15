@@ -12,7 +12,7 @@ from django.db import models
 from django.core.exceptions import ValidationError
 from vector_app.action_classification.types import ActionType
 from internal_apps.utils.base_model import BaseModel
-from .utils.encryption import encrypt_json, decrypt_json, encrypt_string, decrypt_string
+from .utils.encryption import encrypt_string, decrypt_string
 from internal_apps.utils.enum import choices
 
 # ============================================================================
@@ -381,72 +381,6 @@ class OrganizationInvite(BaseModel):
 
 
 # ============================================================================
-# Backend Connection Models
-# ============================================================================
-
-
-class BackendConnection(BaseModel):
-    """
-    Represents a connected backend configured for an organization.
-    Stores encrypted configuration (service role keys, etc.).
-    """
-
-    ADAPTER_SUPABASE = "supabase"
-    ADAPTER_POSTGRESQL = "postgresql"
-    ADAPTER_MYSQL = "mysql"
-
-    ADAPTER_CHOICES = [
-        (ADAPTER_SUPABASE, "Supabase"),
-        (ADAPTER_POSTGRESQL, "PostgreSQL"),
-        (ADAPTER_MYSQL, "MySQL"),
-    ]
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    organization = models.ForeignKey(
-        Organization, on_delete=models.CASCADE, related_name="backend_connections"
-    )
-    adapter_type = models.CharField(max_length=50, choices=ADAPTER_CHOICES, default=ADAPTER_SUPABASE)
-    display_name = models.CharField(max_length=255)
-    config_encrypted = models.TextField(help_text="Encrypted JSON configuration")
-
-    def set_config(self, config: dict):
-        """Set encrypted configuration."""
-        self.config_encrypted = encrypt_json(config)
-
-    def get_config(self) -> dict:
-        """Get decrypted configuration."""
-        if not self.config_encrypted:
-            return {}
-        return decrypt_json(self.config_encrypted)
-
-
-class ProjectUserBackendAuth(BaseModel):
-    """
-    Stores user-specific JWT tokens for backend connections (encrypted).
-    """
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="backend_auths")
-    backend_connection = models.ForeignKey(
-        BackendConnection, on_delete=models.CASCADE, related_name="user_auths"
-    )
-    user_jwt_encrypted = models.TextField(help_text="Encrypted user JWT")
-
-    class Meta:
-        unique_together = ["user", "backend_connection"]
-
-    def set_jwt(self, jwt: str):
-        """Set encrypted JWT."""
-        self.user_jwt_encrypted = encrypt_string(jwt)
-
-    def get_jwt(self) -> str:
-        """Get decrypted JWT."""
-        if not self.user_jwt_encrypted:
-            return ""
-        return decrypt_string(self.user_jwt_encrypted)
-
-
-# ============================================================================
 # Internal App Models
 # ============================================================================
 
@@ -475,14 +409,6 @@ class InternalApp(BaseModel):
     )
     description = models.TextField(blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_DRAFT)
-    backend_connection = models.ForeignKey(
-        BackendConnection,
-        on_delete=models.PROTECT,
-        related_name="internal_apps",
-        null=True,
-        blank=True,
-        help_text="Optional backend connection for data access",
-    )
     published_version = models.ForeignKey(
         "AppVersion",
         on_delete=models.SET_NULL,
@@ -549,37 +475,6 @@ class AppFavorite(BaseModel):
         return f"{self.user.email} - {self.app.name}"
 
 
-class ResourceRegistryEntry(BaseModel):
-    """
-    Registry entry for a resource available from a backend connection.
-    Used for safety gates and validation.
-    """
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    organization = models.ForeignKey(
-        Organization, on_delete=models.CASCADE, related_name="resource_registry_entries"
-    )
-    backend_connection = models.ForeignKey(
-        BackendConnection, on_delete=models.CASCADE, related_name="resource_registry_entries"
-    )
-    resource_id = models.CharField(max_length=255)
-    resource_name = models.CharField(max_length=255)
-    schema_json = models.JSONField(help_text="JSON schema for this resource")
-    enabled = models.BooleanField(default=True)
-    exposed_fields_json = models.JSONField(default=list, help_text="List of field names that are exposed")
-    ui_constraints_json = models.JSONField(default=dict, help_text="UI constraints (read_only, etc.)")
-    allowed_actions_json = models.JSONField(default=list, help_text="List of allowed ActionDef JSON objects")
-
-    class Meta:
-        unique_together = ["backend_connection", "resource_id"]
-        indexes = [
-            models.Index(fields=["backend_connection", "resource_id"]),
-        ]
-
-    def __str__(self):
-        return f"{self.resource_id} ({self.backend_connection.display_name})"
-
-
 class AppVersion(BaseModel):
     """
     Version of an internal app (immutable snapshot).
@@ -627,9 +522,6 @@ class AppVersion(BaseModel):
         help_text="Parent version used as the base for this version",
     )
     spec_json = models.JSONField(help_text="AppSpec JSON for this version")
-    scope_snapshot_json = models.JSONField(
-        null=True, blank=True, help_text="Snapshot of resource registry scope for published versions"
-    )
     intent_message = models.TextField(
         null=True, blank=True, help_text="User intent that generated this version (AI edits)"
     )
@@ -728,55 +620,6 @@ class VersionFile(BaseModel):
 
     def __str__(self):
         return f"{self.app_version} - {self.path}"
-
-
-class ActionExecutionLog(BaseModel):
-    """
-    Log of action executions for audit and debugging.
-    """
-
-    STATUS_SUCCESS = "success"
-    STATUS_ERROR = "error"
-
-    STATUS_CHOICES = [
-        (STATUS_SUCCESS, "Success"),
-        (STATUS_ERROR, "Error"),
-    ]
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    internal_app = models.ForeignKey(
-        InternalApp,
-        on_delete=models.CASCADE,
-        related_name="action_logs",
-        null=True,
-        blank=True,
-    )
-    app_version = models.ForeignKey(
-        AppVersion, on_delete=models.SET_NULL, null=True, blank=True, related_name="action_logs"
-    )
-    backend_connection = models.ForeignKey(
-        BackendConnection, on_delete=models.SET_NULL, null=True, blank=True, related_name="action_logs"
-    )
-    user = models.ForeignKey(
-        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="action_logs"
-    )
-    action_id = models.CharField(max_length=255)
-    resource_id = models.CharField(max_length=255, default="", blank=True)
-    args_json = models.JSONField(default=dict, help_text="Input arguments payload")
-    result_json = models.JSONField(null=True, blank=True, help_text="Adapter execution result")
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_SUCCESS)
-    error_message = models.TextField(null=True, blank=True)
-
-    class Meta:
-        ordering = ["-created_at"]
-        indexes = [
-            models.Index(fields=["internal_app", "-created_at"]),
-            models.Index(fields=["app_version", "-created_at"]),
-            models.Index(fields=["backend_connection", "-created_at"]),
-        ]
-
-    def __str__(self):
-        return f"{self.action_id} - {self.status}"
 
 
 # ============================================================================
@@ -1032,58 +875,6 @@ class ChatMessage(BaseModel):
         return f"{self.role}: {preview}"
 
 
-class AgentConfiguration(BaseModel):
-    """
-    User-configurable agent settings for code generation.
-    """
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="agent_configs")
-    name = models.CharField(max_length=100)
-    description = models.TextField(blank=True)
-
-    # Model configuration
-    default_model = models.CharField(max_length=100, default="anthropic/claude-sonnet-4.5")
-    fallback_model = models.CharField(
-        max_length=100, default="openai/gpt-4o-mini", help_text="Model to use if primary fails"
-    )
-
-    # Generation settings
-    temperature = models.FloatField(default=0.3)
-    max_tokens = models.IntegerField(default=8192)
-
-    # Custom instructions
-    system_prompt_override = models.TextField(
-        blank=True, null=True, help_text="Custom system prompt to prepend"
-    )
-    coding_guidelines = models.TextField(
-        blank=True, null=True, help_text="Custom coding guidelines for generation"
-    )
-
-    # Feature flags
-    enable_streaming = models.BooleanField(default=True)
-    enable_auto_apply = models.BooleanField(
-        default=False, help_text="Auto-apply generated code without confirmation"
-    )
-    enable_thinking_display = models.BooleanField(default=True, help_text="Show AI thinking process")
-
-    is_default = models.BooleanField(default=False)
-
-    class Meta:
-        unique_together = ["organization", "name"]
-
-    def __str__(self):
-        return f"{self.name} ({self.organization.name})"
-
-    def save(self, *args, **kwargs):
-        # Ensure only one default per org
-        if self.is_default:
-            AgentConfiguration.objects.filter(organization=self.organization, is_default=True).exclude(
-                pk=self.pk
-            ).update(is_default=False)
-        super().save(*args, **kwargs)
-
-
 class CodeGenerationJob(BaseModel):
     """
     Tracks code generation jobs for async processing and streaming.
@@ -1139,12 +930,7 @@ class CodeGenerationJob(BaseModel):
 
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_QUEUED)
 
-    # Progress tracking
-    progress_percentage = models.IntegerField(default=0)
-    progress_message = models.CharField(max_length=255, blank=True)
-
     # Streaming state - events stored for replay
-    accumulated_content = models.TextField(blank=True)
     chunk_count = models.IntegerField(default=0)
     events_json = models.JSONField(default=list, blank=True)  # List of {type, data, timestamp}
 
@@ -1154,8 +940,6 @@ class CodeGenerationJob(BaseModel):
 
     # Error tracking
     error_message = models.TextField(null=True, blank=True)
-    retry_count = models.IntegerField(default=0)
-    max_retries = models.IntegerField(default=3)
 
     # User who initiated the job
     created_by = models.ForeignKey(
@@ -1185,119 +969,6 @@ class CodeGenerationJob(BaseModel):
         self.events_json.append(event)
         self.chunk_count = len(self.events_json)
         self.save(update_fields=["events_json", "chunk_count", "updated_at"])
-
-
-class AIUsageLog(BaseModel):
-    """
-    Tracks AI API usage for cost monitoring and analytics.
-    """
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="ai_usage_logs")
-    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name="ai_usage_logs")
-
-    # Request details
-    model_id = models.CharField(max_length=100)
-    request_type = models.CharField(max_length=50)  # 'appspec', 'code', 'chat'
-
-    # Usage metrics
-    input_tokens = models.IntegerField(default=0)
-    output_tokens = models.IntegerField(default=0)
-    total_tokens = models.IntegerField(default=0)
-
-    # Cost tracking (in USD cents for precision)
-    cost_input_cents = models.IntegerField(default=0)
-    cost_output_cents = models.IntegerField(default=0)
-    total_cost_cents = models.IntegerField(default=0)
-
-    # Timing
-    duration_ms = models.IntegerField(default=0)
-
-    # Status
-    success = models.BooleanField(default=True)
-    error_message = models.TextField(null=True, blank=True)
-
-    # Context
-    internal_app = models.ForeignKey(
-        InternalApp, on_delete=models.SET_NULL, null=True, blank=True, related_name="ai_usage_logs"
-    )
-    chat_message = models.ForeignKey(
-        ChatMessage, on_delete=models.SET_NULL, null=True, blank=True, related_name="usage_logs"
-    )
-
-    class Meta:
-        ordering = ["-created_at"]
-        indexes = [
-            models.Index(fields=["organization", "-created_at"]),
-            models.Index(fields=["user", "-created_at"]),
-            models.Index(fields=["model_id", "-created_at"]),
-        ]
-
-    def __str__(self):
-        return f"{self.model_id} - {self.total_tokens} tokens - ${self.total_cost_cents / 100:.4f}"
-
-    @classmethod
-    def log_usage(
-        cls,
-        organization,
-        model_id: str,
-        request_type: str,
-        input_tokens: int,
-        output_tokens: int,
-        duration_ms: int,
-        user=None,
-        internal_app=None,
-        chat_message=None,
-        success: bool = True,
-        error_message: str = None,
-    ):
-        """Create a usage log entry with cost calculation."""
-        from .services.openrouter_service import MODEL_CONFIGS
-
-        # Get model cost config
-        config = MODEL_CONFIGS.get(model_id)
-        if config:
-            cost_input = int((input_tokens / 1_000_000) * config.cost_per_million_input * 100)
-            cost_output = int((output_tokens / 1_000_000) * config.cost_per_million_output * 100)
-        else:
-            # Default fallback pricing
-            cost_input = int((input_tokens / 1_000_000) * 1.0 * 100)
-            cost_output = int((output_tokens / 1_000_000) * 3.0 * 100)
-
-        return cls.objects.create(
-            organization=organization,
-            user=user,
-            model_id=model_id,
-            request_type=request_type,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            total_tokens=input_tokens + output_tokens,
-            cost_input_cents=cost_input,
-            cost_output_cents=cost_output,
-            total_cost_cents=cost_input + cost_output,
-            duration_ms=duration_ms,
-            success=success,
-            error_message=error_message,
-            internal_app=internal_app,
-            chat_message=chat_message,
-        )
-
-    @classmethod
-    def get_org_usage_summary(cls, organization, days: int = 30):
-        """Get usage summary for an organization."""
-        from django.utils import timezone
-        from datetime import timedelta
-        from django.db.models import Sum, Count, Avg
-
-        cutoff = timezone.now() - timedelta(days=days)
-
-        return cls.objects.filter(organization=organization, created_at__gte=cutoff).aggregate(
-            total_requests=Count("id"),
-            total_tokens=Sum("total_tokens"),
-            total_cost_cents=Sum("total_cost_cents"),
-            avg_duration_ms=Avg("duration_ms"),
-        )
-
 
 # ============================================================================
 # App Data Store Models
@@ -1409,25 +1080,6 @@ class AppDataRow(BaseModel):
             )["max_index"]
             self.row_index = (max_index or 0) + 1
         super().save(*args, **kwargs)
-
-
-class AppDataQuery(BaseModel):
-    """
-    Saved/named queries for an app's data tables.
-    Enables reusable queries in the app UI.
-    """
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    internal_app = models.ForeignKey(InternalApp, on_delete=models.CASCADE, related_name="data_queries")
-    name = models.CharField(max_length=255)
-    table = models.ForeignKey(AppDataTable, on_delete=models.CASCADE, related_name="saved_queries")
-    query_spec = models.JSONField(help_text="Query specification: filters, sort, pagination")
-
-    class Meta:
-        unique_together = ["internal_app", "name"]
-
-    def __str__(self):
-        return f"{self.name} ({self.internal_app.name})"
 
 
 class AppDataTableSnapshot(BaseModel):
@@ -1566,11 +1218,6 @@ class VersionStateSnapshot(BaseModel):
         default=list, help_text="Array of {id, slug, name, description, schema, row_count} for all tables"
     )
 
-    # Resource registry state at this version
-    resources_json = models.JSONField(
-        default=list, help_text="Array of resource registry entries exposed to this app"
-    )
-
     # Metadata
     total_tables = models.IntegerField(default=0, help_text="Number of data tables at this version")
     total_rows = models.IntegerField(default=0, help_text="Total row count across all tables at this version")
@@ -1591,10 +1238,9 @@ class VersionStateSnapshot(BaseModel):
 
         Captures:
         - All data table schemas
-        - Resource registry entries
         - File counts and metadata
         """
-        from .models import AppDataTable, ResourceRegistryEntry
+        from .models import AppDataTable
 
         app = app_version.internal_app
 
@@ -1616,30 +1262,12 @@ class VersionStateSnapshot(BaseModel):
             )
             total_rows += table.row_count
 
-        # Capture resource registry entries
-        resources_data = []
-        if app.backend_connection:
-            resources = ResourceRegistryEntry.objects.filter(
-                backend_connection=app.backend_connection, enabled=True
-            )
-            for resource in resources:
-                resources_data.append(
-                    {
-                        "id": str(resource.id),
-                        "resource_id": resource.resource_id,
-                        "resource_name": resource.resource_name,
-                        "exposed_fields": resource.exposed_fields_json or [],
-                        "allowed_actions": resource.allowed_actions_json or [],
-                    }
-                )
-
         # Get file count
         file_count = app_version.files.count()
 
         return cls.objects.create(
             app_version=app_version,
             tables_json=tables_data,
-            resources_json=resources_data,
             total_tables=len(tables_data),
             total_rows=total_rows,
             file_count=file_count,
@@ -1657,12 +1285,11 @@ class VersionStateSnapshot(BaseModel):
         Compare this snapshot to another snapshot.
 
         Returns:
-            Dict with 'tables', 'resources', 'files' changes
+            Dict with 'tables' and 'files' changes
         """
         if not other:
             return {
                 "tables": {"added": self.tables_json, "removed": [], "modified": []},
-                "resources": {"added": self.resources_json, "removed": [], "modified": []},
                 "files": {"from_count": 0, "to_count": self.file_count},
             }
 
@@ -1685,34 +1312,11 @@ class VersionStateSnapshot(BaseModel):
                         }
                     )
 
-        # Compare resources
-        self_resources = {r["resource_id"]: r for r in self.resources_json}
-        other_resources = {r["resource_id"]: r for r in other.resources_json}
-
-        resources_added = [r for rid, r in self_resources.items() if rid not in other_resources]
-        resources_removed = [r for rid, r in other_resources.items() if rid not in self_resources]
-        resources_modified = []
-
-        for rid in self_resources:
-            if rid in other_resources and self_resources[rid] != other_resources[rid]:
-                resources_modified.append(
-                    {
-                        "resource_id": rid,
-                        "from": other_resources[rid],
-                        "to": self_resources[rid],
-                    }
-                )
-
         return {
             "tables": {
                 "added": tables_added,
                 "removed": tables_removed,
                 "modified": tables_modified,
-            },
-            "resources": {
-                "added": resources_added,
-                "removed": resources_removed,
-                "modified": resources_modified,
             },
             "files": {
                 "from_count": other.file_count,
@@ -1980,10 +1584,13 @@ class ConnectorCache(BaseModel):
     connector_name = models.CharField(
         max_length=255, help_text='Display name (e.g., "Jira", "Linear", "Slack")'
     )
+    #move to json
     category = models.CharField(
         max_length=100, help_text='Category (e.g., "project_management", "communication")'
     )
+    #deprecate
     logo_url = models.URLField(blank=True, null=True, help_text="URL to connector logo image")
+    
     source_url = models.URLField(
         blank=True, null=True, help_text='Source website URL (e.g., "https://linear.app")'
     )
@@ -2123,7 +1730,7 @@ class ConnectorToolAction(BaseModel):
 class ConnectorExecutionLog(BaseModel):
     """
     Log of connector tool executions for audit and debugging.
-    Extends the pattern from ActionExecutionLog for connector operations.
+    Uses the same audit-log pattern for connector operations.
     """
 
     STATUS_SUCCESS = "success"

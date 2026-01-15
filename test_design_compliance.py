@@ -16,9 +16,7 @@ import json
 
 from vector_app.models import (
     User, Organization, UserOrganization,
-    BackendConnection, ProjectUserBackendAuth,
-    InternalApp, ResourceRegistryEntry,
-    AppVersion, VersionFile, ActionExecutionLog,
+    InternalApp, AppVersion, VersionFile,
 )
 
 User = get_user_model()
@@ -61,40 +59,6 @@ def test_models_compliance():
     except Exception as e:
         errors.append(f"UserOrganization model: {e}")
     
-    # Test BackendConnection model
-    try:
-        assert hasattr(BackendConnection, 'ADAPTER_SUPABASE')
-        assert BackendConnection.ADAPTER_SUPABASE == 'supabase'
-        backend = BackendConnection(
-            organization=org,
-            adapter_type=BackendConnection.ADAPTER_SUPABASE,
-            display_name='Test',
-            config_encrypted=''
-        )
-        assert hasattr(backend, 'set_config')
-        assert hasattr(backend, 'get_config')
-        assert callable(backend.set_config)
-        assert callable(backend.get_config)
-        print("✓ BackendConnection model: has adapter_type, display_name, encrypted config")
-    except Exception as e:
-        errors.append(f"BackendConnection model: {e}")
-    
-    # Test ProjectUserBackendAuth model
-    try:
-        auth = ProjectUserBackendAuth(
-            organization=org,
-            user=user,
-            backend_connection=backend,
-            user_jwt_encrypted=''
-        )
-        assert hasattr(auth, 'set_jwt')
-        assert hasattr(auth, 'get_jwt')
-        assert callable(auth.set_jwt)
-        assert callable(auth.get_jwt)
-        print("✓ ProjectUserBackendAuth model: has encrypted user_jwt")
-    except Exception as e:
-        errors.append(f"ProjectUserBackendAuth model: {e}")
-    
     # Test InternalApp model
     try:
         assert hasattr(InternalApp, 'STATUS_DRAFT')
@@ -102,7 +66,6 @@ def test_models_compliance():
         app = InternalApp(
             organization=org,
             name='Test App',
-            backend_connection=backend,
             created_by=user
         )
         assert hasattr(app, 'status')
@@ -110,23 +73,6 @@ def test_models_compliance():
         print("✓ InternalApp model: has status, allow_actions_in_preview")
     except Exception as e:
         errors.append(f"InternalApp model: {e}")
-    
-    # Test ResourceRegistryEntry model
-    try:
-        entry = ResourceRegistryEntry(
-            organization=org,
-            backend_connection=backend,
-            resource_id='public.users',
-            resource_name='Users',
-            schema_json={},
-            enabled=False
-        )
-        assert hasattr(entry, 'exposed_fields_json')
-        assert hasattr(entry, 'allowed_actions_json')
-        assert hasattr(entry, 'ui_constraints_json')
-        print("✓ ResourceRegistryEntry model: has exposed_fields, allowed_actions")
-    except Exception as e:
-        errors.append(f"ResourceRegistryEntry model: {e}")
     
     # Test AppVersion model
     try:
@@ -161,25 +107,6 @@ def test_models_compliance():
         print("✓ VersionFile model: has path, content, content_hash")
     except Exception as e:
         errors.append(f"VersionFile model: {e}")
-    
-    # Test ActionExecutionLog model
-    try:
-        assert hasattr(ActionExecutionLog, 'STATUS_SUCCESS')
-        assert hasattr(ActionExecutionLog, 'STATUS_ERROR')
-        log = ActionExecutionLog(
-            internal_app=app,
-            user=user,
-            backend_connection=backend,
-            action_id='test.action',
-            resource_id='public.users',
-            args_json={},
-            status=ActionExecutionLog.STATUS_SUCCESS
-        )
-        assert hasattr(log, 'app_version')
-        assert hasattr(log, 'error_message')
-        print("✓ ActionExecutionLog model: has status, error_message")
-    except Exception as e:
-        errors.append(f"ActionExecutionLog model: {e}")
     
     if errors:
         print("\n✗ Errors found:")
@@ -219,48 +146,12 @@ def test_encryption():
         return False
 
 def test_adapter_architecture():
-    """Test adapter architecture."""
+    """Adapter architecture is deprecated; skip."""
     print("\n" + "=" * 60)
-    print("Testing Adapter Architecture")
+    print("Adapter Architecture (Deprecated)")
     print("=" * 60)
-    
-    try:
-        from vector_app.adapters.base import AdapterContext, UserContext, ResourceSchema
-        from vector_app.adapters.supabase import SupabaseAdapter
-        
-        # Test adapter
-        adapter = SupabaseAdapter()
-        assert adapter.type == "supabase"
-        print("✓ SupabaseAdapter exists and has type='supabase'")
-        
-        # Test contexts
-        ctx = AdapterContext(
-            backend_url="https://test.co",
-            service_role_key="key",
-            anon_key="anon_key"
-        )
-        assert ctx.backend_url == "https://test.co"
-        print("✓ AdapterContext works")
-        
-        user_ctx = UserContext(
-            backend_url="https://test.co",
-            user_jwt="jwt_token",
-            anon_key="anon_key"
-        )
-        assert user_ctx.user_jwt == "jwt_token"
-        print("✓ UserContext works")
-        
-        # Test capabilities
-        capabilities = adapter.get_capabilities(ctx)
-        assert capabilities["adapter_type"] == "supabase"
-        print("✓ Adapter capabilities method works")
-        
-        return True
-    except Exception as e:
-        print(f"✗ Adapter architecture test failed: {e}")
-        import traceback
-        traceback.print_exc()
-        return False
+    print("✓ Adapter architecture checks skipped")
+    return True
 
 def test_services():
     """Test services (validation, codegen, AI)."""
@@ -334,15 +225,6 @@ def test_api_endpoints():
             ('GET', '/api/v1/orgs/'),
             ('POST', '/api/v1/orgs/'),
             ('POST', '/api/v1/orgs/{id}/switch/'),
-            ('GET', '/api/v1/orgs/{id}/backends/'),
-            ('POST', '/api/v1/orgs/{id}/backends/'),
-            ('POST', '/api/v1/backends/{id}/test/'),
-            ('POST', '/api/v1/backends/{id}/user-auth/'),
-            ('POST', '/api/v1/backends/{id}/discover/'),
-            ('GET', '/api/v1/backends/{id}/resources/'),
-            ('PATCH', '/api/v1/resources/{id}/'),
-            ('POST', '/api/v1/actions/allowlist/'),
-            ('DELETE', '/api/v1/actions/{id}/'),
             ('GET', '/api/v1/orgs/{id}/apps/'),
             ('POST', '/api/v1/orgs/{id}/apps/'),
             ('GET', '/api/v1/apps/{id}/'),
@@ -353,8 +235,6 @@ def test_api_endpoints():
             ('GET', '/api/v1/versions/{id}/'),
             ('POST', '/api/v1/versions/{id}/rollback/'),
             ('POST', '/api/v1/apps/{id}/publish/'),
-            ('POST', '/api/v1/runtime/query/'),
-            ('POST', '/api/v1/runtime/action/'),
         ]
         
         print(f"✓ Expected {len(expected_endpoints)} endpoints from design doc")

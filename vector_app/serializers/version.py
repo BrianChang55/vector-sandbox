@@ -45,7 +45,6 @@ class AppVersionSerializer(serializers.ModelSerializer):
             'validation_errors_json',
             'fix_attempts',
             'spec_json',
-            'scope_snapshot_json',
             'created_by',
             'created_by_email',
             'created_at',
@@ -79,7 +78,6 @@ class AppVersionListSerializer(serializers.ModelSerializer):
             'validation_status',
             'fix_attempts',
             'spec_json',
-            'scope_snapshot_json',
             'created_by',
             'created_by_email',
             'created_at',
@@ -114,7 +112,7 @@ class VersionStateSnapshotSerializer(serializers.ModelSerializer):
     """
     Serializer for VersionStateSnapshot model.
     
-    Provides complete snapshot data including tables and resources.
+    Provides complete snapshot data including tables and metadata.
     """
     version_number = serializers.IntegerField(source='app_version.version_number', read_only=True)
     version_source = serializers.CharField(source='app_version.source', read_only=True)
@@ -127,7 +125,6 @@ class VersionStateSnapshotSerializer(serializers.ModelSerializer):
             'version_number',
             'version_source',
             'tables_json',
-            'resources_json',
             'total_tables',
             'total_rows',
             'file_count',
@@ -281,7 +278,6 @@ class VersionDiffSerializer(serializers.Serializer):
     Used for rollback preview and version comparison views.
     """
     tables = TableDiffSerializer()
-    resources = TableDiffSerializer()
     files = FileDiffSerializer()
     versions = serializers.DictField()
 

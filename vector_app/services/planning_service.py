@@ -15,13 +15,10 @@ from enum import StrEnum
 from vector_app.ai.client import get_llm_client
 from vector_app.ai.models import AIModel
 from vector_app.ai.types import LLMSettings
-from vector_app.prompts.agentic import build_plan_prompt
+from vector_app.prompts.agentic.planning import build_plan_prompt
 from vector_app.services.validation_service import get_validation_service
-<<<<<<< HEAD
 from vector_app.services.intent_classifier import UserIntent
-=======
 from vector_app.utils.enum_utils import safe_str_enum
->>>>>>> 17c70b290a97a3dced5d64714330307230ed45dc
 
 logger = logging.getLogger(__name__)
 

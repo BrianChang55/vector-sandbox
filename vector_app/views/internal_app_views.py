@@ -32,7 +32,7 @@ class InternalAppViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """Filter apps to organization or return all for direct app access."""
         org_id = self.kwargs.get('organization_pk')
-        queryset = InternalApp.objects.select_related('backend_connection', 'created_by')
+        queryset = InternalApp.objects.select_related('created_by')
         
         # When accessing via /orgs/:org_id/apps/, filter by organization
         # When accessing via /apps/:pk/, return all (lookup by pk will filter)

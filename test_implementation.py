@@ -11,9 +11,8 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'internal_apps.settings')
 sys.path.insert(0, os.path.dirname(__file__))
 django.setup()
 
-from vector_app.models import User, Organization, UserOrganization, BackendConnection, InternalApp
+from vector_app.models import User, Organization, UserOrganization, InternalApp
 from vector_app.utils.encryption import encrypt_string, decrypt_string, encrypt_json, decrypt_json
-from vector_app.adapters.supabase import SupabaseAdapter
 from vector_app.services.validation import AppSpecValidationService
 from vector_app.services.codegen import CodegenService
 
@@ -57,30 +56,10 @@ def test_models():
     user_org.save()
     print(f"✓ Created membership: {user.email} - {org.name}")
     
-    # Test BackendConnection
-    backend = BackendConnection(
-        organization=org,
-        adapter_type=BackendConnection.ADAPTER_SUPABASE,
-        display_name="Test Supabase"
-    )
-    config = {
-        "supabase_url": "https://test.supabase.co",
-        "service_role_key": "test_key",
-    }
-    backend.set_config(config)
-    backend.save()
-    print(f"✓ Created backend connection: {backend.display_name}")
-    
-    # Verify config encryption
-    decrypted_config = backend.get_config()
-    assert decrypted_config["supabase_url"] == config["supabase_url"]
-    print(f"✓ Config encryption/decryption works")
-    
     # Test InternalApp
     app = InternalApp(
         organization=org,
         name="Test App",
-        backend_connection=backend,
         created_by=user
     )
     app.save()
@@ -90,30 +69,9 @@ def test_models():
     
     # Cleanup
     app.delete()
-    backend.delete()
     user_org.delete()
     org.delete()
     user.delete()
-
-def test_adapter():
-    """Test Supabase adapter."""
-    print("Testing Supabase adapter...")
-    
-    adapter = SupabaseAdapter()
-    assert adapter.type == "supabase"
-    print(f"✓ Adapter type: {adapter.type}")
-    
-    from vector_app.adapters.base import AdapterContext
-    ctx = AdapterContext(
-        backend_url="https://test.supabase.co",
-        service_role_key="test_key"
-    )
-    
-    capabilities = adapter.get_capabilities(ctx)
-    assert capabilities["adapter_type"] == "supabase"
-    print(f"✓ Adapter capabilities: {capabilities['adapter_type']}")
-    
-    print("Adapter tests passed!\n")
 
 def test_validation():
     """Test AppSpec validation."""
@@ -123,18 +81,9 @@ def test_validation():
     user = User.objects.create_user(email="valtest@example.com", password="test")
     org = Organization.objects.create(name="Val Org", slug="val-org")
     UserOrganization.objects.create(user=user, organization=org, role=UserOrganization.ROLE_ADMIN)
-    backend = BackendConnection.objects.create(
-        organization=org,
-        adapter_type=BackendConnection.ADAPTER_SUPABASE,
-        display_name="Val Backend"
-    )
-    backend.set_config({"supabase_url": "https://test.co", "service_role_key": "key"})
-    backend.save()
-    
     app = InternalApp.objects.create(
         organization=org,
         name="Val App",
-        backend_connection=backend,
         created_by=user
     )
     
@@ -147,7 +96,6 @@ def test_validation():
     
     # Cleanup
     app.delete()
-    backend.delete()
     UserOrganization.objects.filter(organization=org).delete()
     org.delete()
     user.delete()
@@ -181,7 +129,6 @@ if __name__ == "__main__":
     try:
         test_encryption()
         test_models()
-        test_adapter()
         test_validation()
         test_codegen()
         
