@@ -13,10 +13,11 @@ from rest_framework.test import APIClient
 from rest_framework import status
 
 from ..models import (
+    AppVersion,
+    AppVersionGenerationStatus,
+    InternalApp,
     Organization,
     UserOrganization,
-    InternalApp,
-    AppVersion,
     VersionFile,
 )
 from ..services.version_service import VersionService
@@ -60,7 +61,7 @@ class VersionServiceTestCase(TestCase):
             internal_app=self.app,
             version_number=1,
             spec_json={'test': True},
-            generation_status=AppVersion.GEN_STATUS_GENERATING,
+            generation_status=AppVersionGenerationStatus.GENERATING,
             created_by=self.user,
         )
         
@@ -74,7 +75,7 @@ class VersionServiceTestCase(TestCase):
             internal_app=self.app,
             version_number=1,
             spec_json={'version': 1},
-            generation_status=AppVersion.GEN_STATUS_COMPLETE,
+            generation_status=AppVersionGenerationStatus.COMPLETE,
             is_active=True,  # Active versions only
             created_by=self.user,
         )
@@ -84,7 +85,7 @@ class VersionServiceTestCase(TestCase):
             internal_app=self.app,
             version_number=2,
             spec_json={'version': 2},
-            generation_status=AppVersion.GEN_STATUS_GENERATING,
+            generation_status=AppVersionGenerationStatus.GENERATING,
             created_by=self.user,
         )
         
@@ -99,7 +100,7 @@ class VersionServiceTestCase(TestCase):
             internal_app=self.app,
             version_number=1,
             spec_json={'version': 1},
-            generation_status=AppVersion.GEN_STATUS_COMPLETE,
+            generation_status=AppVersionGenerationStatus.COMPLETE,
             is_active=True,  # Active versions only
             created_by=self.user,
         )
@@ -109,7 +110,7 @@ class VersionServiceTestCase(TestCase):
             internal_app=self.app,
             version_number=2,
             spec_json={'version': 2},
-            generation_status=AppVersion.GEN_STATUS_ERROR,
+            generation_status=AppVersionGenerationStatus.ERROR,
             generation_error='Test error',
             created_by=self.user,
         )
@@ -123,7 +124,7 @@ class VersionServiceTestCase(TestCase):
             internal_app=self.app,
             version_number=1,
             spec_json={'version': 1},
-            generation_status=AppVersion.GEN_STATUS_COMPLETE,
+            generation_status=AppVersionGenerationStatus.COMPLETE,
             created_by=self.user,
         )
         
@@ -131,7 +132,7 @@ class VersionServiceTestCase(TestCase):
             internal_app=self.app,
             version_number=2,
             spec_json={'version': 2},
-            generation_status=AppVersion.GEN_STATUS_GENERATING,
+            generation_status=AppVersionGenerationStatus.GENERATING,
             created_by=self.user,
         )
         
@@ -145,7 +146,7 @@ class VersionServiceTestCase(TestCase):
             internal_app=self.app,
             version_number=1,
             spec_json={'version': 1},
-            generation_status=AppVersion.GEN_STATUS_COMPLETE,
+            generation_status=AppVersionGenerationStatus.COMPLETE,
             created_by=self.user,
         )
         
@@ -153,7 +154,7 @@ class VersionServiceTestCase(TestCase):
             internal_app=self.app,
             version_number=2,
             spec_json={'version': 2},
-            generation_status=AppVersion.GEN_STATUS_GENERATING,
+            generation_status=AppVersionGenerationStatus.GENERATING,
             created_by=self.user,
         )
         
@@ -192,7 +193,7 @@ class CancelGenerationTestCase(TestCase):
             internal_app=self.app,
             version_number=1,
             spec_json={'test': True},
-            generation_status=AppVersion.GEN_STATUS_GENERATING,
+            generation_status=AppVersionGenerationStatus.GENERATING,
             created_by=self.user,
         )
         version_id = str(version.id)
@@ -211,7 +212,7 @@ class CancelGenerationTestCase(TestCase):
             internal_app=self.app,
             version_number=1,
             spec_json={'test': True},
-            generation_status=AppVersion.GEN_STATUS_GENERATING,
+            generation_status=AppVersionGenerationStatus.GENERATING,
             created_by=self.user,
         )
         
@@ -229,7 +230,7 @@ class CancelGenerationTestCase(TestCase):
         
         # Version should still exist but be marked as error
         version.refresh_from_db()
-        self.assertEqual(version.generation_status, AppVersion.GEN_STATUS_ERROR)
+        self.assertEqual(version.generation_status, AppVersionGenerationStatus.ERROR)
         self.assertEqual(version.generation_error, 'Generation cancelled by user')
     
     def test_cancel_complete_version_no_op(self):
@@ -238,7 +239,7 @@ class CancelGenerationTestCase(TestCase):
             internal_app=self.app,
             version_number=1,
             spec_json={'test': True},
-            generation_status=AppVersion.GEN_STATUS_COMPLETE,
+            generation_status=AppVersionGenerationStatus.COMPLETE,
             created_by=self.user,
         )
         
@@ -249,7 +250,7 @@ class CancelGenerationTestCase(TestCase):
         
         # Version should be unchanged
         version.refresh_from_db()
-        self.assertEqual(version.generation_status, AppVersion.GEN_STATUS_COMPLETE)
+        self.assertEqual(version.generation_status, AppVersionGenerationStatus.COMPLETE)
     
     def test_cancel_nonexistent_version(self):
         """Cancelling a non-existent version should return error."""
@@ -293,7 +294,7 @@ class CancelEndpointTestCase(TransactionTestCase):
             internal_app=self.app,
             version_number=1,
             spec_json={'test': True},
-            generation_status=AppVersion.GEN_STATUS_GENERATING,
+            generation_status=AppVersionGenerationStatus.GENERATING,
             created_by=self.user,
         )
         
@@ -313,7 +314,7 @@ class CancelEndpointTestCase(TransactionTestCase):
             internal_app=self.app,
             version_number=1,
             spec_json={'stable': True},
-            generation_status=AppVersion.GEN_STATUS_COMPLETE,
+            generation_status=AppVersionGenerationStatus.COMPLETE,
             is_active=True,  # Active versions only
             created_by=self.user,
         )
@@ -323,7 +324,7 @@ class CancelEndpointTestCase(TransactionTestCase):
             internal_app=self.app,
             version_number=2,
             spec_json={'generating': True},
-            generation_status=AppVersion.GEN_STATUS_GENERATING,
+            generation_status=AppVersionGenerationStatus.GENERATING,
             created_by=self.user,
         )
         
@@ -339,7 +340,7 @@ class CancelEndpointTestCase(TransactionTestCase):
             internal_app=self.app,
             version_number=1,
             spec_json={'test': True},
-            generation_status=AppVersion.GEN_STATUS_GENERATING,
+            generation_status=AppVersionGenerationStatus.GENERATING,
             created_by=self.user,
         )
         
@@ -382,7 +383,7 @@ class StableVersionUsageTestCase(TestCase):
             internal_app=self.app,
             version_number=1,
             spec_json={'pages': [{'id': 'page1', 'title': 'Stable Page'}]},
-            generation_status=AppVersion.GEN_STATUS_COMPLETE,
+            generation_status=AppVersionGenerationStatus.COMPLETE,
             is_active=True,  # Active versions only
             created_by=self.user,
         )
@@ -392,7 +393,7 @@ class StableVersionUsageTestCase(TestCase):
             internal_app=self.app,
             version_number=2,
             spec_json={'pages': [{'id': 'page2', 'title': 'Generating Page'}]},
-            generation_status=AppVersion.GEN_STATUS_GENERATING,
+            generation_status=AppVersionGenerationStatus.GENERATING,
             created_by=self.user,
         )
         
@@ -408,7 +409,7 @@ class StableVersionUsageTestCase(TestCase):
             internal_app=self.app,
             version_number=1,
             spec_json={'v': 1},
-            generation_status=AppVersion.GEN_STATUS_COMPLETE,
+            generation_status=AppVersionGenerationStatus.COMPLETE,
             created_by=self.user,
         )
         
@@ -416,7 +417,7 @@ class StableVersionUsageTestCase(TestCase):
             internal_app=self.app,
             version_number=2,
             spec_json={'v': 2},
-            generation_status=AppVersion.GEN_STATUS_GENERATING,
+            generation_status=AppVersionGenerationStatus.GENERATING,
             created_by=self.user,
         )
         
@@ -435,7 +436,7 @@ class StableVersionUsageTestCase(TestCase):
             internal_app=self.app,
             version_number=1,
             spec_json={'v': 1},
-            generation_status=AppVersion.GEN_STATUS_COMPLETE,
+            generation_status=AppVersionGenerationStatus.COMPLETE,
             is_active=True,  # Active versions only
             created_by=self.user,
         )
@@ -446,7 +447,7 @@ class StableVersionUsageTestCase(TestCase):
                 internal_app=self.app,
                 version_number=i,
                 spec_json={'v': i},
-                generation_status=AppVersion.GEN_STATUS_GENERATING,
+                generation_status=AppVersionGenerationStatus.GENERATING,
                 created_by=self.user,
             )
             VersionService.cancel_generating_version(str(v.id))

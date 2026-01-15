@@ -8,8 +8,17 @@ from rest_framework.test import APIClient
 from rest_framework import status
 
 from ..models import (
-    User, Organization, UserOrganization,
-    InternalApp, ChatSession, ChatMessage, AppVersion
+    AppVersion,
+    AppVersionSource,
+    ChatMessage,
+    ChatMessageRole,
+    ChatMessageStatus,
+    ChatSession,
+    InternalApp,
+    Organization,
+    User,
+    UserOrganization,
+    UserOrganizationRole,
 )
 
 
@@ -66,7 +75,7 @@ class ChatSessionModelTests(TestCase):
         UserOrganization.objects.create(
             user=self.user,
             organization=self.org,
-            role=UserOrganization.ROLE_ADMIN
+            role=UserOrganizationRole.ADMIN
         )
         self.app = InternalApp.objects.create(
             organization=self.org,
@@ -96,9 +105,9 @@ class ChatSessionModelTests(TestCase):
         
         message = ChatMessage.objects.create(
             session=session,
-            role=ChatMessage.ROLE_USER,
+            role=ChatMessageRole.USER,
             content='Create a user dashboard',
-            status=ChatMessage.STATUS_COMPLETE
+            status=ChatMessageStatus.COMPLETE
         )
         
         self.assertIsNotNone(message.id)
@@ -124,7 +133,7 @@ class ChatSessionModelTests(TestCase):
         
         message = ChatMessage.objects.create(
             session=session,
-            role=ChatMessage.ROLE_ASSISTANT,
+            role=ChatMessageRole.ASSISTANT,
             content=json.dumps(spec),
             generated_spec_json=spec,
             model_id='anthropic/claude-3.5-sonnet'
@@ -150,7 +159,7 @@ class StreamingViewsTests(TestCase):
         UserOrganization.objects.create(
             user=self.user,
             organization=self.org,
-            role=UserOrganization.ROLE_ADMIN
+            role=UserOrganizationRole.ADMIN
         )
         self.app = InternalApp.objects.create(
             organization=self.org,
@@ -204,7 +213,7 @@ class StreamingViewsTests(TestCase):
         )
         ChatMessage.objects.create(
             session=session,
-            role=ChatMessage.ROLE_USER,
+            role=ChatMessageRole.USER,
             content='Hello'
         )
         
@@ -272,7 +281,7 @@ class CodegenServiceTests(TestCase):
         version = AppVersion.objects.create(
             internal_app=self.app,
             version_number=1,
-            source=AppVersion.SOURCE_AI,
+            source=AppVersionSource.AI,
             spec_json={
                 'appName': 'Test App',
                 'pages': [{

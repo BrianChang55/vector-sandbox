@@ -17,6 +17,10 @@ from django.db import transaction
 
 from vector_app.models import AppVersion, VersionStateSnapshot, InternalApp
 from vector_app.services.snapshot_service import SnapshotService
+from vector_app.models import AppVersionGenerationStatus
+from vector_app.models import AppVersionGenerationStatus
+
+
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +64,7 @@ class Command(BaseCommand):
 
         # Build queryset
         versions_qs = AppVersion.objects.filter(
-            generation_status=AppVersion.GEN_STATUS_COMPLETE
+            generation_status=AppVersionGenerationStatus.COMPLETE
         ).select_related('internal_app')
 
         if app_id:
@@ -134,7 +138,7 @@ class Command(BaseCommand):
         # Also show stats
         total_with_snapshots = VersionStateSnapshot.objects.count()
         total_versions = AppVersion.objects.filter(
-            generation_status=AppVersion.GEN_STATUS_COMPLETE
+            generation_status=AppVersionGenerationStatus.COMPLETE
         ).count()
         
         self.stdout.write('')

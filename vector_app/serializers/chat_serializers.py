@@ -2,7 +2,7 @@
 Serializers for Chat and Code Generation
 """
 from rest_framework import serializers
-from ..models import ChatSession, ChatMessage, AgentConfiguration
+from ..models import ChatSession, ChatMessage
 
 
 class ChatSessionSerializer(serializers.ModelSerializer):
@@ -71,7 +71,7 @@ class ChatMessageCreateSerializer(serializers.Serializer):
     """Serializer for creating chat messages."""
     session_id = serializers.UUIDField(required=False, allow_null=True)
     message = serializers.CharField(required=True, min_length=1, max_length=50000)
-    model_id = serializers.CharField(required=False, default='anthropic/claude-sonnet-4')
+    model_id = serializers.CharField(required=False, default='anthropic/claude-sonnet-4.5')
     mode = serializers.ChoiceField(
         choices=['appspec', 'code'],
         required=False,
@@ -80,37 +80,11 @@ class ChatMessageCreateSerializer(serializers.Serializer):
     stream = serializers.BooleanField(required=False, default=True)
 
 
-class AgentConfigurationSerializer(serializers.ModelSerializer):
-    """Serializer for AgentConfiguration model."""
-    
-    class Meta:
-        model = AgentConfiguration
-        fields = [
-            'id',
-            'organization',
-            'name',
-            'description',
-            'default_model',
-            'fallback_model',
-            'temperature',
-            'max_tokens',
-            'system_prompt_override',
-            'coding_guidelines',
-            'enable_streaming',
-            'enable_auto_apply',
-            'enable_thinking_display',
-            'is_default',
-            'created_at',
-            'updated_at',
-        ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
-
-
 class GenerationRequestSerializer(serializers.Serializer):
     """Serializer for generation requests."""
     message = serializers.CharField(required=True, min_length=1)
     session_id = serializers.UUIDField(required=False, allow_null=True)
-    model = serializers.CharField(required=False, default='anthropic/claude-sonnet-4')
+    model = serializers.CharField(required=False, default='anthropic/claude-sonnet-4.5')
     mode = serializers.ChoiceField(
         choices=['appspec', 'code'],
         required=False,

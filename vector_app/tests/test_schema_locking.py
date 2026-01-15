@@ -15,8 +15,13 @@ from typing import List, Generator
 from django.test import TestCase
 
 from vector_app.models import (
-    User, Organization, UserOrganization,
-    InternalApp, AppVersion, AppDataTable
+    AppDataTable,
+    AppVersion,
+    InternalApp,
+    Organization,
+    User,
+    UserOrganization,
+    UserOrganizationRole,
 )
 from vector_app.services.handlers.generate_handler import GenerateHandler
 from vector_app.services.handlers.base_handler import FileChange
@@ -40,7 +45,7 @@ class TestSchemaLocking(TestCase):
         UserOrganization.objects.create(
             user=self.user,
             organization=self.org,
-            role=UserOrganization.ROLE_ADMIN
+            role=UserOrganizationRole.ADMIN
         )
         self.app = InternalApp.objects.create(
             organization=self.org,
@@ -149,7 +154,7 @@ class TestTableCodeSeparation(TestCase):
         UserOrganization.objects.create(
             user=self.user,
             organization=self.org,
-            role=UserOrganization.ROLE_ADMIN
+            role=UserOrganizationRole.ADMIN
         )
         self.app = InternalApp.objects.create(
             organization=self.org,
@@ -245,7 +250,7 @@ class TestContextPropagation(TestCase):
         UserOrganization.objects.create(
             user=self.user,
             organization=self.org,
-            role=UserOrganization.ROLE_ADMIN
+            role=UserOrganizationRole.ADMIN
         )
         self.app = InternalApp.objects.create(
             organization=self.org,
@@ -314,7 +319,7 @@ class TestFieldValidation(TestCase):
         UserOrganization.objects.create(
             user=self.user,
             organization=self.org,
-            role=UserOrganization.ROLE_ADMIN
+            role=UserOrganizationRole.ADMIN
         )
         self.app = InternalApp.objects.create(
             organization=self.org,
@@ -749,7 +754,7 @@ class TestDataStepInstructions(TestCase):
 
     def test_data_step_detection(self):
         """Test that data steps are correctly identified."""
-        from vector_app.prompts.agentic import build_step_prompt
+        from vector_app.prompts.agentic.execution import build_step_prompt
 
         # Create a data step
         step = PlanStep(
@@ -775,7 +780,7 @@ class TestDataStepInstructions(TestCase):
 
     def test_table_keyword_triggers_data_step_instructions(self):
         """Test that 'table' in title triggers data step instructions."""
-        from vector_app.prompts.agentic import build_step_prompt
+        from vector_app.prompts.agentic.execution import build_step_prompt
 
         # Create step with 'table' in title
         step = PlanStep(

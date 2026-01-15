@@ -6,6 +6,7 @@ Tests the classification of user requests into cost tiers (XS, S, M, L, XL).
 import pytest
 from unittest.mock import patch, MagicMock
 
+from vector_app.ai.models import AIModel
 from vector_app.services.execution_scope_classifier import (
     ExecutionScopeClassifier,
     ExecutionScope,
@@ -225,7 +226,7 @@ class TestExecutionScopeClassifierWithLLM:
         # Set API key
         classifier.api_key = "test-key"
         
-        result = classifier._llm_classify("Build me an app", "anthropic/claude-haiku-4")
+        result = classifier._llm_classify("Build me an app", AIModel.CLAUDE_HAIKU_4_5)
         
         assert result is not None
         assert result.scope == ExecutionScope.L
@@ -235,7 +236,7 @@ class TestExecutionScopeClassifierWithLLM:
         """Test LLM classification without API key returns None."""
         classifier.api_key = None
         
-        result = classifier._llm_classify("Build me an app", "anthropic/claude-haiku-4")
+        result = classifier._llm_classify("Build me an app", AIModel.CLAUDE_HAIKU_4_5)
         
         assert result is None
         mock_client_class.assert_not_called()

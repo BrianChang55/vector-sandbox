@@ -9,6 +9,7 @@ import logging
 import time
 from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
+from vector_app.ai.models import AIModel
 from .base_handler import BaseHandler, AgentEvent, FileChange
 from vector_app.services.context_analyzer import get_context_analyzer
 from vector_app.services.diff_application_service import (
@@ -27,7 +28,8 @@ logger = logging.getLogger(__name__)
 
 
 # Import design style and guards from prompts
-from vector_app.prompts.agentic import DESIGN_STYLE_PROMPT, OVER_EAGERNESS_GUARD
+from vector_app.prompts.agentic.design import DESIGN_STYLE_PROMPT
+from vector_app.prompts.agentic.guards import OVER_EAGERNESS_GUARD
 
 
 # Prompt for surgical edits using unified diff format
@@ -117,7 +119,7 @@ class EditHandler(BaseHandler):
         current_spec: Optional[Dict[str, Any]],
         registry_surface: Dict[str, Any],
         app_name: str,
-        model: str,
+        model: AIModel,
         app: Optional["InternalApp"] = None,
         version: Optional["AppVersion"] = None,
         **kwargs,
@@ -342,7 +344,7 @@ class EditHandler(BaseHandler):
         self,
         user_message: str,
         file_contents: Dict[str, str],
-        model: str,
+        model: AIModel,
         data_store_context: Optional[str] = None,
         mcp_tools_context: Optional[str] = None,
     ) -> Generator[AgentEvent, None, List[FileChange]]:

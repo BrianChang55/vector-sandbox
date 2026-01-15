@@ -4,7 +4,8 @@ Member and Invitation serializers for organization management.
 from rest_framework import serializers
 from django.utils import timezone
 
-from ..models import User, Organization, UserOrganization, OrganizationInvite
+from internal_apps.utils.enum import choices
+from ..models import Organization, OrganizationInvite, User, UserOrganization, UserOrganizationRole
 
 
 class OrgMemberSerializer(serializers.ModelSerializer):
@@ -44,7 +45,7 @@ class OrgMemberSerializer(serializers.ModelSerializer):
 
 class OrgMemberUpdateSerializer(serializers.Serializer):
     """Serializer for updating a member's role."""
-    role = serializers.ChoiceField(choices=UserOrganization.ROLE_CHOICES)
+    role = serializers.ChoiceField(choices=choices(UserOrganizationRole))
     
     def validate_role(self, value):
         """Validate role change is allowed."""
@@ -93,15 +94,15 @@ class OrgInviteSerializer(serializers.ModelSerializer):
         return None
     
     def get_role_display(self, obj):
-        return dict(UserOrganization.ROLE_CHOICES).get(obj.role, obj.role)
+        return dict(choices(UserOrganizationRole)).get(obj.role, obj.role)
 
 
 class OrgInviteCreateSerializer(serializers.Serializer):
     """Serializer for creating an organization invitation."""
     email = serializers.EmailField()
     role = serializers.ChoiceField(
-        choices=UserOrganization.ROLE_CHOICES,
-        default=UserOrganization.ROLE_EDITOR
+        choices=choices(UserOrganizationRole),
+        default=UserOrganizationRole.EDITOR
     )
     
     def validate_email(self, value):

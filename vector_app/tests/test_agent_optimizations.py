@@ -21,13 +21,10 @@ from typing import List, Optional, Dict, Any
 from django.test import TestCase
 
 # Import the modules we're testing
-from vector_app.prompts.agentic import (
-    OVER_EAGERNESS_GUARD,
-    ANTI_AI_SLOP_GUIDE,
-    DESIGN_STYLE_PROMPT,
-    build_codegen_system_prompt,
-    build_step_prompt,
-)
+from vector_app.prompts.agentic.codegen import build_codegen_system_prompt
+from vector_app.prompts.agentic.design import DESIGN_STYLE_PROMPT
+from vector_app.prompts.agentic.execution import build_step_prompt
+from vector_app.prompts.agentic.guards import ANTI_AI_SLOP_GUIDE, OVER_EAGERNESS_GUARD
 from vector_app.prompts.intent_classification import (
     build_intent_classification_prompt,
 )

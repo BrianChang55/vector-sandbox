@@ -8,7 +8,7 @@ import json
 import logging
 import time
 import uuid
-from typing import Generator
+from typing import Generator, Optional
 from django.http import StreamingHttpResponse, JsonResponse
 from django.views import View
 from django.utils.decorators import method_decorator
@@ -20,13 +20,29 @@ from rest_framework import status as http_status
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.request import Request
 
-from ..models import InternalApp, AppVersion, VersionFile, VersionAuditLog
-from ..models import ChatSession, ChatMessage, CodeGenerationJob
+from ..models import (
+    AppVersion,
+    AppVersionGenerationStatus,
+    AppVersionSource,
+    ChatMessage,
+    ChatMessageRole,
+    ChatMessageStatus,
+    ChatSession,
+    CodeGenerationJob,
+    CodeGenerationJobStatus,
+    InternalApp,
+    VersionAuditLog,
+    VersionFile,
+)
+from ..ai.models import AIModel
+from ..ai.client import get_llm_client
+from ..ai.types import LLMSettings
 from ..services.openrouter_service import (
     get_openrouter_service,
     StreamChunk,
     MODEL_CONFIGS,
 )
+from ..utils.enum_utils import safe_str_enum
 from ..services.validation import AppSpecValidationService
 from ..services.codegen import CodegenService
 from ..services.agentic_service import get_agentic_service
@@ -61,7 +77,7 @@ class AvailableModelsView(APIView):
         return Response({
             "models": models,
             "grouped": grouped,
-            "default": "anthropic/claude-sonnet-4",
+            "default": AIModel.CLAUDE_SONNET_4_5.value,
         })
 
 
@@ -120,7 +136,7 @@ class ChatSessionViewSet(APIView):
             session = ChatSession.objects.create(
                 internal_app=app,
                 title=request.data.get("title", "New Chat"),
-                model_id=request.data.get("model_id", "anthropic/claude-sonnet-4"),
+                model_id=_parse_model(request.data.get("model_id")),
                 created_by=request.user,
             )
             
@@ -192,6 +208,10 @@ def sse_event(event_type: str, data: dict) -> str:
     return f"event: {event_type}\ndata: {json_data}\n\n"
 
 
+def _parse_model(raw_model: Optional[str]) -> AIModel:
+    return safe_str_enum(raw_model, AIModel.CLAUDE_SONNET_4_5, AIModel)
+
+
 @method_decorator(csrf_exempt, name='dispatch')
 class StreamingGenerateView(View):
     """
@@ -207,7 +227,7 @@ class StreamingGenerateView(View):
         # Get parameters
         session_id = request.GET.get('session_id')
         message = request.GET.get('message', '')
-        model = request.GET.get('model', 'anthropic/claude-sonnet-4')
+        model = _parse_model(request.GET.get('model'))
         mode = request.GET.get('mode', 'appspec')  # 'appspec' or 'code'
         
         if not message:
@@ -249,7 +269,6 @@ class StreamingGenerateView(View):
         try:
             app = InternalApp.objects.select_related(
                 'organization',
-                'backend_connection'
             ).get(pk=app_id)
         except InternalApp.DoesNotExist:
             return JsonResponse({"error": "App not found"}, status=404)
@@ -289,7 +308,7 @@ class StreamingGenerateView(View):
         self,
         app: InternalApp,
         message: str,
-        model: str,
+        model: AIModel,
         mode: str,
         session_id: str,
         user,
@@ -329,9 +348,9 @@ class StreamingGenerateView(View):
         # Save user message
         user_message = ChatMessage.objects.create(
             session=session,
-            role=ChatMessage.ROLE_USER,
+            role=ChatMessageRole.USER,
             content=message,
-            status=ChatMessage.STATUS_COMPLETE,
+            status=ChatMessageStatus.COMPLETE,
         )
         if not session.title or session.title.strip() == "" or session.title == "New Chat":
             session.title = message[:50] + "..." if len(message) > 50 else message
@@ -344,9 +363,9 @@ class StreamingGenerateView(View):
         # Create assistant message placeholder
         assistant_message = ChatMessage.objects.create(
             session=session,
-            role=ChatMessage.ROLE_ASSISTANT,
+            role=ChatMessageRole.ASSISTANT,
             content="",
-            status=ChatMessage.STATUS_STREAMING,
+            status=ChatMessageStatus.STREAMING,
             model_id=model,
         )
         yield sse_event("assistant_start", {
@@ -362,28 +381,8 @@ class StreamingGenerateView(View):
         if latest_stable_version:
             current_spec = latest_stable_version.spec_json
         
-        # Build registry surface
-        from ..models import ResourceRegistryEntry
-        registry_entries = []
-        if app.backend_connection:
-            registry_entries = ResourceRegistryEntry.objects.filter(
-                backend_connection=app.backend_connection,
-                enabled=True
-            )
-        
-        registry_surface = {
-            "resources": [
-                {
-                    "resource_id": entry.resource_id,
-                    "resource_name": entry.resource_name,
-                    "exposed_fields": entry.exposed_fields_json or [],
-                    "allowed_actions": [
-                        a.get("action_id") for a in (entry.allowed_actions_json or [])
-                    ],
-                }
-                for entry in registry_entries
-            ]
-        }
+        # No external resource registry in the current backend
+        registry_surface = {"resources": []}
         
         # Get chat history
         chat_history = [
@@ -445,7 +444,7 @@ class StreamingGenerateView(View):
                     # Update assistant message
                     duration_ms = int((time.time() - start_time) * 1000)
                     assistant_message.content = accumulated_content
-                    assistant_message.status = ChatMessage.STATUS_COMPLETE
+                    assistant_message.status = ChatMessageStatus.COMPLETE
                     assistant_message.duration_ms = duration_ms
                     
                     if spec_json:
@@ -478,7 +477,7 @@ class StreamingGenerateView(View):
                                 version = AppVersion.objects.create(
                                     internal_app=app,
                                     version_number=next_version_number,
-                                    source=AppVersion.SOURCE_AI,
+                                    source=AppVersionSource.AI,
                                     spec_json=spec_json,
                                     created_by=user if user.is_authenticated else None,
                                     is_active=False,  # Start inactive until files are generated
@@ -517,7 +516,7 @@ class StreamingGenerateView(View):
                             })
                     
                 elif chunk.type == "error":
-                    assistant_message.status = ChatMessage.STATUS_ERROR
+                    assistant_message.status = ChatMessageStatus.ERROR
                     assistant_message.error_message = chunk.content
                     assistant_message.content = accumulated_content
                     assistant_message.save()
@@ -531,7 +530,7 @@ class StreamingGenerateView(View):
             
         except Exception as e:
             logger.error(f"Streaming error: {e}")
-            assistant_message.status = ChatMessage.STATUS_ERROR
+            assistant_message.status = ChatMessageStatus.ERROR
             assistant_message.error_message = str(e)
             assistant_message.content = accumulated_content
             assistant_message.save()
@@ -554,7 +553,6 @@ class NonStreamingGenerateView(APIView):
         try:
             app = InternalApp.objects.select_related(
                 'organization',
-                'backend_connection'
             ).get(pk=app_id)
             
             # Verify user is editor or above
@@ -563,7 +561,7 @@ class NonStreamingGenerateView(APIView):
                 return error
             
             message = request.data.get('message', '')
-            model = request.data.get('model', 'anthropic/claude-sonnet-4')
+            model = _parse_model(request.data.get('model'))
             session_id = request.data.get('session_id')
             
             if not message:
@@ -599,7 +597,7 @@ class NonStreamingGenerateView(APIView):
             # Save user message
             user_message = ChatMessage.objects.create(
                 session=session,
-                role=ChatMessage.ROLE_USER,
+                role=ChatMessageRole.USER,
                 content=message,
             )
             if not session.title or session.title.strip() == "" or session.title == "New Chat":
@@ -614,25 +612,8 @@ class NonStreamingGenerateView(APIView):
             if latest_version:
                 current_spec = latest_version.spec_json
             
-            # Build registry surface
-            from ..models import ResourceRegistryEntry
-            registry_entries = []
-            if app.backend_connection:
-                registry_entries = ResourceRegistryEntry.objects.filter(
-                    backend_connection=app.backend_connection,
-                    enabled=True
-                )
-            
-            registry_surface = {
-                "resources": [
-                    {
-                        "resource_id": entry.resource_id,
-                        "resource_name": entry.resource_name,
-                        "exposed_fields": entry.exposed_fields_json or [],
-                    }
-                    for entry in registry_entries
-                ]
-            }
+            # No external resource registry in the current backend
+            registry_surface = {"resources": []}
             
             # Generate spec
             service = get_openrouter_service()
@@ -650,7 +631,7 @@ class NonStreamingGenerateView(APIView):
             # Save assistant message
             assistant_message = ChatMessage.objects.create(
                 session=session,
-                role=ChatMessage.ROLE_ASSISTANT,
+                role=ChatMessageRole.ASSISTANT,
                 content=json.dumps(spec_json, indent=2),
                 model_id=model,
                 duration_ms=duration_ms,
@@ -669,7 +650,7 @@ class NonStreamingGenerateView(APIView):
                 version = AppVersion.objects.create(
                     internal_app=app,
                     version_number=next_version_number,
-                    source=AppVersion.SOURCE_AI,
+                    source=AppVersionSource.AI,
                     spec_json=spec_json,
                     created_by=request.user,
                     is_active=False,  # Start inactive until files are generated
@@ -739,7 +720,7 @@ class AgenticGenerateView(View):
             return JsonResponse({"error": "Invalid JSON body"}, status=400)
         
         message = body.get('message', '')
-        model = body.get('model', 'anthropic/claude-sonnet-4')
+        model = _parse_model(body.get('model'))
         session_id = body.get('session_id')
         
         if not message:
@@ -754,7 +735,6 @@ class AgenticGenerateView(View):
         try:
             app = InternalApp.objects.select_related(
                 'organization',
-                'backend_connection'
             ).get(pk=app_id)
         except InternalApp.DoesNotExist:
             return JsonResponse({"error": "App not found"}, status=404)
@@ -788,7 +768,7 @@ class AgenticGenerateView(View):
             user_message=message,
             model_id=model,
             created_by=user,
-            status=CodeGenerationJob.STATUS_QUEUED,
+            status=CodeGenerationJobStatus.QUEUED,
         )
         
         # Queue the Celery task
@@ -806,7 +786,7 @@ class AgenticGenerateView(View):
         # Get parameters from query string
         session_id = request.GET.get('session_id')
         message = request.GET.get('message', '')
-        model = request.GET.get('model', 'anthropic/claude-sonnet-4')
+        model = _parse_model(request.GET.get('model'))
         
         if not message:
             return JsonResponse({"error": "Message is required"}, status=400)
@@ -819,7 +799,6 @@ class AgenticGenerateView(View):
         try:
             app = InternalApp.objects.select_related(
                 'organization',
-                'backend_connection'
             ).get(pk=app_id)
         except InternalApp.DoesNotExist:
             return JsonResponse({"error": "App not found"}, status=404)
@@ -853,7 +832,7 @@ class AgenticGenerateView(View):
             user_message=message,
             model_id=model,
             created_by=user,
-            status=CodeGenerationJob.STATUS_QUEUED,
+            status=CodeGenerationJobStatus.QUEUED,
         )
         
         # Queue the Celery task
@@ -910,9 +889,9 @@ class AgenticGenerateView(View):
             
             # Check if job is done
             if job.status in [
-                CodeGenerationJob.STATUS_COMPLETE,
-                CodeGenerationJob.STATUS_FAILED,
-                CodeGenerationJob.STATUS_CANCELLED,
+                CodeGenerationJobStatus.COMPLETE,
+                CodeGenerationJobStatus.FAILED,
+                CodeGenerationJobStatus.CANCELLED,
             ]:
                 break
             
@@ -921,7 +900,7 @@ class AgenticGenerateView(View):
             waited += poll_interval
             
             # Timeout if job never starts
-            if job.status == CodeGenerationJob.STATUS_QUEUED and waited > max_wait_for_start:
+            if job.status == CodeGenerationJobStatus.QUEUED and waited > max_wait_for_start:
                 yield sse_event("agent_error", {
                     "message": "Job timed out waiting to start. The background worker may need to be restarted.",
                     "phase": "error",
@@ -1007,13 +986,13 @@ class JobStreamView(View):
             
             # Check if job is done
             if job.status in [
-                CodeGenerationJob.STATUS_COMPLETE,
-                CodeGenerationJob.STATUS_FAILED,
-                CodeGenerationJob.STATUS_CANCELLED,
+                CodeGenerationJobStatus.COMPLETE,
+                CodeGenerationJobStatus.FAILED,
+                CodeGenerationJobStatus.CANCELLED,
             ]:
                 # Emit final done event with job status
                 yield sse_event("done", {
-                    "success": job.status == CodeGenerationJob.STATUS_COMPLETE,
+                    "success": job.status == CodeGenerationJobStatus.COMPLETE,
                     "status": job.status,
                     "version_id": str(job.version_id) if job.version_id else None,
                 })
@@ -1024,7 +1003,7 @@ class JobStreamView(View):
             waited += poll_interval
             
             # Timeout if job never starts
-            if job.status == CodeGenerationJob.STATUS_QUEUED and waited > max_wait_for_start:
+            if job.status == CodeGenerationJobStatus.QUEUED and waited > max_wait_for_start:
                 yield sse_event("agent_error", {
                     "message": "Job timed out waiting to start. The background worker may need to be restarted.",
                     "phase": "error",
@@ -1077,9 +1056,9 @@ class JobStatusView(APIView):
             "completed_at": job.completed_at.isoformat() if job.completed_at else None,
             "error_message": job.error_message,
             "is_active": job.status in [
-                CodeGenerationJob.STATUS_QUEUED,
-                CodeGenerationJob.STATUS_PROCESSING,
-                CodeGenerationJob.STATUS_STREAMING,
+                CodeGenerationJobStatus.QUEUED,
+                CodeGenerationJobStatus.PROCESSING,
+                CodeGenerationJobStatus.STREAMING,
             ],
         })
 
@@ -1110,9 +1089,9 @@ class LatestJobView(APIView):
         active_job = CodeGenerationJob.objects.filter(
                     internal_app=app,
             status__in=[
-                CodeGenerationJob.STATUS_QUEUED,
-                CodeGenerationJob.STATUS_PROCESSING,
-                CodeGenerationJob.STATUS_STREAMING,
+                CodeGenerationJobStatus.QUEUED,
+                CodeGenerationJobStatus.PROCESSING,
+                CodeGenerationJobStatus.STREAMING,
             ]
         ).order_by('-created_at').first()
         
@@ -1170,13 +1149,13 @@ class JobCancelView(APIView):
             return Response({"error": "Access denied"}, status=http_status.HTTP_403_FORBIDDEN)
         
         # Only cancel if still running
-        if job.status in [CodeGenerationJob.STATUS_QUEUED, CodeGenerationJob.STATUS_PROCESSING, CodeGenerationJob.STATUS_STREAMING]:
-            job.status = CodeGenerationJob.STATUS_CANCELLED
+        if job.status in [CodeGenerationJobStatus.QUEUED, CodeGenerationJobStatus.PROCESSING, CodeGenerationJobStatus.STREAMING]:
+            job.status = CodeGenerationJobStatus.CANCELLED
             job.save(update_fields=['status', 'updated_at'])
             
             # Cancel the version if it exists
             if job.version:
-                job.version.generation_status = AppVersion.GEN_STATUS_ERROR
+                job.version.generation_status = AppVersionGenerationStatus.ERROR
                 job.version.generation_error = "Cancelled by user"
                 job.version.save(update_fields=['generation_status', 'generation_error', 'updated_at'])
             
@@ -1327,8 +1306,8 @@ class LatestGenerationView(APIView):
                 "error": version.generation_error,
                 "files": files,
                 "file_count": len(files),
-                "is_complete": version.generation_status == AppVersion.GEN_STATUS_COMPLETE,
-                "is_generating": version.generation_status == AppVersion.GEN_STATUS_GENERATING,
+                "is_complete": version.generation_status == AppVersionGenerationStatus.COMPLETE,
+                "is_generating": version.generation_status == AppVersionGenerationStatus.GENERATING,
                 "created_at": version.created_at.isoformat(),
                 # Stable version info for fallback
                 "latest_stable_version_id": str(latest_stable.id) if latest_stable else None,
@@ -1392,7 +1371,7 @@ class ApplyGeneratedCodeView(APIView):
             version = AppVersion.objects.create(
                 internal_app=app,
                 version_number=next_version_number,
-                source=AppVersion.SOURCE_AI,
+                source=AppVersionSource.AI,
                 spec_json=spec_json,
                 created_by=request.user,
             )
@@ -1509,7 +1488,7 @@ class FixErrorsView(View):
         
         # Get parameters
         errors_b64 = request.GET.get('errors', '')
-        model = request.GET.get('model', 'anthropic/claude-sonnet-4')
+        model = _parse_model(request.GET.get('model'))
         attempt = int(request.GET.get('attempt', '1'))
         
         if not errors_b64:
@@ -1599,7 +1578,7 @@ class FixErrorsView(View):
         self,
         version: AppVersion,
         errors: list,
-        model: str,
+        model: AIModel,
         attempt: int,
         user,
     ) -> Generator[str, None, None]:
@@ -1722,19 +1701,15 @@ class GenerateAppTitleView(APIView):
             )
         
         try:
-            import httpx
-            from django.conf import settings
-            
-            api_key = getattr(settings, 'OPENROUTER_API_KEY', None) or getattr(settings, 'OPENAI_API_KEY', None)
-            
-            if not api_key:
+            client = get_llm_client()
+            if not client.api_key:
                 # Fallback: use prompt as title
                 return Response({
                     "title": prompt[:40],
                     "description": "",
                     "fallback": True,
                 })
-            
+
             # Use GPT-4o-mini for fast, cheap title generation
             system_prompt = """You are a helpful assistant that generates short, catchy app titles and descriptions.
 Given a user's prompt describing what they want to build, generate:
@@ -1747,39 +1722,28 @@ Examples:
 - Prompt: "Build a dashboard to manage user subscriptions" -> {"title": "Subscription Manager", "description": "Track and manage user subscriptions"}
 - Prompt: "Create an order tracking system with refunds" -> {"title": "Order Tracker", "description": "Track orders and process refunds"}
 """
-            
-            with httpx.Client(timeout=15.0) as client:
-                response = client.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": "openai/gpt-4o-mini",
-                        "messages": [
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": f"Prompt: {prompt}"},
-                        ],
-                        "response_format": {"type": "json_object"},
-                        "temperature": 0.3,
-                        "max_tokens": 100,
-                    },
-                )
-                response.raise_for_status()
-                
-                result = response.json()
-                content = result["choices"][0]["message"]["content"]
-                parsed = json.loads(content)
-                
-                title = parsed.get("title", prompt[:40])[:40]
-                description = parsed.get("description", "")[:60]
-                
-                return Response({
-                    "title": title,
-                    "description": description,
-                    "fallback": False,
-                })
+
+            result = client.run(
+                system_prompt=system_prompt,
+                user_prompt=f"Prompt: {prompt}",
+                llm_settings=LLMSettings(
+                    model="openai/gpt-4o-mini",
+                    temperature=0.3,
+                    max_tokens=100,
+                    timeout=15.0,
+                ),
+                json_mode=True,
+            )
+            parsed = result.validated(json.loads, default={})
+
+            title = parsed.get("title", prompt[:40])[:40]
+            description = parsed.get("description", "")[:60]
+
+            return Response({
+                "title": title,
+                "description": description,
+                "fallback": False,
+            })
                 
         except Exception as e:
             logger.warning(f"Failed to generate app title via GPT: {e}")

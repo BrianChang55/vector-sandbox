@@ -13,6 +13,10 @@ from ..models import Organization, UserOrganization
 from ..serializers import OrganizationSerializer, OrganizationCreateSerializer, UserOrganizationSerializer
 from ..serializers.organization import OrganizationUpdateSerializer, OrganizationLogoUploadSerializer
 from ..services.image_upload_service import ImageUploadService
+from vector_app.models import UserOrganizationRole
+from vector_app.models import UserOrganizationRole
+
+
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +63,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         user_org = UserOrganization.objects.filter(
             user=request.user, 
             organization=org,
-            role=UserOrganization.ROLE_ADMIN
+            role=UserOrganizationRole.ADMIN
         ).first()
         
         if not user_org:
@@ -106,7 +110,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         user_org = UserOrganization.objects.filter(
             user=request.user, 
             organization=org,
-            role=UserOrganization.ROLE_ADMIN
+            role=UserOrganizationRole.ADMIN
         ).first()
         
         if not user_org:
@@ -169,7 +173,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         user_org = UserOrganization.objects.filter(
             user=request.user, 
             organization=org,
-            role=UserOrganization.ROLE_ADMIN
+            role=UserOrganizationRole.ADMIN
         ).first()
         
         if not user_org:
@@ -208,7 +212,7 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         user_org = UserOrganization.objects.filter(
             user=request.user, 
             organization=org,
-            role=UserOrganization.ROLE_ADMIN
+            role=UserOrganizationRole.ADMIN
         ).first()
         
         if not user_org:

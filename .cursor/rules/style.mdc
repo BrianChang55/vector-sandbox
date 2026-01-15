@@ -1,0 +1,136 @@
+---
+globs: *.py
+alwaysApply: false
+---
+# Backend Style Guide
+
+## Architecture
+
+**Layer separation** - business logic in services, not views:
+- `vector_app/views/` - HTTP handling only
+- `vector_app/serializers/` - validation and transformation
+- `vector_app/services/` - all business logic
+- `vector_app/models.py` - data schema only
+
+**Data flow:** Request → ViewSet → Serializer → Service → Model → Response
+
+## Project-Specific Patterns
+
+### Django Models
+
+Inherit from `BaseModel` (provides UUID `id`, `created_at`, `updated_at`):
+
+```python
+from internal_apps.utils.base_model import BaseModel
+
+class Organization(BaseModel):
+    name = models.CharField(max_length=255)
+```
+
+### Data Structures
+
+**Prefer dataclasses or Pydantic models over dicts.** Never create large nested dicts.
+
+```python
+# ✅ Good - structured and typed
+@dataclass
+class GenerationResult:
+    code: str
+    errors: list[str]
+    metadata: ResultMetadata
+
+# ✅ Good - Pydantic with validation (inherit from StrictBaseModel)
+from vector_app.utils.pydantic_utils import StrictBaseModel
+
+class UserRequest(StrictBaseModel):
+    email: str
+    count: int
+
+# ❌ Bad - untyped nested dict
+result = {"code": "...", "metadata": {"errors": [...], "info": {...}}}
+```
+
+### Services
+
+Use factory getter pattern. See `vector_app/services/validation_service.py` for canonical example.
+
+```python
+class MyService:
+    def do_thing(self, data: dict) -> Result:
+        # Business logic here
+        pass
+
+def get_my_service() -> MyService:
+    return MyService()
+```
+
+### Query Optimization
+
+Always use `select_related()` for ForeignKey and `prefetch_related()` for reverse/M2M:
+
+```python
+# Avoid N+1
+Organization.objects.select_related('owner').prefetch_related('members')
+```
+
+## Avoid
+
+### Inline imports
+
+Keep imports at the top of the file, not inside functions.
+
+```python
+# ❌ Bad
+def process():
+    from some_module import helper  # inline import
+    return helper()
+
+# ✅ Good - import at top of file
+from some_module import helper
+
+def process():
+    return helper()
+```
+
+### Inline string formatting
+
+Put format helpers in dedicated files (e.g., `prompts/`, `utils/`), not inline.
+
+```python
+# ❌ Bad - building complex strings inline
+def generate():
+    prompt = f"You are a {role}. Given {context}, do {task}..."
+
+# ✅ Good - use prompt templates/helpers
+from vector_app.prompts.generation import build_generation_prompt
+
+def generate():
+    prompt = build_generation_prompt(role=role, context=context, task=task)
+```
+
+### F-strings in logging
+
+Use lazy `%s` formatting for logs (avoids string interpolation when log level is disabled).
+
+```python
+# ❌ Bad - f-string always evaluated
+logger.info(f"Processing user {user_id} with data {data}")
+
+# ✅ Good - lazy formatting
+logger.info("Processing user %s with data %s", user_id, data)
+```
+
+## Canonical Examples
+
+- **ViewSet pattern:** `vector_app/views/organization_views.py`
+- **Service pattern:** `vector_app/services/validation_service.py`
+- **Serializer pattern:** `vector_app/serializers/internal_app.py`
+- **LLM calls:** See `calling-llms.mdc` rule and `vector_app/services/intent_classifier.py`
+
+## Tooling
+
+| Tool | Command | Config |
+|------|---------|--------|
+| Formatter | `make format` | black + isort |
+| Linting | `make lint` | `prospector.yml` |
+| Type checking | `make static` | `mypy.ini` |

@@ -10,13 +10,16 @@ from typing import Optional
 from django.db import transaction
 
 from ..models import (
-    AppVersion,
-    InternalApp,
-    VersionFile,
-    VersionStateSnapshot,
-    VersionAuditLog,
     AppDataTable,
     AppDataTableSnapshot,
+    AppVersion,
+    AppVersionGenerationStatus,
+    AppVersionSource,
+    InternalApp,
+    VersionAuditLog,
+    VersionAuditOperation,
+    VersionFile,
+    VersionStateSnapshot,
 )
 
 logger = logging.getLogger(__name__)
@@ -266,11 +269,11 @@ class SnapshotService:
                 internal_app=app,
                 version_number=next_version_number,
                 parent_version=target_version,
-                source=AppVersion.SOURCE_ROLLBACK,
+                source=AppVersionSource.ROLLBACK,
                 spec_json=target_version.spec_json,
                 intent_message=f"Rollback to v{target_version.version_number}",
                 created_by=user,
-                generation_status=AppVersion.GEN_STATUS_COMPLETE,
+                generation_status=AppVersionGenerationStatus.COMPLETE,
                 is_active=False,  # Start inactive until files are copied
             )
             
@@ -301,7 +304,7 @@ class SnapshotService:
             VersionAuditLog.log_operation(
                 internal_app=app,
                 app_version=rollback_version,
-                operation=VersionAuditLog.OPERATION_ROLLBACK,
+                operation=VersionAuditOperation.ROLLBACK,
                 user=user,
                 source_version=current_version,
                 details={
@@ -443,7 +446,7 @@ class SnapshotService:
         """
         versions = AppVersion.objects.filter(
             internal_app=app,
-            generation_status=AppVersion.GEN_STATUS_COMPLETE
+            generation_status=AppVersionGenerationStatus.COMPLETE
         ).select_related('created_by').order_by('-version_number')[:limit]
         
         result = []

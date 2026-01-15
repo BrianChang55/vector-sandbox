@@ -5,7 +5,6 @@ Abstract base class for all intent handlers.
 Provides common utilities for AgentEvent generation and LLM interactions.
 """
 
-import json
 import logging
 import re
 import uuid
@@ -13,9 +12,9 @@ from abc import ABC, abstractmethod
 from dataclasses import asdict
 from typing import Any, Dict, Generator, List, Optional, Set, TYPE_CHECKING
 
-from django.conf import settings
-import httpx
-
+from vector_app.ai.client import get_llm_client
+from vector_app.ai.models import AIModel
+from vector_app.ai.types import LLMSettings
 from vector_app.services.error_fix_service import get_error_fix_service
 from vector_app.services.planning_service import PlanStep
 from vector_app.services.types import (
@@ -171,24 +170,6 @@ class BaseHandler(ABC):
     objects for the streaming response.
     """
 
-    OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-
-    def __init__(self):
-        self.api_key = getattr(settings, "OPENROUTER_API_KEY", None) or getattr(
-            settings, "OPENAI_API_KEY", None
-        )
-        self.app_name = getattr(settings, "OPENROUTER_APP_NAME", "Internal Apps Builder")
-        self.site_url = getattr(settings, "BASE_URL", "http://localhost:8001")
-
-    def _build_headers(self) -> Dict[str, str]:
-        """Build API headers for OpenRouter."""
-        return {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": self.site_url,
-            "X-Title": self.app_name,
-        }
-
     @abstractmethod
     def execute(
         self,
@@ -198,7 +179,7 @@ class BaseHandler(ABC):
         current_spec: Optional[Dict[str, Any]],
         registry_surface: Dict[str, Any],
         app_name: str,
-        model: str,
+        model: AIModel,
         app: Optional["InternalApp"] = None,
         version: Optional["AppVersion"] = None,
         **kwargs,
@@ -287,7 +268,7 @@ class BaseHandler(ABC):
         """Emit step start event (legacy format)."""
         return AgentEvent("step_start", {
             "step_index": step_index,
-            "step": asdict(step),
+            "step": step.title,
         })
     
     def emit_step_completed(self, step: PlanStep, step_index: int) -> AgentEvent:
@@ -402,7 +383,7 @@ class BaseHandler(ABC):
         self,
         system_prompt: str,
         user_prompt: str,
-        model: str,
+        model: AIModel,
         temperature: float = 0.3,
         timeout: float = 120.0,
     ) -> Generator[str, None, str]:
@@ -414,47 +395,31 @@ class BaseHandler(ABC):
         """
         full_content = ""
 
+        llm_settings = LLMSettings(
+            model=model,
+            temperature=temperature,
+            timeout=timeout,
+        )
+
         try:
-            with httpx.Client(timeout=timeout) as client:
-                with client.stream(
-                    "POST",
-                    self.OPENROUTER_API_URL,
-                    headers=self._build_headers(),
-                    json={
-                        "model": model,
-                        "messages": [
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt},
-                        ],
-                        "temperature": temperature,
-                        "stream": True,
-                    },
-                ) as response:
-                    response.raise_for_status()
+            for chunk in get_llm_client().stream(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                llm_settings=llm_settings,
+            ):
+                if chunk.error:
+                    logger.error("LLM streaming error: %s", chunk.error)
+                    raise RuntimeError(chunk.error)
 
-                    for line in response.iter_lines():
-                        if not line:
-                            continue
+                if chunk.content:
+                    full_content += chunk.content
+                    yield chunk.content
 
-                        if line.startswith("data: "):
-                            data = line[6:]
-                            if data == "[DONE]":
-                                break
-
-                            try:
-                                chunk_data = json.loads(data)
-                                delta = chunk_data.get("choices", [{}])[0].get("delta", {})
-                                content = delta.get("content", "")
-
-                                if content:
-                                    full_content += content
-                                    yield content
-
-                            except json.JSONDecodeError:
-                                continue
+                if chunk.done:
+                    break
 
         except Exception as e:
-            logger.error(f"LLM streaming error: {e}")
+            logger.error("LLM streaming error: %s", e)
             raise
 
         return full_content
@@ -463,7 +428,7 @@ class BaseHandler(ABC):
         self,
         system_prompt: str,
         user_prompt: str,
-        model: str,
+        model: AIModel,
         temperature: float = 0.3,
         timeout: float = 60.0,
     ) -> str:
@@ -472,27 +437,22 @@ class BaseHandler(ABC):
 
         Returns the complete response content.
         """
-        try:
-            with httpx.Client(timeout=timeout) as client:
-                response = client.post(
-                    self.OPENROUTER_API_URL,
-                    headers=self._build_headers(),
-                    json={
-                        "model": model,
-                        "messages": [
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt},
-                        ],
-                        "temperature": temperature,
-                    },
-                )
-                response.raise_for_status()
+        llm_settings = LLMSettings(
+            model=model,
+            temperature=temperature,
+            timeout=timeout,
+        )
 
-                result = response.json()
-                return result["choices"][0]["message"]["content"]
+        try:
+            result = get_llm_client().run(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                llm_settings=llm_settings,
+            )
+            return result.validated()
 
         except Exception as e:
-            logger.error(f"LLM call error: {e}")
+            logger.error("LLM call error: %s", e)
             raise
 
     # ===== Code Parsing Utilities =====
@@ -646,7 +606,7 @@ class BaseHandler(ABC):
     def validate_and_fix(
         self,
         generated_files: List[FileChange],
-        model: str,
+        model: AIModel,
         max_attempts: int = 2,
     ) -> Generator[AgentEvent, None, tuple]:
         """

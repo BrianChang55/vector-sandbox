@@ -8,6 +8,10 @@ import logging
 import time
 from celery import shared_task
 from django.utils import timezone
+from vector_app.models import VersionAuditOperation
+from vector_app.models import VersionAuditOperation
+
+
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +31,18 @@ def run_agentic_generation(self, job_id: str):
     from the database, enabling reconnection without losing progress.
     """
     from vector_app.models import (
-        CodeGenerationJob, ChatSession, ChatMessage, AppVersion,
-        VersionFile, VersionAuditLog, ResourceRegistryEntry,
+        AppVersion,
+        AppVersionGenerationStatus,
+        AppVersionSource,
+        AppVersionValidationStatus,
+        ChatMessage,
+        ChatMessageRole,
+        ChatMessageStatus,
+        ChatSession,
+        CodeGenerationJob,
+        CodeGenerationJobStatus,
+        VersionAuditLog,
+        VersionFile,
     )
     from vector_app.services.agentic_service import get_agentic_service
     from vector_app.services.version_service import VersionService
@@ -37,7 +51,6 @@ def run_agentic_generation(self, job_id: str):
     try:
         job = CodeGenerationJob.objects.select_related(
             'internal_app',
-            'internal_app__backend_connection',
             'session',
             'created_by',
         ).get(pk=job_id)
@@ -46,12 +59,12 @@ def run_agentic_generation(self, job_id: str):
         return
     
     # Check if already cancelled before starting
-    if job.status == CodeGenerationJob.STATUS_CANCELLED:
+    if job.status == CodeGenerationJobStatus.CANCELLED:
         logger.info(f"Job {job_id} was cancelled before starting")
         return
     
     # Mark as processing
-    job.status = CodeGenerationJob.STATUS_PROCESSING
+    job.status = CodeGenerationJobStatus.PROCESSING
     job.started_at = timezone.now()
     job.save(update_fields=['status', 'started_at', 'updated_at'])
     
@@ -76,9 +89,9 @@ def run_agentic_generation(self, job_id: str):
     # Create user message (so it persists and shows on refresh)
     user_chat_message = ChatMessage.objects.create(
         session=session,
-        role=ChatMessage.ROLE_USER,
+        role=ChatMessageRole.USER,
         content=message,
-        status=ChatMessage.STATUS_COMPLETE,
+        status=ChatMessageStatus.COMPLETE,
     )
     
     # Update session title if needed
@@ -91,9 +104,9 @@ def run_agentic_generation(self, job_id: str):
     # Create assistant message
     assistant_message = ChatMessage.objects.create(
         session=session,
-        role=ChatMessage.ROLE_ASSISTANT,
+        role=ChatMessageRole.ASSISTANT,
         content="",
-        status=ChatMessage.STATUS_STREAMING,
+        status=ChatMessageStatus.STREAMING,
         model_id=model,
     )
     job.chat_message = assistant_message
@@ -106,27 +119,8 @@ def run_agentic_generation(self, job_id: str):
     if latest_stable_version:
         current_spec = latest_stable_version.spec_json
     
-    # Build registry surface
-    registry_entries = []
-    if app.backend_connection:
-        registry_entries = ResourceRegistryEntry.objects.filter(
-            backend_connection=app.backend_connection,
-            enabled=True
-        )
-    
-    registry_surface = {
-        "resources": [
-            {
-                "resource_id": entry.resource_id,
-                "resource_name": entry.resource_name,
-                "exposed_fields": entry.exposed_fields_json or [],
-                "allowed_actions": [
-                    a.get("action_id") for a in (entry.allowed_actions_json or [])
-                ],
-            }
-            for entry in registry_entries
-        ]
-    }
+    # No external resource registry in the current backend
+    registry_surface = {"resources": []}
     
     # Create draft version
     start_time = time.time()
@@ -140,15 +134,15 @@ def run_agentic_generation(self, job_id: str):
         version = AppVersion.objects.create(
             internal_app=app,
             version_number=next_version_number,
-            source=AppVersion.SOURCE_AI,
+            source=AppVersionSource.AI,
             spec_json=draft_spec,
             created_by=user,
-            generation_status=AppVersion.GEN_STATUS_GENERATING,
+            generation_status=AppVersionGenerationStatus.GENERATING,
         )
         
         # Link version to job
         job.version = version
-        job.status = CodeGenerationJob.STATUS_STREAMING
+        job.status = CodeGenerationJobStatus.STREAMING
         job.save(update_fields=['version', 'status', 'updated_at'])
         
         # Copy existing files from latest stable version
@@ -188,11 +182,17 @@ def run_agentic_generation(self, job_id: str):
             version=version,
             session=session,
         ):
+            # Debug log: intercept all Agent Events
+            logger.debug(
+                f"[AGENT_EVENT] Job {job_id} - Event type: {event.type}, "
+                f"Data: {event.data}"
+            )
+            
             # Check for cancellation periodically
             job.refresh_from_db(fields=['status'])
-            if job.status == CodeGenerationJob.STATUS_CANCELLED:
+            if job.status == CodeGenerationJobStatus.CANCELLED:
                 logger.info(f"Job {job_id} cancelled during generation")
-                version.generation_status = AppVersion.GEN_STATUS_ERROR
+                version.generation_status = AppVersionGenerationStatus.ERROR
                 version.generation_error = "Generation cancelled by user"
                 version.save(update_fields=['generation_status', 'generation_error', 'updated_at'])
                 _append_event(job, "agent_error", {
@@ -232,17 +232,17 @@ def run_agentic_generation(self, job_id: str):
         # Generation complete
         duration_ms = int((time.time() - start_time) * 1000)
         
-        version.generation_status = AppVersion.GEN_STATUS_COMPLETE
+        version.generation_status = AppVersionGenerationStatus.COMPLETE
         version.generation_current_step = current_step_index + 1
         version.is_active = True
-        version.validation_status = AppVersion.VALIDATION_PASSED
+        version.validation_status = AppVersionValidationStatus.PASSED
         version.save(update_fields=[
             'generation_status', 'generation_current_step', 'is_active',
             'validation_status', 'updated_at'
         ])
         
         # Update assistant message
-        assistant_message.status = ChatMessage.STATUS_COMPLETE
+        assistant_message.status = ChatMessageStatus.COMPLETE
         assistant_message.content = ""
         assistant_message.duration_ms = duration_ms
         
@@ -266,7 +266,7 @@ def run_agentic_generation(self, job_id: str):
             VersionAuditLog.log_operation(
                 internal_app=app,
                 app_version=version,
-                operation=VersionAuditLog.OPERATION_CREATE,
+                operation=VersionAuditOperation.CREATE,
                 user=user,
                 details={
                     'source': 'agentic_generation_background',
@@ -300,7 +300,7 @@ def run_agentic_generation(self, job_id: str):
         _append_event(job, "done", {"success": True})
         
         # Mark job as complete
-        job.status = CodeGenerationJob.STATUS_COMPLETE
+        job.status = CodeGenerationJobStatus.COMPLETE
         job.completed_at = timezone.now()
         job.save(update_fields=['status', 'completed_at', 'updated_at'])
         
@@ -311,12 +311,12 @@ def run_agentic_generation(self, job_id: str):
         
         # Mark version as errored
         if version:
-            version.generation_status = AppVersion.GEN_STATUS_ERROR
+            version.generation_status = AppVersionGenerationStatus.ERROR
             version.generation_error = str(e)
             version.save(update_fields=['generation_status', 'generation_error', 'updated_at'])
         
         # Update assistant message
-        assistant_message.status = ChatMessage.STATUS_ERROR
+        assistant_message.status = ChatMessageStatus.ERROR
         assistant_message.error_message = str(e)
         assistant_message.save(update_fields=['status', 'error_message', 'updated_at'])
         
@@ -329,7 +329,7 @@ def run_agentic_generation(self, job_id: str):
         })
         
         # Mark job as failed
-        job.status = CodeGenerationJob.STATUS_FAILED
+        job.status = CodeGenerationJobStatus.FAILED
         job.error_message = str(e)
         job.completed_at = timezone.now()
         job.save(update_fields=['status', 'error_message', 'completed_at', 'updated_at'])

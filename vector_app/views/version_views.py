@@ -16,7 +16,15 @@ from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
 from django.db import transaction
 
-from ..models import InternalApp, AppVersion, VersionFile, Organization, VersionAuditLog
+from ..models import (
+    AppVersion,
+    AppVersionSource,
+    InternalApp,
+    Organization,
+    VersionAuditLog,
+    VersionAuditOperation,
+    VersionFile,
+)
 from ..serializers import (
     AppVersionSerializer,
     AppVersionListSerializer,
@@ -112,23 +120,8 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
         latest_stable_version = VersionService.get_latest_stable_version(app)
         current_spec = latest_stable_version.spec_json if latest_stable_version else None
         
-        # Build registry surface for AI
-        from ..models import ResourceRegistryEntry
-        registry_entries = ResourceRegistryEntry.objects.filter(
-            backend_connection=app.backend_connection,
-            enabled=True
-        )
-        registry_surface = {
-            'resources': [
-                {
-                    'resource_id': entry.resource_id,
-                    'resource_name': entry.resource_name,
-                    'exposed_fields': entry.exposed_fields_json or [],
-                    'allowed_actions': [a.get('action_id') for a in (entry.allowed_actions_json or [])],
-                }
-                for entry in registry_entries
-            ]
-        }
+        # No external resource registry in the current backend
+        registry_surface = {'resources': []}
         
         # Generate AppSpec using AI
         try:
@@ -158,7 +151,7 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
                 internal_app=app,
                 version_number=next_version_number,
                 parent_version=latest_stable_version,
-                source=AppVersion.SOURCE_AI_EDIT,
+                source=AppVersionSource.AI_EDIT,
                 intent_message=intent_message,
                 spec_json=spec_json,
                 created_by=request.user,
@@ -213,7 +206,7 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
                 internal_app=app,
                 version_number=next_version_number,
                 parent_version=latest_stable,
-                source=AppVersion.SOURCE_CODE_EDIT,
+                source=AppVersionSource.CODE_EDIT,
                 spec_json=latest_stable.spec_json,
                 created_by=request.user,
                 is_active=False,  # Start inactive until files are copied
@@ -365,7 +358,7 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
             VersionAuditLog.log_operation(
                 internal_app=app,
                 app_version=version,
-                operation=VersionAuditLog.OPERATION_PREVIEW,
+                operation=VersionAuditOperation.PREVIEW,
                 user=request.user,
                 details={'action': 'rollback_preview', 'include_schema': include_schema},
                 ip_address=self._get_client_ip(request),
@@ -395,7 +388,7 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
             VersionAuditLog.log_operation(
                 internal_app=app,
                 app_version=version,
-                operation=VersionAuditLog.OPERATION_ROLLBACK,
+                operation=VersionAuditOperation.ROLLBACK,
                 user=request.user,
                 details={'action': 'rollback_failed', 'include_schema': include_schema},
                 ip_address=self._get_client_ip(request),
@@ -434,7 +427,6 @@ class AppVersionViewSet(viewsets.ReadOnlyModelViewSet):
             'version_id': str(version.id),
             'version_number': version.version_number,
             'tables': snapshot.tables_json,
-            'resources': snapshot.resources_json,
             'total_tables': snapshot.total_tables,
             'total_rows': snapshot.total_rows,
             'file_count': snapshot.file_count,

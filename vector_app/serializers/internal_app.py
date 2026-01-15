@@ -9,7 +9,6 @@ class InternalAppSerializer(serializers.ModelSerializer):
     """Serializer for InternalApp model."""
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     created_by_email = serializers.EmailField(source='created_by.email', read_only=True)
-    backend_connection_name = serializers.CharField(source='backend_connection.display_name', read_only=True)
     published_url = serializers.SerializerMethodField()
     published_version_id = serializers.UUIDField(source='published_version.id', read_only=True, allow_null=True)
     published_version_number = serializers.IntegerField(source='published_version.version_number', read_only=True, allow_null=True)
@@ -27,8 +26,6 @@ class InternalAppSerializer(serializers.ModelSerializer):
             'description',
             'status',
             'status_display',
-            'backend_connection',
-            'backend_connection_name',
             'published_version_id',
             'published_version_number',
             'published_at',
@@ -50,11 +47,6 @@ class InternalAppSerializer(serializers.ModelSerializer):
 
 class InternalAppCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating internal apps."""
-    backend_connection = serializers.PrimaryKeyRelatedField(
-        queryset=InternalApp._meta.get_field('backend_connection').related_model.objects.all(),
-        required=False,
-        allow_null=True,
-    )
     slug = serializers.SlugField(required=False, allow_blank=True, allow_null=True)
     
     class Meta:
@@ -63,7 +55,6 @@ class InternalAppCreateSerializer(serializers.ModelSerializer):
             'name',
             'slug',
             'description',
-            'backend_connection',
             'allow_actions_in_preview',
         ]
     

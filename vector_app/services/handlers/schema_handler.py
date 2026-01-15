@@ -10,11 +10,12 @@ import re
 import time
 from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
 
+from vector_app.ai.models import AIModel
 from .base_handler import BaseHandler, AgentEvent, FileChange
 from .generate_handler import GenerateHandler
 from ..datastore import TableDefinitionParser
 from vector_app.models import AppDataTable
-from vector_app.prompts.agentic import DESIGN_STYLE_PROMPT
+from vector_app.prompts.agentic.design import DESIGN_STYLE_PROMPT
 from vector_app.services.app_data_service import AppDataService
 from vector_app.services.planning_service import PlanStepStatus
 
@@ -129,7 +130,7 @@ class SchemaHandler(BaseHandler):
         current_spec: Optional[Dict[str, Any]],
         registry_surface: Dict[str, Any],
         app_name: str,
-        model: str,
+        model: AIModel,
         app: Optional["InternalApp"] = None,
         version: Optional["AppVersion"] = None,
         **kwargs,
@@ -341,7 +342,7 @@ class SchemaHandler(BaseHandler):
         self,
         user_message: str,
         tables_context: str,
-        model: str,
+        model: AIModel,
         app: "InternalApp",
         version: "AppVersion",
     ) -> Generator[AgentEvent, None, List[Dict[str, Any]]]:
@@ -483,7 +484,7 @@ class SchemaHandler(BaseHandler):
         schema_changes: List[Dict[str, Any]],
         context: "AppContext",
         version: "AppVersion",
-        model: str,
+        model: AIModel,
         data_store_context: Optional[str] = None,
         mcp_tools_context: Optional[str] = None,
     ) -> Generator[AgentEvent, None, List[FileChange]]:

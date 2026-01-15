@@ -8,7 +8,7 @@ import logging
 from typing import Optional
 from django.db import transaction
 
-from ..models import AppVersion, InternalApp
+from ..models import AppVersion, AppVersionGenerationStatus, InternalApp
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ class VersionService:
         """
         return AppVersion.objects.filter(
             internal_app=app,
-            generation_status=AppVersion.GEN_STATUS_COMPLETE,
+            generation_status=AppVersionGenerationStatus.COMPLETE,
             is_active=True
         ).order_by('-version_number').first()
     
@@ -103,7 +103,7 @@ class VersionService:
             }
         
         # If already complete, nothing to do
-        if version.generation_status == AppVersion.GEN_STATUS_COMPLETE:
+        if version.generation_status == AppVersionGenerationStatus.COMPLETE:
             return {
                 'success': True,
                 'action': 'already_complete',
@@ -112,8 +112,8 @@ class VersionService:
         
         # If generating or pending, cancel it
         if version.generation_status in [
-            AppVersion.GEN_STATUS_GENERATING,
-            AppVersion.GEN_STATUS_PENDING
+            AppVersionGenerationStatus.GENERATING,
+            AppVersionGenerationStatus.PENDING
         ]:
             with transaction.atomic():
                 file_count = version.files.count()
@@ -130,7 +130,7 @@ class VersionService:
                     }
                 else:
                     # Has partial files - mark as error so user can see partial progress
-                    version.generation_status = AppVersion.GEN_STATUS_ERROR
+                    version.generation_status = AppVersionGenerationStatus.ERROR
                     version.generation_error = 'Generation cancelled by user'
                     version.save(update_fields=['generation_status', 'generation_error', 'updated_at'])
                     logger.info(f"Marked version {version_id} as cancelled/error - had {file_count} files")
@@ -142,7 +142,7 @@ class VersionService:
                     }
         
         # Already in error state
-        if version.generation_status == AppVersion.GEN_STATUS_ERROR:
+        if version.generation_status == AppVersionGenerationStatus.ERROR:
             return {
                 'success': True,
                 'action': 'already_error',
@@ -177,7 +177,7 @@ class VersionService:
         
         stale_versions = AppVersion.objects.filter(
             internal_app=app,
-            generation_status=AppVersion.GEN_STATUS_GENERATING,
+            generation_status=AppVersionGenerationStatus.GENERATING,
             created_at__lt=cutoff
         )
         

@@ -358,7 +358,6 @@ def sync_connectors(request, pk):
                         "categories_json": connector_data.get("categories", [connector_data["category"]]),
                         "logo_url": connector_data.get("logo_url"),
                         "source_url": connector_data.get("source_url"),
-                        "icon_url": connector_data.get("logo_url"),  # Legacy fallback
                         "description": connector_data.get("description", ""),
                         "tools_json": tools,
                         "is_enabled": True,
@@ -493,7 +492,6 @@ def list_connectors(request, pk):
                         "categories_json": connector_data.get("categories", [connector_data["category"]]),
                         "logo_url": connector_data.get("logo_url"),
                         "source_url": connector_data.get("source_url"),
-                        "icon_url": connector_data.get("logo_url"),  # Legacy fallback
                         "description": connector_data.get("description", ""),
                         "tools_json": tools,
                         "is_enabled": True,
@@ -575,8 +573,7 @@ def list_connectors(request, pk):
                 "name": connector.connector_name,
                 "category": connector.category,
                 "categories": connector.categories_json or [connector.category],
-                "logo_url": connector.logo_url or connector.icon_url,
-                "icon_url": connector.logo_url or connector.icon_url,  # Backwards compat
+                "logo_url": connector.logo_url,
                 "source_url": connector.source_url,
                 "description": connector.description,
                 "is_connected": is_connected,  # From Merge API, not local DB

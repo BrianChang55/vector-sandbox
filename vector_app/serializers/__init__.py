@@ -2,8 +2,6 @@
 DRF Serializers for Vector Internal Apps
 """
 from .organization import OrganizationSerializer, OrganizationCreateSerializer, UserOrganizationSerializer
-from .backend_connection import BackendConnectionSerializer, BackendConnectionCreateSerializer, BackendConnectionTestSerializer
-from .resource_registry import ResourceRegistryEntrySerializer
 from .internal_app import InternalAppSerializer, InternalAppCreateSerializer, AppFavoriteSerializer
 from .version import (
     AppVersionSerializer,
@@ -20,7 +18,6 @@ from .version import (
     RollbackPreviewSerializer,
     RollbackRequestSerializer,
 )
-from .action_log import ActionExecutionLogSerializer
 from .auth_serializers import UserSerializer, SignUpSerializer, LoginSerializer, MagicLinkRequestSerializer, MagicLinkVerifySerializer
 from .member_serializers import (
     OrgMemberSerializer,
@@ -37,10 +34,6 @@ __all__ = [
     'OrganizationSerializer',
     'OrganizationCreateSerializer',
     'UserOrganizationSerializer',
-    'BackendConnectionSerializer',
-    'BackendConnectionCreateSerializer',
-    'BackendConnectionTestSerializer',
-    'ResourceRegistryEntrySerializer',
     'InternalAppSerializer',
     'InternalAppCreateSerializer',
     'AppFavoriteSerializer',
@@ -57,7 +50,6 @@ __all__ = [
     'VersionDiffSerializer',
     'RollbackPreviewSerializer',
     'RollbackRequestSerializer',
-    'ActionExecutionLogSerializer',
     'UserSerializer',
     'SignUpSerializer',
     'LoginSerializer',

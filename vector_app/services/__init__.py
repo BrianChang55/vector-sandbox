@@ -2,7 +2,6 @@
 Services layer for business logic
 """
 
-from .resource_discovery import ResourceDiscoveryService
 from .codegen import CodegenService
 from .validation import AppSpecValidationService
 from .agentic_service import AgenticService, get_agentic_service
@@ -16,7 +15,6 @@ from .execution_scope_classifier import (
 )
 
 __all__ = [
-    'ResourceDiscoveryService',
     'CodegenService',
     'AppSpecValidationService',
     'AgenticService',

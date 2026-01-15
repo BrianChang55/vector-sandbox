@@ -12,14 +12,13 @@ Key constraints:
 - Only fix the specific errors reported
 - Make minimum changes necessary
 """
-import json
 import logging
 import re
 from typing import Dict, Any, List, Generator, Optional
 
-from django.conf import settings
-import httpx
-
+from vector_app.ai.client import get_llm_client
+from vector_app.ai.models import AIModel
+from vector_app.ai.types import LLMSettings
 from vector_app.prompts.error_fix import (
     ERROR_FIX_SYSTEM_PROMPT,
 )
@@ -48,29 +47,13 @@ class ErrorFixService:
     parsing for backwards compatibility.
     """
     
-    OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
     MAX_ATTEMPTS = 2  # Maximum fix attempts before giving up
-    
-    def __init__(self):
-        self.api_key = getattr(settings, 'OPENROUTER_API_KEY', None) or \
-                      getattr(settings, 'OPENAI_API_KEY', None)
-        self.app_name = getattr(settings, 'OPENROUTER_APP_NAME', 'Internal Apps Builder')
-        self.site_url = getattr(settings, 'BASE_URL', 'http://localhost:8001')
-    
-    def _build_headers(self) -> Dict[str, str]:
-        """Build API headers for OpenRouter."""
-        return {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": self.site_url,
-            "X-Title": self.app_name,
-        }
     
     def fix_errors(
         self,
         files: List[FileChange],
         errors: List[CompilationError],
-        model: str = "anthropic/claude-sonnet-4",
+        model: AIModel = AIModel.CLAUDE_SONNET_4_5,
         attempt: int = 1,
     ) -> Generator[AgentEvent, None, List[FileChange]]:
         """
@@ -130,108 +113,91 @@ class ErrorFixService:
             "type": "observation",
         })
         
+        llm_settings = LLMSettings(
+            model=model,
+            temperature=0.2,
+            timeout=180.0,
+        )
+
         try:
-            with httpx.Client(timeout=180.0) as client:
-                with client.stream(
-                    "POST",
-                    self.OPENROUTER_API_URL,
-                    headers=self._build_headers(),
-                    json={
-                        "model": model,
-                        "messages": [
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt},
-                        ],
-                        "temperature": 0.2,  # Lower temperature for more focused fixes
-                        "stream": True,
-                    },
-                ) as response:
-                    response.raise_for_status()
-                    
-                    full_content = ""
-                    chunk_count = 0
-                    progress_emitted = False
-                    
-                    for line in response.iter_lines():
-                        if not line:
-                            continue
-                        
-                        if line.startswith("data: "):
-                            data = line[6:]
-                            if data == "[DONE]":
-                                break
-                            
-                            try:
-                                chunk_data = json.loads(data)
-                                delta = chunk_data.get("choices", [{}])[0].get("delta", {})
-                                content = delta.get("content", "")
-                                
-                                if content:
-                                    full_content += content
-                                    chunk_count += 1
-                                    
-                                    # Emit progress only once after receiving initial content
-                                    if not progress_emitted and chunk_count >= 10:
-                                        progress_emitted = True
-                                        yield AgentEvent("fix_progress", {
-                                            "attempt": attempt,
-                                            "message": "Generating fixes...",
-                                        })
-                                        
-                            except json.JSONDecodeError:
-                                continue
-                    
-                    # Convert files to dict for diff application
-                    file_contents = {f.path: f.content for f in files}
-                    
-                    # Apply diffs using centralized service
-                    config = DiffApplicationConfig(
-                        protected_files=set(),
-                        normalize_paths=False,
-                        allow_new_files=False,
-                        fallback_to_full_file=True,
-                        verify_changes=False,
-                    )
-                    
-                    fixed_files = _apply_diffs_from_llm_response(
-                        llm_response=full_content,
-                        file_contents=file_contents,
-                        config=config,
-                        parse_full_files_fallback=self._parse_fixed_files,
-                    )
-                    
-                    # Emit events for each fixed file
-                    for fixed_file in fixed_files:
-                        yield AgentEvent("fix_file_updated", {
-                            "file_path": fixed_file.path,
+            full_content = ""
+            chunk_count = 0
+            progress_emitted = False
+
+            for chunk in get_llm_client().stream(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                llm_settings=llm_settings,
+            ):
+                if chunk.error:
+                    raise RuntimeError(chunk.error)
+
+                if chunk.content:
+                    full_content += chunk.content
+                    chunk_count += 1
+
+                    # Emit progress only once after receiving initial content
+                    if not progress_emitted and chunk_count >= 10:
+                        progress_emitted = True
+                        yield AgentEvent("fix_progress", {
                             "attempt": attempt,
+                            "message": "Generating fixes...",
                         })
-                        
-                        # Also emit file_generated for consistency
-                        yield AgentEvent("file_generated", {
-                            "file": {
-                                "path": fixed_file.path,
-                                "action": "modify",
-                                "language": fixed_file.language,
-                                "content": fixed_file.content,
-                            }
-                        })
-                    
-                    if fixed_files:
-                        yield AgentEvent("thinking", {
-                            "content": f"Fixed {len(fixed_files)} file(s)",
-                            "type": "decision",
-                        })
-                    else:
-                        yield AgentEvent("thinking", {
-                            "content": "No fixes applied - errors may require manual review",
-                            "type": "reflection",
-                        })
-                    
-                    # Merge fixed files back into original list
-                    result_files = self._merge_fixed_files(files, fixed_files)
-                    
-                    return result_files
+
+                if chunk.done:
+                    break
+
+            # Convert files to dict for diff application
+            file_contents = {f.path: f.content for f in files}
+
+            # Apply diffs using centralized service
+            config = DiffApplicationConfig(
+                protected_files=set(),
+                normalize_paths=False,
+                allow_new_files=False,
+                fallback_to_full_file=True,
+                verify_changes=False,
+            )
+
+            fixed_files = _apply_diffs_from_llm_response(
+                llm_response=full_content,
+                file_contents=file_contents,
+                config=config,
+                parse_full_files_fallback=self._parse_fixed_files,
+            )
+
+            # Emit events for each fixed file
+            for fixed_file in fixed_files:
+                yield AgentEvent("fix_file_updated", {
+                    "file_path": fixed_file.path,
+                    "attempt": attempt,
+                })
+
+                # Also emit file_generated for consistency
+                yield AgentEvent("file_generated", {
+                    "file": {
+                        "path": fixed_file.path,
+                        "action": "modify",
+                        "language": fixed_file.language,
+                        "content": fixed_file.content,
+                    }
+                })
+
+            if fixed_files:
+                yield AgentEvent("thinking", {
+                    "content": f"Fixed {len(fixed_files)} file(s)",
+                    "type": "decision",
+                })
+            else:
+                yield AgentEvent("thinking", {
+                    "content": "No fixes applied - errors may require manual review",
+                    "type": "reflection",
+                })
+
+            # Merge fixed files back into original list
+            result_files = self._merge_fixed_files(files, fixed_files)
+
+            return result_files
                     
         except Exception as e:
             logger.error(f"Error fix service error: {e}")
@@ -246,7 +212,7 @@ class ErrorFixService:
         self,
         files: List[FileChange],
         bundler_errors: List[Dict[str, Any]],
-        model: str = "anthropic/claude-sonnet-4",
+        model: AIModel = AIModel.CLAUDE_SONNET_4_5,
         attempt: int = 1,
     ) -> Generator[AgentEvent, None, List[FileChange]]:
         """
@@ -304,103 +270,86 @@ These errors were caught by the bundler, not TypeScript. Common causes: circular
             "type": "observation",
         })
         
-        try:
-            with httpx.Client(timeout=180.0) as client:
-                with client.stream(
-                    "POST",
-                    self.OPENROUTER_API_URL,
-                    headers=self._build_headers(),
-                    json={
-                        "model": model,
-                        "messages": [
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt},
-                        ],
-                        "temperature": 0.2,
-                        "stream": True,
-                    },
-                ) as response:
-                    response.raise_for_status()
-                    
-                    full_content = ""
-                    chunk_count = 0
-                    progress_emitted = False
-                    
-                    for line in response.iter_lines():
-                        if not line:
-                            continue
-                        
-                        if line.startswith("data: "):
-                            data = line[6:]
-                            if data == "[DONE]":
-                                break
-                            
-                            try:
-                                chunk_data = json.loads(data)
-                                delta = chunk_data.get("choices", [{}])[0].get("delta", {})
-                                content = delta.get("content", "")
-                                
-                                if content:
-                                    full_content += content
-                                    chunk_count += 1
-                                    
-                                    # Emit progress only once after receiving initial content
-                                    if not progress_emitted and chunk_count >= 10:
-                                        progress_emitted = True
-                                        yield AgentEvent("fix_progress", {
-                                            "attempt": attempt,
-                                            "message": "Generating fixes...",
-                                        })
-                                        
-                            except json.JSONDecodeError:
-                                continue
-                    
-                    # Convert files to dict for diff application
-                    file_contents = {f.path: f.content for f in files}
-                    
-                    # Apply diffs using centralized service
-                    config = DiffApplicationConfig(
-                        protected_files=set(),
-                        normalize_paths=False,
-                        allow_new_files=False,
-                        fallback_to_full_file=True,
-                        verify_changes=False,
-                    )
+        llm_settings = LLMSettings(
+            model=model,
+            temperature=0.2,
+            timeout=180.0,
+        )
 
-                    fixed_files = _apply_diffs_from_llm_response(
-                        llm_response=full_content,
-                        file_contents=file_contents,
-                        config=config,
-                        parse_full_files_fallback=self._parse_fixed_files,
-                    )
-                    
-                    for fixed_file in fixed_files:
-                        yield AgentEvent("fix_file_updated", {
-                            "file_path": fixed_file.path,
+        try:
+            full_content = ""
+            chunk_count = 0
+            progress_emitted = False
+
+            for chunk in get_llm_client().stream(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                llm_settings=llm_settings,
+            ):
+                if chunk.error:
+                    raise RuntimeError(chunk.error)
+
+                if chunk.content:
+                    full_content += chunk.content
+                    chunk_count += 1
+
+                    # Emit progress only once after receiving initial content
+                    if not progress_emitted and chunk_count >= 10:
+                        progress_emitted = True
+                        yield AgentEvent("fix_progress", {
                             "attempt": attempt,
+                            "message": "Generating fixes...",
                         })
-                        
-                        yield AgentEvent("file_generated", {
-                            "file": {
-                                "path": fixed_file.path,
-                                "action": "modify",
-                                "language": fixed_file.language,
-                                "content": fixed_file.content,
-                            }
-                        })
-                    
-                    if fixed_files:
-                        yield AgentEvent("thinking", {
-                            "content": f"Fixed {len(fixed_files)} file(s)",
-                            "type": "decision",
-                        })
-                    else:
-                        yield AgentEvent("thinking", {
-                            "content": "No fixes applied - errors may require manual review",
-                            "type": "reflection",
-                        })
-                    
-                    return self._merge_fixed_files(files, fixed_files)
+
+                if chunk.done:
+                    break
+
+            # Convert files to dict for diff application
+            file_contents = {f.path: f.content for f in files}
+
+            # Apply diffs using centralized service
+            config = DiffApplicationConfig(
+                protected_files=set(),
+                normalize_paths=False,
+                allow_new_files=False,
+                fallback_to_full_file=True,
+                verify_changes=False,
+            )
+
+            fixed_files = _apply_diffs_from_llm_response(
+                llm_response=full_content,
+                file_contents=file_contents,
+                config=config,
+                parse_full_files_fallback=self._parse_fixed_files,
+            )
+
+            for fixed_file in fixed_files:
+                yield AgentEvent("fix_file_updated", {
+                    "file_path": fixed_file.path,
+                    "attempt": attempt,
+                })
+
+                yield AgentEvent("file_generated", {
+                    "file": {
+                        "path": fixed_file.path,
+                        "action": "modify",
+                        "language": fixed_file.language,
+                        "content": fixed_file.content,
+                    }
+                })
+
+            if fixed_files:
+                yield AgentEvent("thinking", {
+                    "content": f"Fixed {len(fixed_files)} file(s)",
+                    "type": "decision",
+                })
+            else:
+                yield AgentEvent("thinking", {
+                    "content": "No fixes applied - errors may require manual review",
+                    "type": "reflection",
+                })
+
+            return self._merge_fixed_files(files, fixed_files)
                     
         except Exception as e:
             logger.error(f"Bundler error fix error: {e}")

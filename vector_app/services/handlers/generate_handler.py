@@ -26,18 +26,22 @@ from ..diff_application_service import (
     DiffApplicationConfig,
 )
 from vector_app.models import AppDataTable, VersionFile
-from vector_app.prompts.agentic import (
+from vector_app.ai.models import AIModel
+from vector_app.prompts.agentic.codegen import build_codegen_system_prompt
+from vector_app.prompts.agentic.execution import (
     apply_design_style_prompt,
-    build_codegen_system_prompt,
+    build_file_prompt,
     build_step_prompt,
 )
 from vector_app.services.typescript_types_generator import generate_typescript_types
 from vector_app.services.app_data_service import AppDataService
 from vector_app.services.error_fix_service import get_error_fix_service
 from vector_app.services.planning_service import PlanStep, PlanStepStatus, PlanOperationType, get_planning_service, AgentPlan
+from vector_app.services.intent_classifier import UserIntent
 from vector_app.services.types import CompilationError
 from vector_app.services.validation_service import get_validation_service
-from vector_app.prompts.agentic import build_file_prompt
+from vector_app.services.schema_extraction_service import get_schema_extraction_service
+from vector_app.services.datastore.table_creator import create_tables_from_definitions
 
 if TYPE_CHECKING:
     from vector_app.models import InternalApp, AppVersion
@@ -121,7 +125,7 @@ class GenerateHandler(BaseHandler):
         current_spec: Optional[Dict[str, Any]],
         registry_surface: Dict[str, Any],
         app_name: str,
-        model: str,
+        model: AIModel,
         app: Optional["InternalApp"] = None,
         version: Optional["AppVersion"] = None,
         **kwargs,
@@ -141,8 +145,13 @@ class GenerateHandler(BaseHandler):
         # Apply design style to user message
         styled_user_message = apply_design_style_prompt(
             user_message,
-            data_store_context,
-            mcp_tools_context,
+            data_store_context=None,
+            connectors_context=mcp_tools_context,
+        )
+        styled_user_message_with_data_store = apply_design_style_prompt(
+            styled_user_message,
+            data_store_context=data_store_context,
+            connectors_context=mcp_tools_context,
         )
 
         # ===== PHASE 1: PLANNING =====
@@ -161,7 +170,12 @@ class GenerateHandler(BaseHandler):
         # Generate plan using the planning service
         try:
             planning_service = get_planning_service()
-            plan: AgentPlan = planning_service.create_plan(styled_user_message, plan_context, model)
+            plan: AgentPlan = planning_service.create_plan(
+                styled_user_message,
+                plan_context,
+                model,
+                intent_type=UserIntent.GENERATE_NEW,
+            )
             plan_steps = plan.steps
         except Exception as e:
             logger.error(f"Planning service failed: {e}, using default plan")
@@ -173,7 +187,46 @@ class GenerateHandler(BaseHandler):
             explored_files=len(registry_surface.get("resources", [])) + 5,
             searches=1,
         )
-        
+
+        # ===== SCHEMA EXTRACTION: Create tables from plan =====
+        if app is not None:
+            logger.info("🔍 Starting schema extraction from plan...")
+            schema_extraction_service = get_schema_extraction_service()
+            try:
+                schema_content = schema_extraction_service.extract_schema_from_plan(
+                    plan,
+                    styled_user_message_with_data_store,
+                    model
+                )
+                logger.info(f"📋 Schema extraction complete. Content length: {len(schema_content) if schema_content else 0} chars")
+
+                # Parse and create tables if schema was extracted
+                if schema_content and "NO_TABLES_NEEDED" not in schema_content.upper():
+                    logger.info("📊 Parsing table definitions from schema...")
+
+                    # Extract table definitions from the LLM response
+                    table_definitions = schema_extraction_service.parse_table_definitions(schema_content)
+
+                    if table_definitions:
+                        logger.info(f"🏗️  Creating {len(table_definitions)} tables: {[t['slug'] for t in table_definitions]}")
+                        # Create tables from the definitions
+                        created_tables = create_tables_from_definitions(app, table_definitions)
+                        logger.info(f"✅ Created {len(created_tables)} tables from plan: {[t.slug for t in created_tables]}")
+
+                        # Refresh data store context after creating tables
+                        data_store_context = build_data_store_context(app)
+                        logger.info("🔄 Refreshed data store context with newly created tables")
+                    else:
+                        logger.warning("⚠️  No valid table definitions found after parsing")
+                else:
+                    logger.info("ℹ️  No database tables needed for this plan")
+            except Exception as e:
+                logger.error(f"❌ Schema extraction failed: {e}")
+                import traceback
+                traceback.print_exc()
+        else:
+            logger.info("ℹ️  Skipping schema extraction: no app provided")
+
         # ===== PHASE 2: EXECUTE (Two-Phase) =====
         yield self.emit_phase_change("executing", "Building your app...")
 
@@ -296,8 +349,8 @@ class GenerateHandler(BaseHandler):
 
         # Build MCP tools summary
         mcp_summary = ""
-        if mcp_tools_context:
-            mcp_summary = "MCP integrations available"
+        if not mcp_tools_context:
+            mcp_summary = "MCP integrations unavailable"
 
         return {
             "app_name": app_name,
@@ -368,7 +421,7 @@ class GenerateHandler(BaseHandler):
         user_message: str,
         context: Dict[str, Any],
         registry_surface: Dict[str, Any],
-        model: str,
+        model: AIModel,
         app: Optional['InternalApp'] = None,
         version: Optional['AppVersion'] = None,
         data_store_context: Optional[str] = None,
@@ -423,7 +476,7 @@ class GenerateHandler(BaseHandler):
         user_message: str,
         context: Dict[str, Any],
         registry_surface: Dict[str, Any],
-        model: str,
+        model: AIModel,
         app: Optional["InternalApp"] = None,
         version: Optional["AppVersion"] = None,
         data_store_context: Optional[str] = None,
@@ -491,7 +544,7 @@ class GenerateHandler(BaseHandler):
         return generated_files
 
     def _stream_llm_with_validation(
-        self, system_prompt: str, user_prompt: str, model: str, step_index: int
+        self, system_prompt: str, user_prompt: str, model: AIModel, step_index: int
     ) -> Generator[tuple, None, str]:
         """Stream LLM response with real-time validation. Yields (warnings, content_so_far), returns full_content."""
         validator = self.create_streaming_validator()
@@ -654,7 +707,7 @@ FILES WITH LINE NUMBERS:
         full_content: str,
         app: Optional["InternalApp"],
         version: Optional["AppVersion"],
-        model: str,
+        model: AIModel,
     ) -> Generator[AgentEvent, None, List[FileChange]]:
         """Validate field names and request fix if needed. Returns final files."""
         if not (app and files):
@@ -803,7 +856,7 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
         context: Dict[str, Any],
         existing_files: List[FileChange],
         registry_surface: Dict[str, Any],
-        model: str,
+        model: AIModel,
         app: Optional["InternalApp"] = None,
         version: Optional["AppVersion"] = None,
         data_store_context: Optional[str] = None,
@@ -860,7 +913,7 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
         context: Dict[str, Any],
         existing_files: List[FileChange],
         registry_surface: Dict[str, Any],
-        model: str,
+        model: AIModel,
         app: Optional["InternalApp"] = None,
         version: Optional["AppVersion"] = None,
         data_store_context: Optional[str] = None,
@@ -921,13 +974,9 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
                 
                 # Parse the generated file
                 files = self.parse_code_blocks(content)
-                
+
                 # Filter to only the target file (in case LLM generates extra files)
-                target_file = None
-                for f in files:
-                    if f.path == file_path or f.path.endswith(file_path.split('/')[-1]):
-                        target_file = f
-                        break
+                target_file = next((f for f in files if f.path == file_path), None)
                 
                 # If no exact match, take the first file
                 if target_file is None and files:
@@ -961,8 +1010,9 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
             }
             
             # Emit progress events as files complete
+            total_futures = len(futures)  # Save original count before deletions
             completed_count = 0
-            while completed_count < len(futures):
+            while completed_count < total_futures:
                 try:
                     # Check for events from threads
                     while True:
@@ -995,7 +1045,7 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
                             completed_count += 1
                             del futures[future]
                     
-                    time.sleep(0.1)  # Brief sleep to avoid busy-waiting
+                    time.sleep(0.2)  # Brief sleep to avoid busy-waiting
                     
                 except Exception as e:
                     logger.error(f"[SUBAGENTS] Error in event loop: {e}")
@@ -1004,7 +1054,7 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
         # Handle any errors
         if errors and not all_files:
             raise errors[0]  # Re-raise first error if no files generated
-        
+
         # Filter out protected files
         all_files = exclude_protected_files(all_files, PROTECTED_FILES)
         
@@ -1012,7 +1062,7 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
         combined_content = "\n\n".join(all_content)
         for event in self._handle_table_creation(combined_content, app, version, allow_table_creation):
             yield event
-        
+
         # Validate and fix field names
         for event in self._validate_and_fix_fields(all_files, combined_content, app, version, model):
             if isinstance(event, list):  # Final files returned
@@ -1034,7 +1084,7 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
         context: Dict[str, Any],
         existing_files: List[FileChange],
         registry_surface: Dict[str, Any],
-        model: str,
+        model: AIModel,
         app: Optional["InternalApp"] = None,
         version: Optional["AppVersion"] = None,
         data_store_context: Optional[str] = None,
@@ -1092,7 +1142,7 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
         context: Dict[str, Any],
         existing_files: List[FileChange],
         registry_surface: Dict[str, Any],
-        model: str,
+        model: AIModel,
         app: Optional["InternalApp"] = None,
         version: Optional["AppVersion"] = None,
         data_store_context: Optional[str] = None,
@@ -1176,7 +1226,7 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
         context: Dict[str, Any],
         existing_files: List[FileChange],
         registry_surface: Dict[str, Any],
-        model: str,
+        model: AIModel,
         app: Optional["InternalApp"] = None,
         version: Optional["AppVersion"] = None,
         data_store_context: Optional[str] = None,
@@ -1474,7 +1524,7 @@ Description: {getattr(step, 'description', '')}
         self,
         generated_files: List[FileChange],
         context_files: List[FileChange],
-        model: str,
+        model: AIModel,
     ) -> Generator[AgentEvent, None, tuple]:
         """
         Validate generated code and attempt to fix errors.
