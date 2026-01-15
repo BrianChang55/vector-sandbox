@@ -1,0 +1,120 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Frontend: Vite Dev Server",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "mise",
+      "runtimeArgs": ["x", "--", "npm", "run", "dev", "--", "--port", "5176"],
+      "cwd": "${workspaceFolder}/apps/web",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Frontend: Chrome Debug",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:5176",
+      "webRoot": "${workspaceFolder}/apps/web/src",
+      "sourceMaps": true,
+      "sourceMapPathOverrides": {
+        "webpack:///src/*": "${webRoot}/*"
+      }
+    },
+    {
+      "name": "Backend: Django Server",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/apps/backend/manage.py",
+      "args": ["runserver", "8001", "--noreload"],
+      "django": true,
+      "cwd": "${workspaceFolder}/apps/backend",
+      "python": "${workspaceFolder}/apps/backend/.venv/bin/python",
+      "env": {
+        "PYTHONUNBUFFERED": "1",
+        "PYTHONPATH": "${workspaceFolder}/apps/backend"
+      },
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Backend: Celery Worker",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "celery",
+      "args": ["-A", "internal_apps", "worker", "--loglevel=info", "--pool=solo"],
+      "cwd": "${workspaceFolder}/apps/backend",
+      "python": "${workspaceFolder}/apps/backend/.venv/bin/python",
+      "env": {
+        "PYTHONUNBUFFERED": "1",
+        "PYTHONPATH": "${workspaceFolder}/apps/backend"
+      },
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Backend: Flower Monitor",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "celery",
+      "args": ["-A", "internal_apps", "flower", "--port=5555"],
+      "cwd": "${workspaceFolder}/apps/backend",
+      "python": "${workspaceFolder}/apps/backend/.venv/bin/python",
+      "env": {
+        "PYTHONUNBUFFERED": "1",
+        "PYTHONPATH": "${workspaceFolder}/apps/backend"
+      },
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Backend: Django Shell",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/apps/backend/manage.py",
+      "args": ["shell_plus"],
+      "django": true,
+      "cwd": "${workspaceFolder}/apps/backend",
+      "python": "${workspaceFolder}/apps/backend/.venv/bin/python",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/apps/backend"
+      },
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Backend: Run Tests",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["-v", "--tb=short"],
+      "cwd": "${workspaceFolder}/apps/backend",
+      "python": "${workspaceFolder}/apps/backend/.venv/bin/python",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/apps/backend"
+      },
+      "console": "integratedTerminal",
+      "justMyCode": true
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Full Stack: Frontend + Backend",
+      "configurations": [
+        "Frontend: Vite Dev Server",
+        "Backend: Django Server"
+      ],
+      "stopAll": true
+    },
+    {
+      "name": "Full Stack: All Services",
+      "configurations": [
+        "Frontend: Vite Dev Server",
+        "Backend: Django Server",
+        "Backend: Celery Worker"
+      ],
+      "stopAll": true
+    }
+  ]
+}
