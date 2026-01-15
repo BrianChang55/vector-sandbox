@@ -198,7 +198,7 @@ class PlanningService:
 
                 # Validate the plan using ValidationService
                 validation_service = get_validation_service()
-                validation_errors = validation_service.validate_plan(plan)
+                validation_errors = validation_service.validate_plan(plan, intent_type=intent_type)
 
                 if validation_errors:
                     logger.error("🚨 PLAN VALIDATION FAILED 🚨, validation errors: %s", str(validation_errors))

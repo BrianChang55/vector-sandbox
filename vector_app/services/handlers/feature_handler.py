@@ -137,32 +137,32 @@ class DefaultStepType(StrEnum):
 
 
 # Step-type specific scope restriction warnings
-STEP_TYPE_WARNINGS: Dict[StepType, str] = {
-    StepType.COMPONENT: (
+STEP_TYPE_WARNINGS: Dict[DefaultStepType, str] = {
+    DefaultStepType.COMPONENT: (
         "SCOPE RESTRICTION: You are creating/modifying COMPONENTS ONLY.\n"
         "- DO NOT modify App.tsx or routing\n"
         "- DO NOT add integration logic\n"
         "- Focus ONLY on the component files in target_files"
     ),
-    StepType.INTEGRATION: (
+    DefaultStepType.INTEGRATION: (
         "SCOPE RESTRICTION: You are handling INTEGRATION ONLY.\n"
         "- DO NOT create new component files\n"
         "- DO NOT refactor existing component internals\n"
         "- Focus ONLY on wiring up existing components in target_files"
     ),
-    StepType.CODE: (
+    DefaultStepType.CODE: (
         "SCOPE RESTRICTION: You are writing UTILITY/SERVICE CODE ONLY.\n"
         "- DO NOT modify UI components\n"
         "- DO NOT touch App.tsx\n"
         "- Focus ONLY on the service/utility files in target_files"
-        ),  
-    StepType.STYLING: (
+    ),
+    DefaultStepType.STYLING: (
         "SCOPE RESTRICTION: You are handling STYLING ONLY.\n"
         "- DO NOT modify component logic\n"
         "- DO NOT add new functionality\n"
         "- Focus ONLY on CSS/styling in target_files"
     ),
-    StepType.VALIDATION: (
+    DefaultStepType.VALIDATION: (
         "SCOPE RESTRICTION: You are VALIDATING existing changes.\n"
         "- DO NOT add new features\n"
         "- DO NOT refactor code\n"
@@ -406,6 +406,7 @@ class FeatureHandler(BaseHandler):
 
         # Generate plan using the planning service with ADD_FEATURE intent
         plan: Optional[AgentPlan] = None
+        used_default_plan: bool = False
         try:
             planning_service = get_planning_service()
             plan = planning_service.create_plan(
@@ -418,6 +419,7 @@ class FeatureHandler(BaseHandler):
             plan_steps = plan.steps
         except Exception as e:
             logger.error(f"Planning service failed: {e}, using fallback plan")
+            used_default_plan = True
             plan_steps = self._default_feature_planning(
                 user_message=user_message,
                 app_structure=app_structure,
@@ -481,7 +483,8 @@ class FeatureHandler(BaseHandler):
         step_idx = 0
 
         # Generate new components and updates
-        for i, step in enumerate(plan_steps[:-1]):  # Skip validation step
+        execute_plan_steps = plan_steps[:-1] if used_default_plan else plan_steps
+        for i, step in enumerate(execute_plan_steps):  # Skip validation step
             step_start = time.time()
 
             yield self.emit_step_started(step, step_idx)
@@ -498,6 +501,7 @@ class FeatureHandler(BaseHandler):
                         context=context,
                         data_store_context=data_store_context,
                         mcp_tools_context=mcp_tools_context,
+                        used_default_plan=used_default_plan,
                     )
                     generated_files.extend(new_files)
 
@@ -739,7 +743,7 @@ class FeatureHandler(BaseHandler):
         plan_steps.append(
             PlanStep(
                 id=str(uuid.uuid4()),
-                type="integration",
+                type=DefaultStepType.INTEGRATION,
                 title="Integrate Feature",
                 description=_build_integration_step_description(
                     feature_name=feature_name,
@@ -760,7 +764,7 @@ class FeatureHandler(BaseHandler):
         plan_steps.append(
             PlanStep(
                 id=str(uuid.uuid4()),
-                type=StepType.VALIDATION,
+                type=DefaultStepType.VALIDATION,
                 title="Validate Changes",
                 description=_build_validation_step_description(feature_name),
                 step_order=step_order,
@@ -780,6 +784,7 @@ class FeatureHandler(BaseHandler):
         context: Optional["AppContext"] = None,
         data_store_context: Optional[str] = None,
         mcp_tools_context: Optional[str] = None,
+        used_default_plan: bool = False,
     ) -> Generator[AgentEvent, None, List[FileChange]]:
         """Generate the new feature code for a specific plan step.
         
@@ -809,7 +814,7 @@ class FeatureHandler(BaseHandler):
             ))
 
         # Get step-type warning (default to empty if unknown type)
-        step_warning = _get_step_warning(plan_step.type)
+        step_warning = _get_step_warning(plan_step.type) if not used_default_plan else ""
         
         # Format target files list
         target_files_str = _format_list(plan_step.target_files) if plan_step.target_files else "- (determined by step description)"

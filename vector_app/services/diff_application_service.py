@@ -292,6 +292,11 @@ def _apply_diffs_from_llm_response(
         ))
         logger.debug(f"Modified file: {file_path} (+{diff.lines_added}/-{diff.lines_removed})")
 
+    files = [
+        file for file in files if file.content != file.previous_content
+        or file.path in config.protected_files
+    ]
+
     logger.info(f"Applied {len(files)} diff(s) successfully")
     return files
 
@@ -461,6 +466,10 @@ class DiffApplicationService:
             config=config,
             parse_full_files_fallback=parse_full_files_fallback,
         )
+        files = [
+            file for file in files if file.content != file.previous_content
+            or file.path in config.protected_files
+        ]
 
         # Emit file_generated events for each file
         for file_change in files:
