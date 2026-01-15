@@ -24,3 +24,9 @@ class CodeGenerationJobStatus(StrEnum):
     COMPLETE = "complete"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+class QuestioningStatus(StrEnum):
+    IN_PROGRESS = "in_progress"
+    COMPLETE = "complete"
+    SKIPPED = "skipped"

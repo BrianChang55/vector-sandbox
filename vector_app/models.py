@@ -7,7 +7,7 @@ This file re-exports them for backward compatibility.
 New locations:
 - accounts: User, Organization, UserOrganization, OrganizationInvite, MagicLinkToken
 - apps: InternalApp, AppFavorite, AppVersion, VersionFile
-- chat: ChatSession, ChatMessage, CodeGenerationJob
+- chat: ChatSession, ChatMessage, CodeGenerationJob, QuestioningSession
 - data_store: AppDataTable, AppDataRow, AppDataTableSnapshot
 - integrations: MergeIntegrationProvider, ConnectorCache, OrganizationConnectorLink, 
                 ConnectorToolAction, ConnectorExecutionLog
@@ -46,15 +46,14 @@ from chat.models import (
     ChatSession,
     ChatMessage,
     CodeGenerationJob,
+    QuestioningSession,
 )
 from chat.types import (
     ChatMessageRole,
     ChatMessageStatus,
     CodeGenerationJobStatus,
+    QuestioningStatus,
 )
-
-# Note: CodeGenerationJobStatus is in chat.types (not apps.types) 
-# because the CodeGenerationJob model is in the chat app
 
 # data_store app
 from data_store.models import (
@@ -105,9 +104,11 @@ __all__ = [
     "ChatSession",
     "ChatMessage",
     "CodeGenerationJob",
+    "QuestioningSession",
     "ChatMessageRole",
     "ChatMessageStatus",
     "CodeGenerationJobStatus",
+    "QuestioningStatus",
     # data_store
     "AppDataTable",
     "AppDataRow",
