@@ -9,7 +9,8 @@ import logging
 import re
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, cast
+from collections import deque
+from typing import Any, Dict, List, Optional, Set, cast
 from enum import StrEnum
 
 from vector_app.ai.client import get_llm_client
@@ -52,10 +53,145 @@ class PlanStep:
     description: str
     step_order: int = 0  # Wave number for parallel execution (0 = first)
     target_files: List[str] = field(default_factory=list)  # Files to create/modify
+    dependent_files: List[str] = field(default_factory=list)  # Files this step depends on (must exist before running)
     operation_type: PlanOperationType = PlanOperationType.GENERATE
     status: PlanStepStatus = PlanStepStatus.PENDING
     duration: Optional[int] = None
     output: Optional[str] = None
+
+
+def recompute_step_orders(steps: List[PlanStep]) -> List[PlanStep]:
+    """
+    Build dependency graph and compute optimal step_order for each step.
+    Assume LLM can hallucinate dependent files that are not in the existing files.
+    
+    Uses the relationship between target_files and dependent_files to build
+    a dependency graph, then computes the earliest possible step_order for
+    each step using BFS/topological ordering.
+    
+    Algorithm:
+    1. Build file_to_step map: which step creates each file
+    2. Build step dependency graph: step -> set of steps it depends on
+    3. Use BFS to assign step_order (earliest possible wave)
+    
+    Args:
+        steps: List of PlanStep objects with target_files and dependent_files
+        
+    Returns:
+        The same list of steps with step_order values recomputed
+    """
+    if not steps:
+        return steps
+    
+    # Step 0: Find all target files, Remove Dependencies that arent in the Target Files
+    all_target_files = [file for step in steps for file in step.target_files]
+    for step in steps:
+        step.dependent_files = [file for file in step.dependent_files if file in all_target_files]
+    
+    
+    # Step 1: Build file_to_step map (which step creates/modifies each file)
+    file_to_step: Dict[str, int] = {}
+    for idx, step in enumerate(steps):
+        for target_file in step.target_files:
+            if target_file in file_to_step:
+                # Multiple steps target the same file - use the first one
+                logger.warning(
+                    "File '%s' is targeted by multiple steps: %d and %d. Using step %d.",
+                    target_file, file_to_step[target_file], idx, file_to_step[target_file]
+                )
+            else:
+                file_to_step[target_file] = idx
+    
+    # Step 2: Build step dependency graph (step_idx -> set of step indices it depends on)
+    step_dependencies: Dict[int, Set[int]] = {i: set() for i in range(len(steps))}
+    
+    for idx, step in enumerate(steps):
+        for dep_file in step.dependent_files:
+            if dep_file in file_to_step:
+                dep_step_idx = file_to_step[dep_file]
+                if dep_step_idx != idx:  # Don't add self-dependency
+                    step_dependencies[idx].add(dep_step_idx)
+            else:
+                # Dependent file not created by any step - might be pre-existing
+                logger.debug(
+                    "Step '%s' depends on '%s' which is not created by any step (may be pre-existing)",
+                    step.title, dep_file
+                )
+    
+    # Step 3: Detect cycles using DFS
+    def has_cycle() -> bool:
+        """Check if the dependency graph has a cycle."""
+        WHITE, GRAY, BLACK = 0, 1, 2
+        color = {i: WHITE for i in range(len(steps))}
+        
+        def dfs(node: int) -> bool:
+            color[node] = GRAY
+            for neighbor in step_dependencies[node]:
+                if color[neighbor] == GRAY:
+                    return True  # Back edge found - cycle detected
+                if color[neighbor] == WHITE and dfs(neighbor):
+                    return True
+            color[node] = BLACK
+            return False
+        
+        for node in range(len(steps)):
+            if color[node] == WHITE:
+                if dfs(node):
+                    return True
+        return False
+    
+    if has_cycle():
+        logger.warning(
+            "Cycle detected in step dependencies. Keeping LLM-provided step_order values."
+        )
+        return steps
+    
+    # Step 4: Compute step_order using BFS (topological-like ordering)
+    # step_order = 1 + max(step_order of all dependencies), or 0 if no dependencies
+    computed_orders: Dict[int, int] = {}
+    
+    def compute_order(idx: int, visited: Set[int]) -> int:
+        """Recursively compute the step_order for a step."""
+        if idx in computed_orders:
+            return computed_orders[idx]
+        
+        if idx in visited:
+            # This shouldn't happen if cycle detection worked, but be safe
+            logger.error("Unexpected cycle at step %d", idx)
+            return steps[idx].step_order
+        
+        visited.add(idx)
+        
+        deps = step_dependencies[idx]
+        if not deps:
+            computed_orders[idx] = 0
+        else:
+            max_dep_order = max(compute_order(dep, visited) for dep in deps)
+            computed_orders[idx] = max_dep_order + 1
+        
+        return computed_orders[idx]
+    
+    # Compute order for all steps
+    for idx in range(len(steps)):
+        compute_order(idx, set())
+    
+    # Step 5: Normalize step_orders to remove gaps (e.g., 0,2,4 -> 0,1,2)
+    unique_orders = sorted(set(computed_orders.values()))
+    order_map = {old: new for new, old in enumerate(unique_orders)}
+    computed_orders = {idx: order_map[order] for idx, order in computed_orders.items()}
+    
+    # Step 6: Update step_order values and log any changes
+    for idx, step in enumerate(steps):
+        old_order = step.step_order
+        new_order = computed_orders[idx]
+        if old_order != new_order:
+            logger.info(
+                "Adjusted step_order for '%s': %d -> %d (based on dependencies)",
+                step.title, old_order, new_order
+            )
+            step.step_order = new_order
+    
+    return steps
 
 
 @dataclass
@@ -134,6 +270,7 @@ class PlanningService:
                     description=s.get("description", ""),
                     step_order=s.get("step_order", 0),
                     target_files=s.get("target_files", []),
+                    dependent_files=s.get("dependent_files", []),
                     operation_type=safe_str_enum(
                         s.get("operation_type", PlanOperationType.GENERATE.value),
                         PlanOperationType.GENERATE,
@@ -145,6 +282,10 @@ class PlanningService:
                 )
                 for s in steps_data
             ]
+
+            # Recompute step_order based on dependency graph
+            steps = recompute_step_orders(steps)
+            steps = sorted(steps, key=lambda x: x.step_order)
 
             plan = AgentPlan(
                 id=str(uuid.uuid4()),
@@ -167,11 +308,13 @@ class PlanningService:
                 logger.debug("  Operation Type: %s", step.operation_type)
                 if step.target_files:
                     logger.debug("  Target Files: %s", ', '.join(step.target_files))
+                if step.dependent_files:
+                    logger.debug("  Dependent Files: %s", ', '.join(step.dependent_files))
             logger.debug("=" * 80)
 
             # Validate the plan using ValidationService
             validation_service = get_validation_service()
-            validation_errors = validation_service.validate_plan(plan)
+            validation_errors = validation_service.validate_plan(plan, intent_type=intent_type)
 
             if validation_errors:
                 logger.error("🚨 PLAN VALIDATION FAILED 🚨, validation errors: %s", str(validation_errors))

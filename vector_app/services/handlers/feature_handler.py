@@ -492,6 +492,27 @@ class FeatureHandler(BaseHandler):
                 model=model,
             )
 
+        # Ensure validation step is always present at the end
+        if not plan_steps or plan_steps[-1].type != DefaultStepType.VALIDATION:
+            # Collect all target files from previous steps
+            all_target_files = []
+            for step in plan_steps:
+                if step.target_files:
+                    all_target_files.extend(step.target_files)
+            all_target_files = list(set(all_target_files))  # Deduplicate
+            
+            # Append validation step
+            validation_step = PlanStep(
+                id=str(uuid.uuid4()),
+                type=DefaultStepType.VALIDATION,
+                title="Validate Changes",
+                description=_build_validation_step_description(user_message),
+                step_order=len(plan_steps),
+                target_files=all_target_files,
+                operation_type=PlanOperationType.FIX,
+            )
+            plan_steps.append(validation_step)
+
         yield self.emit_plan_created(
             steps=plan_steps,
             explored_dirs=2,
@@ -548,8 +569,9 @@ class FeatureHandler(BaseHandler):
         step_idx = 0
 
         # Generate new components and updates
-        execute_plan_steps = plan_steps[:-1] if used_default_plan else plan_steps
-        for i, step in enumerate(execute_plan_steps):  # Skip validation step
+        # Always skip the last step (validation) - it's executed separately below
+        execute_plan_steps = plan_steps[:-1]
+        for i, step in enumerate(execute_plan_steps):
             step_start = time.time()
 
             yield self.emit_step_started(step, step_idx)
