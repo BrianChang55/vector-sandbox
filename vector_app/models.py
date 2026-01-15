@@ -522,9 +522,6 @@ class AppVersion(BaseModel):
         help_text="Parent version used as the base for this version",
     )
     spec_json = models.JSONField(help_text="AppSpec JSON for this version")
-    scope_snapshot_json = models.JSONField(
-        null=True, blank=True, help_text="Snapshot of resource registry scope for published versions"
-    )
     intent_message = models.TextField(
         null=True, blank=True, help_text="User intent that generated this version (AI edits)"
     )
@@ -933,12 +930,7 @@ class CodeGenerationJob(BaseModel):
 
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_QUEUED)
 
-    # Progress tracking
-    progress_percentage = models.IntegerField(default=0)
-    progress_message = models.CharField(max_length=255, blank=True)
-
     # Streaming state - events stored for replay
-    accumulated_content = models.TextField(blank=True)
     chunk_count = models.IntegerField(default=0)
     events_json = models.JSONField(default=list, blank=True)  # List of {type, data, timestamp}
 
@@ -948,8 +940,6 @@ class CodeGenerationJob(BaseModel):
 
     # Error tracking
     error_message = models.TextField(null=True, blank=True)
-    retry_count = models.IntegerField(default=0)
-    max_retries = models.IntegerField(default=3)
 
     # User who initiated the job
     created_by = models.ForeignKey(
