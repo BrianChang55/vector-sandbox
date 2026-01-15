@@ -399,8 +399,14 @@ class FeatureHandler(BaseHandler):
         # Apply design style to user message
         styled_user_message = apply_design_style_prompt(
             user_message,
-            data_store_context,
-            mcp_tools_context,
+            # do not pass table context to plan prompt
+            data_store_context=None,
+            connectors_context=mcp_tools_context,
+        )
+        styled_user_message_with_data_store = apply_design_style_prompt(
+            styled_user_message,
+            data_store_context=data_store_context,
+            connectors_context=mcp_tools_context,
         )
 
         # Build context for planning
@@ -454,7 +460,7 @@ class FeatureHandler(BaseHandler):
             try:
                 schema_content = schema_extraction_service.extract_schema_from_plan(
                     plan,
-                    styled_user_message,
+                    styled_user_message_with_data_store,
                     model
                 )
                 logger.info(f"[FeatureHandler] Schema extraction complete, content_length={len(schema_content) if schema_content else 0}")

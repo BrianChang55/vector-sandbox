@@ -145,8 +145,13 @@ class GenerateHandler(BaseHandler):
         # Apply design style to user message
         styled_user_message = apply_design_style_prompt(
             user_message,
-            data_store_context,
-            mcp_tools_context,
+            data_store_context=None,
+            connectors_context=mcp_tools_context,
+        )
+        styled_user_message_with_data_store = apply_design_style_prompt(
+            styled_user_message,
+            data_store_context=data_store_context,
+            connectors_context=mcp_tools_context,
         )
 
         # ===== PHASE 1: PLANNING =====
@@ -190,7 +195,7 @@ class GenerateHandler(BaseHandler):
             try:
                 schema_content = schema_extraction_service.extract_schema_from_plan(
                     plan,
-                    styled_user_message,
+                    styled_user_message_with_data_store,
                     model
                 )
                 logger.info(f"📋 Schema extraction complete. Content length: {len(schema_content) if schema_content else 0} chars")
@@ -969,13 +974,9 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
                 
                 # Parse the generated file
                 files = self.parse_code_blocks(content)
-                
+
                 # Filter to only the target file (in case LLM generates extra files)
-                target_file = None
-                for f in files:
-                    if f.path == file_path or f.path.endswith(file_path.split('/')[-1]):
-                        target_file = f
-                        break
+                target_file = next((f for f in files if f.path == file_path), None)
                 
                 # If no exact match, take the first file
                 if target_file is None and files:
@@ -1052,7 +1053,7 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
         # Handle any errors
         if errors and not all_files:
             raise errors[0]  # Re-raise first error if no files generated
-        
+
         # Filter out protected files
         all_files = exclude_protected_files(all_files, PROTECTED_FILES)
         
@@ -1060,7 +1061,7 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
         combined_content = "\n\n".join(all_content)
         for event in self._handle_table_creation(combined_content, app, version, allow_table_creation):
             yield event
-        
+
         # Validate and fix field names
         for event in self._validate_and_fix_fields(all_files, combined_content, app, version, model):
             if isinstance(event, list):  # Final files returned

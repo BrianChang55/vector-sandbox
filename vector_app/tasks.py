@@ -182,6 +182,12 @@ def run_agentic_generation(self, job_id: str):
             version=version,
             session=session,
         ):
+            # Debug log: intercept all Agent Events
+            logger.debug(
+                f"[AGENT_EVENT] Job {job_id} - Event type: {event.type}, "
+                f"Data: {event.data}"
+            )
+            
             # Check for cancellation periodically
             job.refresh_from_db(fields=['status'])
             if job.status == CodeGenerationJobStatus.CANCELLED:
