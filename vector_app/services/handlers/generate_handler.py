@@ -14,7 +14,7 @@ import re
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
+from typing import Any, Callable, Dict, Generator, List, Optional, TYPE_CHECKING
 
 from .base_handler import BaseHandler, AgentEvent, FileChange, exclude_protected_files
 from .parallel_executor import create_parallel_executor, ParallelStepExecutor
@@ -42,6 +42,8 @@ from vector_app.services.types import CompilationError
 from vector_app.services.validation_service import get_validation_service
 from vector_app.services.schema_extraction_service import get_schema_extraction_service
 from vector_app.services.datastore.table_creator import create_tables_from_definitions
+from vector_app.prompts.verification_retry import build_verification_retry_prompt
+from vector_app.services.verification_storage_service import get_verification_storage_service
 
 if TYPE_CHECKING:
     from vector_app.models import InternalApp, AppVersion
