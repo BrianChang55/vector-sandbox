@@ -863,7 +863,7 @@ class ChatMessage(DjangoBaseModel):
         return f"{self.role}: {preview}"
 
 
-class QuestioningSession(BaseModel):
+class QuestioningSession(DjangoBaseModel):
     """
     Tracks a multi-turn questioning phase for gathering requirements.
     Links to a ChatSession where Q&A happens via normal ChatMessages.
@@ -892,7 +892,7 @@ class QuestioningSession(BaseModel):
         return f"QuestioningSession({self.status}) - {self.chat_session}"
 
 
-class CodeGenerationJob(BaseModel):
+class CodeGenerationJob(DjangoBaseModel):
     """
     Tracks code generation jobs for async processing and streaming.
 
