@@ -344,8 +344,8 @@ class GenerateHandler(BaseHandler):
 
         # Build MCP tools summary
         mcp_summary = ""
-        if mcp_tools_context:
-            mcp_summary = "MCP integrations available"
+        if not mcp_tools_context:
+            mcp_summary = "MCP integrations unavailable"
 
         return {
             "app_name": app_name,

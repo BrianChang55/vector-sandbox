@@ -183,6 +183,9 @@ Feature: {feature_name}
 User Request: {user_message}
 Reasoning: {reasoning}
 
+## Feature Analysis
+{feature_analysis}
+
 ## Your Task
 Create the following new component(s):
 {components_list}
@@ -197,6 +200,9 @@ Feature: {feature_name}
 User Request: {user_message}
 Integration Point: {integration_point}
 Reasoning: {reasoning}
+
+## Feature Analysis
+{feature_analysis}
 
 ## Your Task
 {integration_task}
@@ -248,6 +254,7 @@ def _build_component_step_description(
     user_message: str,
     reasoning: str,
     new_components: List[str],
+    feature_analysis: Dict[str, Any],
 ) -> str:
     """Build the description for a component creation step."""
     return COMPONENT_STEP_TEMPLATE.format(
@@ -256,6 +263,7 @@ def _build_component_step_description(
         user_message=user_message,
         reasoning=reasoning,
         components_list=_format_list(new_components),
+        feature_analysis=str(feature_analysis),
     )
 
 
@@ -266,6 +274,7 @@ def _build_integration_step_description(
     reasoning: str,
     new_components: List[str],
     files_to_modify: List[str],
+    feature_analysis: Dict[str, Any],
 ) -> str:
     """Build the description for an integration step."""
     if new_components:
@@ -284,6 +293,7 @@ def _build_integration_step_description(
         integration_task=integration_task,
         components_list=components_list,
         files_list=_format_list(files_to_modify),
+        feature_analysis=str(feature_analysis),
     )
 
 
@@ -492,7 +502,7 @@ class FeatureHandler(BaseHandler):
             yield self.emit_step_start(step, step_idx)
 
             try:
-                if step.type in (DefaultStepType.COMPONENT, DefaultStepType.CODE):
+                if step.type in (DefaultStepType.COMPONENT, DefaultStepType.CODE, DefaultStepType.INTEGRATION, DefaultStepType.STYLING):
                     # Generate new components or code files
                     new_files = yield from self._generate_feature(
                         user_message=user_message,
@@ -503,32 +513,6 @@ class FeatureHandler(BaseHandler):
                         data_store_context=data_store_context,
                         mcp_tools_context=mcp_tools_context,
                         used_default_plan=used_default_plan,
-                    )
-                    generated_files.extend(new_files)
-
-                elif step.type == DefaultStepType.INTEGRATION:
-                    # Generate integration changes
-                    new_files = yield from self._generate_feature(
-                        user_message=user_message,
-                        plan_step=step,
-                        existing_code=existing_code,
-                        model=model,
-                        context=context,
-                        data_store_context=data_store_context,
-                        mcp_tools_context=mcp_tools_context,
-                    )
-                    generated_files.extend(new_files)
-                
-                elif step.type == DefaultStepType.STYLING:
-                    # Generate styling changes
-                    new_files = yield from self._generate_feature(
-                        user_message=user_message,
-                        plan_step=step,
-                        existing_code=existing_code,
-                        model=model,
-                        context=context,
-                        data_store_context=data_store_context,
-                        mcp_tools_context=mcp_tools_context,
                     )
                     generated_files.extend(new_files)
                 
@@ -707,7 +691,7 @@ class FeatureHandler(BaseHandler):
             main_app_code=main_app_code,
             model=model,
         )
-        
+
         feature_name = feature_analysis.get("feature_name", "New Feature")
         new_components = feature_analysis.get("new_components", [])
         files_to_modify = feature_analysis.get("files_to_modify", ["src/App.tsx"])
@@ -725,13 +709,14 @@ class FeatureHandler(BaseHandler):
             plan_steps.append(
                 PlanStep(
                     id=str(uuid.uuid4()),
-                    type="component",
+                    type=DefaultStepType.COMPONENT,
                     title="Create New Components",
                     description=_build_component_step_description(
                         feature_name=feature_name,
                         user_message=user_message,
                         reasoning=reasoning,
                         new_components=new_components,
+                        feature_analysis=feature_analysis,
                     ),
                     step_order=step_order,
                     target_files=component_files,
@@ -753,6 +738,7 @@ class FeatureHandler(BaseHandler):
                     reasoning=reasoning,
                     new_components=new_components,
                     files_to_modify=files_to_modify,
+                    feature_analysis=feature_analysis,
                 ),
                 step_order=step_order,
                 target_files=files_to_modify,

@@ -268,7 +268,7 @@ class BaseHandler(ABC):
         """Emit step start event (legacy format)."""
         return AgentEvent("step_start", {
             "step_index": step_index,
-            "step": asdict(step),
+            "step": step.title,
         })
     
     def emit_step_completed(self, step: PlanStep, step_index: int) -> AgentEvent:

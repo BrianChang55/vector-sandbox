@@ -5,7 +5,7 @@ These helpers keep every model call aligned on tone, structure, and required
 runtime constraints so changes can be made in one place.
 """
 
-from typing import Any, Dict, List, Optional, Sequence, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Sequence
 
 from vector_app.services.intent_classifier import UserIntent
 
@@ -1870,8 +1870,6 @@ def build_plan_prompt(
     Returns:
         Formatted prompt string using unified template with intent-specific instructions
     """
-    from vector_app.services.intent_classifier import UserIntent
-    
     existing_files = existing_files or []
     
     data_store_summary = context.get("data_store_summary", "")
