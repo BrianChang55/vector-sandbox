@@ -186,6 +186,9 @@ Then open http://localhost:5555 in your browser.
 - **Workers**: Monitor worker status, pool size, and resource usage
 - **Broker**: View queue lengths and message rates
 - **Real-time Updates**: Auto-refreshing task and worker status
+- **Persistent History**: Task results stored in database (survives Redis restarts)
+
+**Note:** Task results are stored in the Django database via `django-celery-results`, which means task history persists across Redis and worker restarts. Results are kept for 7 days by default.
 
 ### Frontend
 
