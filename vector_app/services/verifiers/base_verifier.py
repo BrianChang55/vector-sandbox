@@ -10,7 +10,6 @@ from typing import Optional
 
 from vector_app.services.types import (
     FileVerificationResult,
-    VerificationStatus,
     VerifierConfig,
 )
 
