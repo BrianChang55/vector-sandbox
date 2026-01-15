@@ -19,7 +19,7 @@ from django.db.models.functions import Greatest
 from django.utils import timezone
 from django.utils.text import slugify
 
-from internal_apps.utils.base_model import BaseModel
+from internal_apps.utils.base_model import DjangoBaseModel
 from internal_apps.utils.enum import choices
 from vector_app.action_classification.types import ActionType
 from .utils.encryption import encrypt_string, decrypt_string
@@ -105,7 +105,7 @@ class ConnectorExecutionStatus(StrEnum):
 # ============================================================================
 
 
-class User(AbstractUser, BaseModel):
+class User(AbstractUser, DjangoBaseModel):
     """
     User model that extends Django's AbstractUser.
     Users can belong to multiple organizations.
@@ -181,12 +181,11 @@ class User(AbstractUser, BaseModel):
             self.save(update_fields=['profile_image_storage_key', 'updated_at'])
 
 
-class Organization(BaseModel):
+class Organization(DjangoBaseModel):
     """
     Organization model representing a company/team (Project container).
     """
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255)
     slug = models.SlugField(max_length=255, unique=True)
     
@@ -247,7 +246,7 @@ class Organization(BaseModel):
         self.save(update_fields=['logo', 'logo_storage_key', 'updated_at'])
 
 
-class UserOrganization(BaseModel):
+class UserOrganization(DjangoBaseModel):
     """
     Junction table for User-Organization many-to-many relationship.
     Includes role field for membership permissions.
@@ -258,7 +257,6 @@ class UserOrganization(BaseModel):
     - Viewer: View/run only - sees published apps, redirected to published view
     """
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="user_organizations")
     organization = models.ForeignKey(
         Organization, on_delete=models.CASCADE, related_name="user_organizations"
@@ -300,7 +298,7 @@ class UserOrganization(BaseModel):
         return self.is_admin()
 
 
-class OrganizationInvite(BaseModel):
+class OrganizationInvite(DjangoBaseModel):
     """
     Pending invitation to join an organization.
 
@@ -311,7 +309,6 @@ class OrganizationInvite(BaseModel):
     - Rate limiting can be tracked via created_at timestamps
     """
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="invites")
     email = models.EmailField(db_index=True, help_text="Email address this invitation is for")
     role = models.CharField(
@@ -453,11 +450,10 @@ class OrganizationInvite(BaseModel):
 # ============================================================================
 
 
-class InternalApp(BaseModel):
+class InternalApp(DjangoBaseModel):
     """
     Internal application created by users.
     """
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="internal_apps")
     name = models.CharField(max_length=255)
     slug = models.SlugField(
@@ -516,12 +512,11 @@ class InternalApp(BaseModel):
         super().save(*args, **kwargs)
 
 
-class AppFavorite(BaseModel):
+class AppFavorite(DjangoBaseModel):
     """
     Tracks which apps a user has favorited within an organization.
     """
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="app_favorites")
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="app_favorites")
     app = models.ForeignKey(InternalApp, on_delete=models.CASCADE, related_name="favorites")
@@ -536,11 +531,10 @@ class AppFavorite(BaseModel):
         return f"{self.user.email} - {self.app.name}"
 
 
-class AppVersion(BaseModel):
+class AppVersion(DjangoBaseModel):
     """
     Version of an internal app (immutable snapshot).
     """
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     internal_app = models.ForeignKey(InternalApp, on_delete=models.CASCADE, related_name="versions")
     version_number = models.PositiveIntegerField()
     parent_version = models.ForeignKey(
@@ -607,12 +601,11 @@ class AppVersion(BaseModel):
         return f"{self.internal_app.name} v{self.version_number}"
 
 
-class VersionFile(BaseModel):
+class VersionFile(DjangoBaseModel):
     """
     File content for an app version.
     """
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     app_version = models.ForeignKey(AppVersion, on_delete=models.CASCADE, related_name="files")
     path = models.CharField(max_length=500)
     content = models.TextField()
@@ -649,7 +642,7 @@ class VersionFile(BaseModel):
 # ============================================================================
 
 
-class MagicLinkToken(BaseModel):
+class MagicLinkToken(DjangoBaseModel):
     """
     Secure storage for magic link authentication tokens.
 
@@ -789,13 +782,12 @@ class MagicLinkToken(BaseModel):
 # ============================================================================
 
 
-class ChatSession(BaseModel):
+class ChatSession(DjangoBaseModel):
     """
     A chat session for building an internal app.
     Each app can have multiple chat sessions (e.g., different features).
     """
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     internal_app = models.ForeignKey(InternalApp, on_delete=models.CASCADE, related_name="chat_sessions")
     title = models.CharField(max_length=255, default="New Chat")
     model_id = models.CharField(
@@ -814,13 +806,12 @@ class ChatSession(BaseModel):
         return f"{self.title} - {self.internal_app.name}"
 
 
-class ChatMessage(BaseModel):
+class ChatMessage(DjangoBaseModel):
     """
     Individual message in a chat session.
     Supports user messages, AI responses, and system messages.
     """
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     session = models.ForeignKey(ChatSession, on_delete=models.CASCADE, related_name="messages")
     role = models.CharField(max_length=20, choices=choices(ChatMessageRole))
     content = models.TextField()
@@ -866,7 +857,7 @@ class ChatMessage(BaseModel):
         return f"{self.role}: {preview}"
 
 
-class CodeGenerationJob(BaseModel):
+class CodeGenerationJob(DjangoBaseModel):
     """
     Tracks code generation jobs for async processing and streaming.
 
@@ -875,7 +866,6 @@ class CodeGenerationJob(BaseModel):
     SSE endpoint streams them to the client.
     """
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     chat_message = models.OneToOneField(
         ChatMessage,
         on_delete=models.CASCADE,
@@ -952,7 +942,7 @@ class CodeGenerationJob(BaseModel):
 # ============================================================================
 
 
-class AppDataTable(BaseModel):
+class AppDataTable(DjangoBaseModel):
     """
     Represents a data table within an Internal App's data store.
     Each app can have multiple tables, each with its own schema.
@@ -961,7 +951,6 @@ class AppDataTable(BaseModel):
     This allows apps to store structured data without external database connections.
     """
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     internal_app = models.ForeignKey(InternalApp, on_delete=models.CASCADE, related_name="data_tables")
     name = models.CharField(max_length=255)
     slug = models.SlugField(max_length=255)
@@ -1011,7 +1000,7 @@ class AppDataTable(BaseModel):
         self.refresh_from_db(fields=["row_count"])
 
 
-class AppDataRow(BaseModel):
+class AppDataRow(DjangoBaseModel):
     """
     Represents a single row of data in an AppDataTable.
     Data is stored as JSON and validated against the table schema.
@@ -1019,7 +1008,6 @@ class AppDataRow(BaseModel):
     Each row has a sequential index within its table for ordering.
     """
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     table = models.ForeignKey(AppDataTable, on_delete=models.CASCADE, related_name="rows")
 
     # Row data stored as JSON - keys match column names from schema
@@ -1057,7 +1045,7 @@ class AppDataRow(BaseModel):
         super().save(*args, **kwargs)
 
 
-class AppDataTableSnapshot(BaseModel):
+class AppDataTableSnapshot(DjangoBaseModel):
     """
     Snapshot of a table's schema at a specific app version.
 
@@ -1066,7 +1054,6 @@ class AppDataTableSnapshot(BaseModel):
     linking the schema state to the AppVersion being created.
     """
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     app_version = models.ForeignKey(
         AppVersion,
@@ -1165,7 +1152,7 @@ class AppDataTableSnapshot(BaseModel):
 # ============================================================================
 
 
-class VersionStateSnapshot(BaseModel):
+class VersionStateSnapshot(DjangoBaseModel):
     """
     Complete application state snapshot at a specific version.
     Created automatically on every version to enable full revert.
@@ -1175,7 +1162,6 @@ class VersionStateSnapshot(BaseModel):
     with schema-only rollback while preserving data.
     """
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     app_version = models.OneToOneField(
         AppVersion,
@@ -1294,7 +1280,7 @@ class VersionStateSnapshot(BaseModel):
         }
 
 
-class VersionAuditLog(BaseModel):
+class VersionAuditLog(DjangoBaseModel):
     """
     Audit trail for version operations.
 
@@ -1307,7 +1293,6 @@ class VersionAuditLog(BaseModel):
     This is an append-only log that provides full traceability.
     """
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     # The app this operation belongs to
     internal_app = models.ForeignKey(
@@ -1454,7 +1439,7 @@ class VersionAuditLog(BaseModel):
 # ============================================================================
 
 
-class MergeIntegrationProvider(BaseModel):
+class MergeIntegrationProvider(DjangoBaseModel):
     """
     Organization's integration provider configuration.
     Internally uses Merge Agent Handler API.
@@ -1468,7 +1453,6 @@ class MergeIntegrationProvider(BaseModel):
     The legacy fields are kept for backward compatibility but are no longer used.
     """
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(
         Organization, on_delete=models.CASCADE, related_name="integration_providers"
     )
@@ -1517,7 +1501,7 @@ class MergeIntegrationProvider(BaseModel):
         return bool(self.merge_registered_user_id)
 
 
-class ConnectorCache(BaseModel):
+class ConnectorCache(DjangoBaseModel):
     """
     Cached connector and tool metadata from the integration provider.
     Used for LLM context generation and UI display.
@@ -1526,7 +1510,6 @@ class ConnectorCache(BaseModel):
     making API calls on every request.
     """
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     provider = models.ForeignKey(
         MergeIntegrationProvider, on_delete=models.CASCADE, related_name="connectors"
     )
@@ -1585,14 +1568,13 @@ class ConnectorCache(BaseModel):
         return None
 
 
-class OrganizationConnectorLink(BaseModel):
+class OrganizationConnectorLink(DjangoBaseModel):
     """
     Tracks organization-level OAuth connections to specific connectors.
     When an org member completes the OAuth flow, the connection is shared
     by all members of the organization.
     """
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     provider = models.ForeignKey(
         MergeIntegrationProvider, on_delete=models.CASCADE, related_name="connector_links"
     )
@@ -1636,14 +1618,13 @@ class OrganizationConnectorLink(BaseModel):
         self.save(update_fields=["is_connected", "connected_at", "connected_by", "updated_at"])
 
 
-class ConnectorToolAction(BaseModel):
+class ConnectorToolAction(DjangoBaseModel):
     """
     Individual tool with action categorization.
     Groups MCP tools from connectors into action types for easier filtering
     and organization.
     """
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     # Foreign key to parent connector cache
     connector_cache = models.ForeignKey(
@@ -1676,13 +1657,12 @@ class ConnectorToolAction(BaseModel):
         return f"{self.connector_cache.connector_name} - {self.tool_name} ({self.action_type})"
 
 
-class ConnectorExecutionLog(BaseModel):
+class ConnectorExecutionLog(DjangoBaseModel):
     """
     Log of connector tool executions for audit and debugging.
     Uses the same audit-log pattern for connector operations.
     """
 
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     # Context
     internal_app = models.ForeignKey(
