@@ -395,7 +395,7 @@ def build_plan_prompt(
     else:
         # Default to full app instructions for GENERATE_NEW or None
         intent_instructions = FULL_APP_INTENT_INSTRUCTIONS
-        step_count_range = "2-5 steps"
+        step_count_range = "2-6 steps"
         step_types = "research, design, code, component, styling, integration, validation"
     
     # Use unified template with intent-specific instructions inserted
