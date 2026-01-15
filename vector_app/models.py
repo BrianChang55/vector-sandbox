@@ -66,6 +66,12 @@ class ChatMessageRole(StrEnum):
     SYSTEM = "system"
 
 
+class QuestioningStatus(StrEnum):
+    IN_PROGRESS = "in_progress"
+    COMPLETE = "complete"
+    SKIPPED = "skipped"
+
+
 class ChatMessageStatus(StrEnum):
     PENDING = "pending"
     STREAMING = "streaming"
@@ -857,7 +863,36 @@ class ChatMessage(DjangoBaseModel):
         return f"{self.role}: {preview}"
 
 
-class CodeGenerationJob(DjangoBaseModel):
+class QuestioningSession(BaseModel):
+    """
+    Tracks a multi-turn questioning phase for gathering requirements.
+    Links to a ChatSession where Q&A happens via normal ChatMessages.
+    Stores synthesized requirements after questioning completes.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    chat_session = models.OneToOneField(
+        ChatSession, on_delete=models.CASCADE, related_name="questioning_session"
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=choices(QuestioningStatus),
+        default=QuestioningStatus.IN_PROGRESS,
+    )
+    synthesized_requirements = models.JSONField(
+        default=dict, help_text="Final requirements document after questioning completes"
+    )
+    question_count = models.IntegerField(default=0, help_text="Number of questions asked")
+    initial_request = models.TextField(help_text="User's original request that triggered questioning")
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"QuestioningSession({self.status}) - {self.chat_session}"
+
+
+class CodeGenerationJob(BaseModel):
     """
     Tracks code generation jobs for async processing and streaming.
 
