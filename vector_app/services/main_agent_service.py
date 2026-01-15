@@ -186,25 +186,72 @@ class MainAgentService:
     ) -> bool:
         """LLM-based decision: should we ask more questions?
 
-        Considers:
+        Uses the sufficiency decision prompt to have the LLM assess:
         - How many unknowns remain?
         - Are answers clear or vague?
         - How many questions have we asked?
         - Is the request simple enough to proceed?
         """
-        # TODO: Implement LLM-based sufficiency check in Task 3
-        # For now, simple heuristic: max 5 questions
-        if session.question_count >= 5:
+        import json
+
+        from vector_app.prompts.main_agent import (
+            SUFFICIENCY_DECISION_SYSTEM_PROMPT,
+            build_sufficiency_decision_prompt,
+        )
+
+        # Hard limit: don't exceed max questions
+        MAX_QUESTIONS = 5
+        if session.question_count >= MAX_QUESTIONS:
             return False
 
-        # Check if we have critical unknowns
-        if extracted_facts:
-            unknowns = extracted_facts.get("unknowns", [])
-            # If many unknowns and we haven't asked much, continue
-            if len(unknowns) > 2 and session.question_count < 3:
-                return True
+        # Format chat history for prompt
+        formatted_history = self._format_chat_history(chat_history)
 
-        return False
+        prompt = build_sufficiency_decision_prompt(
+            initial_request=session.initial_request,
+            chat_history=formatted_history,
+            extracted_facts=extracted_facts or {},
+            question_count=session.question_count,
+        )
+
+        try:
+            result = get_llm_client().run(
+                system_prompt=SUFFICIENCY_DECISION_SYSTEM_PROMPT,
+                user_prompt=prompt,
+                llm_settings=LLMSettings(
+                    model=AIModel.CLAUDE_HAIKU_4_5,  # Fast model for control decisions
+                    temperature=0.1,
+                    max_tokens=500,
+                    timeout=15.0,
+                ),
+                json_mode=True,
+            )
+
+            data = result.validated(json.loads, default=None)
+            if data and isinstance(data, dict):
+                should_continue = data.get("should_continue", False)
+                reasoning = data.get("reasoning", "")
+                logger.debug("Sufficiency decision: continue=%s, reason=%s", should_continue, reasoning)
+                return should_continue
+
+            return False
+
+        except Exception as e:
+            logger.warning("Sufficiency check failed: %s, defaulting to proceed", e)
+            return False
+
+    def _format_chat_history(self, chat_history: List[Dict]) -> str:
+        """Format chat history for prompt."""
+        if not chat_history:
+            return "No conversation yet."
+
+        lines = []
+        for msg in chat_history:
+            role = msg.get("role", "user").capitalize()
+            content = msg.get("content", "")
+            lines.append(f"{role}: {content}")
+
+        return "\n".join(lines)
 
 
 # Singleton instance
