@@ -1,0 +1,107 @@
+[project]
+name = "internal-apps-backend"
+version = "0.1.0"
+description = "AI-powered internal application builder backend"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "django>=4.2,<5.0",
+    "djangorestframework>=3.15,<4.0",
+    "djangorestframework-simplejwt>=5.3,<6.0",
+    "python-dotenv>=1.0,<2.0",
+    "requests>=2.32,<3.0",
+    "requests-oauthlib>=2.0,<3.0",
+    "django-environ>=0.11,<1.0",
+    "psycopg2-binary>=2.9,<3.0",
+    "gunicorn>=21.2,<22.0",
+    "django-cors-headers>=4.0.0",
+    "openai>=1.12,<2.0",
+    "pillow>=10.0.0",
+    "httpx>=0.27.0",
+    "whitenoise>=6.6.0,<7.0",
+    "fal-client>=0.10.0",
+    "mixpanel>=5.0.0,<6.0",
+    "sentry-sdk[django]>=2.0.0",
+    "cairosvg>=2.7.0",
+    "boto3>=1.34.0",
+    "celery>=5.3.0",
+    "redis>=5.0.0",
+    "reportlab>=4.0.0",
+    "python-pptx>=0.6.21",
+    "cryptography>=41.0.0",
+    "postgrest>=0.13.0",
+    "jsonschema>=4.20.0",
+    "python-jsonschema-objects>=0.5.0",
+    "whatthepatch>=1.0.7,<2.0",
+    "django-extensions>=3.2.0",
+    "ipython>=8.12.0",
+    "supabase>=2.0.0",
+    "pymysql>=1.1.0",
+    "sqlalchemy>=2.0.0",
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-django>=4.5.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "mypy>=1.0.0",
+    "prospector>=1.10.0",
+]
+monitoring = [
+    "flower>=2.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["internal_apps", "vector_app"]
+
+[dependency-groups]
+dev = [
+    # Testing
+    "pytest>=7.0.0",
+    "pytest-django>=4.5.0",
+    "pytest-cov>=4.0.0",
+    # Code formatting
+    "black>=24.10.0",
+    "isort>=5.13.0",
+    # Type checking
+    "mypy>=1.13.0",
+    "django-stubs>=5.1.0",
+    "djangorestframework-stubs>=3.15.0",
+    "types-requests>=2.32.0",
+    "types-redis>=4.6.0",
+    "types-pillow>=10.2.0",
+    "types-boto3>=1.0.0",
+    # Linting
+    "prospector[with_pyroma]>=1.12.0",
+    "pycodestyle>=2.12.0",
+    "pyflakes>=3.2.0",
+    "mccabe>=0.7.0",
+    "pydocstyle>=6.3.0",
+    "pyroma>=4.2",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "internal_apps.settings"
+python_files = ["test_*.py", "*_test.py"]
