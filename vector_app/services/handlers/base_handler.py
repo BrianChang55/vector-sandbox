@@ -22,6 +22,7 @@ from vector_app.services.types import (
     AgentEvent,
 )
 from vector_app.services.validation_service import get_validation_service
+from vector_app.services.handlers.verification_mixin import VerificationMixin
 
 if TYPE_CHECKING:
     from vector_app.models import InternalApp, AppVersion
@@ -162,10 +163,11 @@ class StreamingValidator:
         return self.warnings.copy()
 
 
-class BaseHandler(ABC):
+class BaseHandler(VerificationMixin, ABC):
     """
     Abstract base class for intent handlers.
 
+    Includes VerificationMixin for automatic file verification.
     All handlers must implement the execute() method which yields AgentEvent
     objects for the streaming response.
     """

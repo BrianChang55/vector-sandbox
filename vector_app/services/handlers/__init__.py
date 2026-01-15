@@ -14,6 +14,7 @@ from .generate_handler import GenerateHandler
 from .edit_handler import EditHandler
 from .feature_handler import FeatureHandler
 from .schema_handler import SchemaHandler
+from .verification_mixin import VerificationMixin
 
 __all__ = [
     'BaseHandler',
@@ -21,5 +22,6 @@ __all__ = [
     'EditHandler',
     'FeatureHandler',
     'SchemaHandler',
+    'VerificationMixin',
 ]
 
