@@ -1,0 +1,25 @@
+{
+  "env": {
+    "PATH": "/opt/homebrew/bin:${env:PATH}"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(mise:*)",
+      "Bash(npm:*)",
+      "Bash(uv:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)"
+    ]
+  },
+  "model": "opus",
+  "enableAllProjectMcpServers": true,
+  "enabledPlugins": {
+    "code-review@claude-plugins-official": true,
+    "feature-dev@claude-plugins-official": true,
+    "security-guidance@claude-plugins-official": true,
+    "python-development@claude-code-workflows": true
+  }
+}

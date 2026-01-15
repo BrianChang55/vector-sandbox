@@ -1,0 +1,62 @@
+[tools]
+node = "24"
+python = "3.11"
+uv = "latest"
+
+[env]
+VIRTUAL_ENV = "{{config_root}}/apps/backend/.venv"
+
+[tasks.fe]
+description = "Start frontend dev server"
+dir = "{{config_root}}/apps/web"
+run = "npm run dev -- --port 5176"
+
+[tasks.be]
+description = "Start backend Django server"
+dir = "{{config_root}}/apps/backend"
+run = "uv run python manage.py runserver 8001"
+
+[tasks.celery]
+description = "Start Celery worker"
+dir = "{{config_root}}/apps/backend"
+run = "uv run celery -A internal_apps worker --loglevel=info"
+
+[tasks.flower]
+description = "Start Flower Celery monitor"
+dir = "{{config_root}}/apps/backend"
+run = "uv run celery -A internal_apps flower --port=5555"
+
+[tasks.redis]
+description = "Start Redis server"
+run = "redis-server"
+
+[tasks.migrate]
+description = "Run Django migrations"
+dir = "{{config_root}}/apps/backend"
+run = "uv run python manage.py migrate"
+
+[tasks.shell]
+description = "Django shell_plus"
+dir = "{{config_root}}/apps/backend"
+run = "uv run python manage.py shell_plus"
+
+[tasks.test]
+description = "Run backend tests"
+dir = "{{config_root}}/apps/backend"
+run = "uv run pytest -v"
+
+[tasks.test-fe]
+description = "Run frontend lint and build"
+dir = "{{config_root}}/apps/web"
+run = "npm run lint && npm run build"
+
+[tasks.setup]
+description = "Install all dependencies"
+run = """
+cd apps/web && npm install
+cd ../backend && uv sync
+"""
+
+[tasks.dev]
+description = "Start all development services"
+depends = ["fe", "be", "celery"]
