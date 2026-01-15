@@ -45,7 +45,7 @@ import type { ChatMessage as ApiChatMessage } from '../../services/aiService'
 import { cn } from '../../lib/utils'
 
 // Helper type for accessing event data with any properties
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 type EventData = Record<string, any>
 
 interface AgenticChatPanelProps {

@@ -44,7 +44,13 @@ export {
 } from './dialog-provider'
 
 // Dropdown Menu
-export * from './dropdown-menu'
+export {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from './dropdown-menu'
 
 // Drawer
 export {

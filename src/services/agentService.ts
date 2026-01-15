@@ -15,7 +15,7 @@ import type {
 } from '../types/agent'
 
 // Helper type for accessing event data with any properties
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 type EventData = Record<string, any>
 
 export function upsertFileChange(
@@ -228,7 +228,7 @@ export function startAgenticGeneration(
   
   // Track IDs when they're created
   let currentVersionId: string | null = null
-  let currentJobId: string | null = null
+  const currentJobId: string | null = null
 
   const params = new URLSearchParams({
     message,
