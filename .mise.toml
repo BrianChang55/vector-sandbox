@@ -48,8 +48,8 @@ run = "uv run pytest -v"
 [tasks.setup]
 description = "Initial setup: install all dependencies"
 run = """
-cd apps/web && npm install
-cd ../apps/backend && uv sync
+cd {{config_root}}/apps/web && npm install
+cd {{config_root}}/apps/backend && uv sync
 """
 
 [tasks.sync]
