@@ -47,10 +47,6 @@ logger = logging.getLogger(__name__)
 SKIP_KEYWORDS = [
     "pass",
     "skip",
-    "just build",
-    "build it",
-    "that's enough",
-    "thats enough",
     "go ahead",
 ]
 

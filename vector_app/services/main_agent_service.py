@@ -6,11 +6,18 @@ Uses QuestioningService for distillation (extracting facts, generating questions
 
 ARCHITECTURAL PRINCIPLE: This service DECIDES, subservices DISTILL.
 - QuestioningService extracts facts from conversation
-- MainAgentService decides: ask more? enough? skip?
+- MainAgentService decides: ask more? done?
 
-State machine: idle → (questioning OR skip) → extracted → ready
+EXTRACTION BOUNDARY PRINCIPLE:
+- Extraction happens EXACTLY ONCE: when questioning ends (skip or complete)
+- During questioning: NO extraction, NO semantic analysis of answers
+- After extraction: high-entropy context (chat_history, initial_request) is destroyed
+- Downstream stages (planning/building) only receive extracted facts
+
+State machine: idle → questioning → extracted → ready
 """
 
+import json
 import logging
 from dataclasses import dataclass
 from enum import StrEnum
@@ -19,6 +26,10 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from vector_app.ai.client import get_llm_client
 from vector_app.ai.models import AIModel
 from vector_app.ai.types import LLMSettings
+from vector_app.prompts.main_agent import (
+    CONTINUATION_DECISION_SYSTEM_PROMPT,
+    build_continuation_decision_prompt,
+)
 from vector_app.services.questioning_service import (
     get_questioning_service,
 )
@@ -29,20 +40,43 @@ if TYPE_CHECKING:
 __all__ = [
     "AgentState",
     "AgentDecision",
+    "ExtractionResult",
     "MainAgentService",
     "get_main_agent_service",
 ]
 
 logger = logging.getLogger(__name__)
 
+# Policy constants for questioning phase
+MAX_QUESTIONS = 5
+MIN_QUESTIONS_BEFORE_COMPLETION = 1
+
 
 class AgentState(StrEnum):
     """State machine states for the questioning flow."""
     IDLE = "idle"
     QUESTIONING = "questioning"
-    SKIP = "skip"
     EXTRACTED = "extracted"
     READY = "ready"
+
+
+@dataclass
+class ExtractionResult:
+    """Result of crossing the extraction boundary.
+
+    This dataclass represents the ONLY output from the questioning phase.
+    Once created, the source chat_history and initial_request are destroyed.
+
+    Downstream stages (planning, building) receive ONLY this structure.
+    They cannot access raw conversation data.
+    """
+    facts: Dict[str, Any]
+    reasoning: str
+    question_count: int
+
+    # Markers that high-entropy context was destroyed
+    chat_history_destroyed: bool = True
+    initial_request_destroyed: bool = True
 
 
 @dataclass
@@ -50,16 +84,19 @@ class AgentDecision:
     """Result of an agent decision.
 
     Attributes:
-        action: What to do next (ask_question, extract, proceed)
+        action: What to do next (ask_question, skip, proceed)
         next_state: State to transition to
         question: The question to ask (if action is ask_question)
-        extracted_facts: Facts extracted (if action is extract)
+        extraction: Extraction result (ONLY set when crossing extraction boundary)
         reasoning: Why this decision was made
+
+    INVARIANT: extraction is ONLY set when crossing the extraction boundary.
+    Once set, chat_history and initial_request are destroyed and inaccessible.
     """
-    action: str  # "ask_question" | "extract" | "proceed" | "skip"
+    action: str  # "ask_question" | "skip" | "proceed"
     next_state: AgentState
     question: Optional[str] = None
-    extracted_facts: Optional[Dict[str, Any]] = None
+    extraction: Optional[ExtractionResult] = None
     reasoning: str = ""
 
 
@@ -71,10 +108,13 @@ class MainAgentService:
     - Should I ask another question?
     - Is the last answer vague or clear?
     - Did the user request to skip?
-    - Do I have enough information to proceed?
+    - Are there blocking unknowns?
 
     These are CONTROL-FLOW decisions, not CONTENT decisions.
     The QuestioningService provides the raw facts; this service decides what to do.
+
+    EXTRACTION BOUNDARY: Facts are extracted exactly ONCE when questioning ends.
+    During questioning, no semantic analysis or extraction occurs.
     """
 
     def __init__(self):
@@ -93,6 +133,10 @@ class MainAgentService:
         2. If not skipping, decide if we need more questions
         3. Return the appropriate action
 
+        IMPORTANT: This method may destroy chat_history and initial_request
+        if the extraction boundary is crossed. Callers must not rely on
+        these values after receiving an extraction result.
+
         Args:
             session: The QuestioningSession being processed
             user_message: The latest user message
@@ -104,30 +148,17 @@ class MainAgentService:
         # Check for skip request first
         skip_requested, skip_keyword = self._questioning.detect_skip_request(user_message)
         if skip_requested:
-            return self._handle_skip(session, chat_history, skip_keyword)
+            logger.info("User requested skip with keyword: '%s'", skip_keyword)
+            return self._cross_extraction_boundary(
+                session=session,
+                chat_history=chat_history,
+                action="skip",
+                reasoning=f"User requested skip with keyword: '{skip_keyword}'",
+            )
 
         # Decide if we need more questions or have enough
+        logger.info("Deciding next step...")
         return self._decide_next_step(session, chat_history)
-
-    def _handle_skip(
-        self,
-        session: "QuestioningSession",
-        chat_history: List[Dict],
-        skip_keyword: str,
-    ) -> AgentDecision:
-        """Handle user skip request — extract what we have and proceed."""
-        # Extract whatever facts we have
-        facts = self._questioning.extract_facts(
-            chat_history=chat_history,
-            initial_request=session.initial_request,
-        )
-
-        return AgentDecision(
-            action="skip",
-            next_state=AgentState.READY,
-            extracted_facts=facts,
-            reasoning=f"User requested skip with keyword: '{skip_keyword}'",
-        )
 
     def _decide_next_step(
         self,
@@ -136,26 +167,24 @@ class MainAgentService:
     ) -> AgentDecision:
         """Decide whether to ask more questions or proceed.
 
-        Uses LLM to make control-flow decision based on:
-        - Chat history and what's been answered
-        - Number of questions already asked
-        - Clarity of recent answers
-        """
-        # First extract current facts to inform decision
-        facts = self._questioning.extract_facts(
-            chat_history=chat_history,
-            initial_request=session.initial_request,
-        )
+        PRINCIPLE: No extraction happens here. This is purely a control-flow
+        decision based on the raw conversation state.
 
-        # Use LLM to decide: ask more or proceed?
+        Uses LLM to make procedural decision based on:
+        - Raw chat history (not extracted facts)
+        - Number of questions already asked
+        - Whether recent answers were clear or vague
+        """
+        # Procedural decision: should we continue questioning?
         should_continue = self._should_continue_questioning(
             session=session,
             chat_history=chat_history,
-            extracted_facts=facts,
         )
 
+        logger.debug("Should continue questioning: %s", should_continue)
+
         if should_continue:
-            # Generate next question
+            # Generate next question (no extraction involved)
             question = self._questioning.generate_question(
                 chat_history=chat_history,
                 initial_request=session.initial_request,
@@ -167,59 +196,131 @@ class MainAgentService:
                     action="ask_question",
                     next_state=AgentState.QUESTIONING,
                     question=question,
-                    reasoning="More clarification needed",
+                    reasoning="Blocking unknowns remain - more clarification needed",
                 )
 
-        # We have enough — extract and proceed
-        return AgentDecision(
+        # Questioning complete — cross the extraction boundary
+        return self._cross_extraction_boundary(
+            session=session,
+            chat_history=chat_history,
             action="proceed",
-            next_state=AgentState.READY,
-            extracted_facts=facts,
-            reasoning="Sufficient information gathered",
+            reasoning="No blocking unknowns remain - proceeding to build",
         )
+
+    def _cross_extraction_boundary(
+        self,
+        session: "QuestioningSession",
+        chat_history: List[Dict],
+        action: str,
+        reasoning: str,
+    ) -> AgentDecision:
+        """Cross the extraction boundary - extract facts and destroy high-entropy context.
+
+        This is the ONLY place where extraction happens.
+        After this call, chat_history and initial_request are conceptually destroyed.
+
+        Args:
+            session: The QuestioningSession being processed
+            chat_history: Full conversation history (will be destroyed after extraction)
+            action: The action that triggered extraction ("skip" or "proceed")
+            reasoning: Why we're crossing the boundary
+
+        Returns:
+            AgentDecision with extraction result
+        """
+        logger.info(
+            "Crossing extraction boundary: action=%s, question_count=%d",
+            action,
+            session.question_count,
+        )
+
+        # Extract facts - this is the ONE AND ONLY extraction call
+        facts = self._questioning.extract_facts(
+            chat_history=chat_history,
+            initial_request=session.initial_request,
+        )
+
+        # Create extraction result - marks that high-entropy context is destroyed
+        extraction = ExtractionResult(
+            facts=facts,
+            reasoning=reasoning,
+            question_count=session.question_count,
+            chat_history_destroyed=True,
+            initial_request_destroyed=True,
+        )
+
+        return AgentDecision(
+            action=action,
+            next_state=AgentState.READY,
+            extraction=extraction,
+            reasoning=reasoning,
+        )
+
+    def _parse_json_response(self, content: str) -> Optional[Dict]:
+        """Parse JSON response, handling markdown code fences.
+
+        LLMs sometimes wrap JSON in ```json ... ``` blocks.
+        Strip those before parsing.
+        """
+        stripped = content.strip()
+
+        # Remove markdown code fences
+        if stripped.startswith("```"):
+            # Remove opening fence (```json or ```)
+            lines = stripped.split("\n")
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            # Remove closing fence
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            stripped = "\n".join(lines).strip()
+
+        try:
+            return json.loads(stripped)
+        except json.JSONDecodeError as e:
+            logger.warning("Failed to parse JSON: %s", e)
+            return None
 
     def _should_continue_questioning(
         self,
         session: "QuestioningSession",
         chat_history: List[Dict],
-        extracted_facts: Optional[Dict[str, Any]],
     ) -> bool:
-        """LLM-based decision: should we ask more questions?
+        """Procedural decision: should we ask more questions?
 
-        Uses the sufficiency decision prompt to have the LLM assess:
-        - How many unknowns remain?
-        - Are answers clear or vague?
-        - How many questions have we asked?
-        - Is the request simple enough to proceed?
+        PRINCIPLE: This is a purely PROCEDURAL decision based on:
+        - Raw chat history (conversation turns)
+        - Number of questions asked
+        - Policy constants
+
+        FORBIDDEN inputs:
+        - Extracted facts
+        - Inferred structure
+        - Semantic judgments about "sufficiency"
+
+        The LLM analyzes the RAW conversation to determine if there are
+        unresolved or unclear aspects that would BLOCK building.
         """
-        import json
-
-        from vector_app.prompts.main_agent import (
-            SUFFICIENCY_DECISION_SYSTEM_PROMPT,
-            build_sufficiency_decision_prompt,
-        )
-
         # Hard limit: don't exceed max questions
-        MAX_QUESTIONS = 5
         if session.question_count >= MAX_QUESTIONS:
+            logger.debug("Hit max questions limit (%d), stopping", MAX_QUESTIONS)
             return False
 
-        # Format chat history for prompt
+        # Format chat history for prompt (raw, no extraction)
         formatted_history = self._format_chat_history(chat_history)
 
-        prompt = build_sufficiency_decision_prompt(
+        prompt = build_continuation_decision_prompt(
             initial_request=session.initial_request,
             chat_history=formatted_history,
-            extracted_facts=extracted_facts or {},
             question_count=session.question_count,
         )
 
         try:
             result = get_llm_client().run(
-                system_prompt=SUFFICIENCY_DECISION_SYSTEM_PROMPT,
+                system_prompt=CONTINUATION_DECISION_SYSTEM_PROMPT,
                 user_prompt=prompt,
                 llm_settings=LLMSettings(
-                    model=AIModel.CLAUDE_HAIKU_4_5,  # Fast model for control decisions
+                    model=AIModel.CLAUDE_SONNET_4_5,  # Fast model for procedural decisions
                     temperature=0.1,
                     max_tokens=500,
                     timeout=15.0,
@@ -227,21 +328,30 @@ class MainAgentService:
                 json_mode=True,
             )
 
-            data = result.validated(json.loads, default=None)
+            data = result.validated(self._parse_json_response, default=None)
             if data and isinstance(data, dict):
                 should_continue = data.get("should_continue", False)
                 reasoning = data.get("reasoning", "")
-                logger.debug("Sufficiency decision: continue=%s, reason=%s", should_continue, reasoning)
+                unclear_aspects = data.get("unclear_aspects", [])
+                logger.debug(
+                    "Continuation decision: continue=%s, unclear_aspects=%s, reason=%s",
+                    should_continue,
+                    unclear_aspects,
+                    reasoning,
+                )
                 return should_continue
 
             return False
 
         except Exception as e:
-            logger.warning("Sufficiency check failed: %s, defaulting to proceed", e)
+            logger.warning("Continuation check failed: %s, defaulting to proceed", e)
             return False
 
     def _format_chat_history(self, chat_history: List[Dict]) -> str:
-        """Format chat history for prompt."""
+        """Format chat history for prompt.
+
+        Returns raw conversation turns, no semantic analysis.
+        """
         if not chat_history:
             return "No conversation yet."
 
