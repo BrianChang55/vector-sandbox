@@ -9,30 +9,30 @@ See: .planning/PROJECT.md (updated 2026-01-14)
 
 ## Current Position
 
-Phase: 2 of 8 (Main Agent Service) — Ready to execute
+Phase: 2 of 8 (Main Agent Service) — Phase complete
 Plan: 1 of 1 in current phase
-Status: Ready to execute
-Last activity: 2026-01-15 — Created 02-01-PLAN.md (MainAgentService Core)
+Status: Phase complete
+Last activity: 2026-01-15 — Completed 02-01-PLAN.md (MainAgentService Core)
 
-Progress: █░░░░░░░░░ 12%
+Progress: ██░░░░░░░░ 25%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 3
-- Average duration: 6 min
-- Total execution time: 0.30 hours
+- Total plans completed: 4
+- Average duration: 5 min
+- Total execution time: 0.32 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1 | 3 | 18 min | 6 min |
-| 2 | 0 | - | - |
+| 2 | 1 | 1 min | 1 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (8 min), 01-02 (8 min), 01-03 (2 min)
-- Trend: Consistent
+- Last 5 plans: 01-01 (8 min), 01-02 (8 min), 01-03 (2 min), 02-01 (1 min)
+- Trend: Improving
 
 ## Accumulated Context
 
@@ -45,6 +45,7 @@ Recent decisions affecting current work:
 - Separate LLM calls per build phase with compacted context
 - Hook questioning before intent classification
 - **QuestioningService is pure distillation** — extracts facts, main agent decides
+- **MainAgentService uses Haiku for sufficiency decisions** — fast control-flow decisions
 
 ### Deferred Issues
 
@@ -57,5 +58,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-01-15
-Stopped at: Completed 01-03-PLAN.md (Phase 1 complete)
+Stopped at: Completed 02-01-PLAN.md (Phase 2 complete)
 Resume file: None
