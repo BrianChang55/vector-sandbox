@@ -9,8 +9,10 @@ import time
 from celery import shared_task
 from django.utils import timezone
 from vector_app.models import VersionAuditOperation
-from vector_app.models import VersionAuditOperation
 
+from vector_app.services.main_agent_service import get_main_agent_service
+from chat.models import QuestioningSession, ChatMessage
+from chat.types import QuestioningStatus, ChatMessageRole, ChatMessageStatus
 
 
 logger = logging.getLogger(__name__)
@@ -338,11 +340,11 @@ def run_agentic_generation(self, job_id: str):
 def _append_event(job, event_type: str, data: dict):
     """
     Append an event to the job's events_json.
-    
+
     Uses a separate function to ensure atomic DB updates.
     """
     from vector_app.models import CodeGenerationJob
-    
+
     event = {
         'type': event_type,
         'data': data,
@@ -352,3 +354,120 @@ def _append_event(job, event_type: str, data: dict):
     job.events_json.append(event)
     job.chunk_count = len(job.events_json)
     job.save(update_fields=['events_json', 'chunk_count', 'updated_at'])
+
+
+@shared_task(bind=True, max_retries=0, soft_time_limit=5 * 60, time_limit=6 * 60)
+def run_questioning_phase(self, job_id: str, user_response: str = None):
+    """
+    Run questioning phase - one turn at a time.
+
+    This task:
+    1. Loads the job and gets/creates QuestioningSession
+    2. Processes the user response (or initial request if first turn)
+    3. Either emits a question and ends, OR proceeds to generation
+
+    The key insight: task ENDS after emitting question.
+    User response triggers a NEW task invocation.
+    All state lives in DB (survives worker restarts).
+    """
+    from vector_app.models import CodeGenerationJob, CodeGenerationJobStatus
+
+    try:
+        job = CodeGenerationJob.objects.select_related(
+            'session', 'internal_app'
+        ).get(pk=job_id)
+    except CodeGenerationJob.DoesNotExist:
+        logger.error(f"Job {job_id} not found")
+        return
+
+    # Check if already cancelled before starting
+    if job.status == CodeGenerationJobStatus.CANCELLED:
+        logger.info(f"Job {job_id} was cancelled before questioning started")
+        return
+
+    session = job.session
+
+    # Get or create questioning session
+    if not hasattr(session, 'questioning_session') or session.questioning_session is None:
+        questioning_session = QuestioningSession.objects.create(
+            chat_session=session,
+            initial_request=job.user_message,
+            status=QuestioningStatus.IN_PROGRESS,
+        )
+        # Link questioning session to job
+        job.questioning_session = questioning_session
+        job.save(update_fields=['questioning_session', 'updated_at'])
+    else:
+        questioning_session = session.questioning_session
+
+    # Emit start event (only on first turn)
+    if questioning_session.question_count == 0 and user_response is None:
+        _append_event(job, "questioning_started", {
+            "session_id": str(questioning_session.id),
+            "initial_request": job.user_message,
+        })
+
+    # Build chat history from session messages
+    chat_history = [
+        {"role": m.role, "content": m.content}
+        for m in session.messages.order_by('created_at')
+    ]
+
+    # Get the message to process (user_response or initial_request)
+    message_to_process = user_response or job.user_message
+
+    # Call MainAgentService
+    agent = get_main_agent_service()
+    decision = agent.process_user_message(
+        session=questioning_session,
+        user_message=message_to_process,
+        chat_history=chat_history,
+    )
+
+    # Handle decision
+    if decision.action == "ask_question":
+        # Emit question event
+        _append_event(job, "question_asked", {
+            "question": decision.question,
+            "question_number": questioning_session.question_count + 1,
+        })
+
+        # Save question as assistant message
+        ChatMessage.objects.create(
+            session=session,
+            role=ChatMessageRole.ASSISTANT,
+            content=decision.question,
+            status=ChatMessageStatus.COMPLETE,
+        )
+
+        # Increment question count
+        questioning_session.question_count += 1
+        questioning_session.save(update_fields=['question_count', 'updated_at'])
+
+        # Task ends here - user response will trigger new task
+        return {"status": "awaiting_response", "question": decision.question}
+
+    elif decision.action in ("proceed", "skip"):
+        # Store extracted facts
+        questioning_session.synthesized_requirements = decision.extraction.facts
+        questioning_session.status = (
+            QuestioningStatus.SKIPPED if decision.action == "skip"
+            else QuestioningStatus.COMPLETE
+        )
+        questioning_session.save()
+
+        # Link questioning session to job (if not already)
+        if not job.questioning_session:
+            job.questioning_session = questioning_session
+            job.save(update_fields=['questioning_session', 'updated_at'])
+
+        # Emit completion event
+        _append_event(job, "questioning_complete", {
+            "facts": decision.extraction.facts,
+            "question_count": decision.extraction.question_count,
+            "was_skipped": decision.action == "skip",
+        })
+
+        # Transition to generation
+        run_agentic_generation.delay(str(job.id))
+        return {"status": "proceeding_to_generation"}
