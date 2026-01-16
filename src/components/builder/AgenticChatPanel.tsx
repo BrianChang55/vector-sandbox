@@ -24,6 +24,7 @@ import {
   Search,
   ListChecks,
   Square,
+  MessageCircle,
 } from 'lucide-react'
 import { ModelSelector } from './ModelSelector'
 import {
@@ -37,6 +38,7 @@ import {
   cancelJob,
   startFixErrors,
 } from '../../services/agentService'
+import { questioningApi } from '../../services/apiService'
 import type { BundlerError } from '../../hooks/useSandpackValidation'
 import type { AgentEvent, PlanStep, FileChange, AgentState } from '../../types/agent'
 import { initialAgentState } from '../../types/agent'
@@ -127,6 +129,33 @@ function ThinkingIndicator({ startTime }: { startTime: number }) {
       <div>
         <span className="text-sm text-gray-600">Thought for </span>
         <span className="text-sm font-medium text-gray-900">{elapsed}s</span>
+      </div>
+    </div>
+  )
+}
+
+// Animated questioning indicator for requirement gathering phase
+function QuestioningIndicator({ questionNumber }: { questionNumber: number }) {
+  return (
+    <div className="flex items-center gap-3 py-3">
+      <motion.div
+        className="w-8 h-8 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center"
+        animate={{
+          boxShadow: [
+            '0 0 0 0 rgba(59, 130, 246, 0)',
+            '0 0 0 4px rgba(59, 130, 246, 0.1)',
+            '0 0 0 0 rgba(59, 130, 246, 0)',
+          ]
+        }}
+        transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+      >
+        <MessageCircle className="h-4 w-4 text-blue-500" />
+      </motion.div>
+      <div>
+        <span className="text-sm text-gray-600">Gathering requirements </span>
+        {questionNumber > 0 && (
+          <span className="text-sm font-medium text-gray-900">· Question {questionNumber}</span>
+        )}
       </div>
     </div>
   )
@@ -578,7 +607,11 @@ export function AgenticChatPanel({
   const [fixAttempt, setFixAttempt] = useState(0)
   const fixControllerRef = useRef<AbortController | null>(null)
   const lastFixedErrorSignatureRef = useRef<string>('')
-  
+
+  // Questioning phase state
+  const [isQuestioning, setIsQuestioning] = useState(false)
+  const [currentQuestionNumber, setCurrentQuestionNumber] = useState(0)
+
   // Notify parent component of generating version changes
   useEffect(() => {
     onGeneratingVersionChange?.(generatingVersionId)
@@ -1538,6 +1571,45 @@ export function AgenticChatPanel({
           setThinkingStartTime(null)
           break
 
+        // Questioning phase events
+        case 'questioning_started':
+          setIsQuestioning(true)
+          setCurrentQuestionNumber(0)
+          appendProgressUpdate('Gathering requirements: asking clarifying questions', 'phase')
+          break
+
+        case 'question_asked':
+          setCurrentQuestionNumber(data.question_number)
+          // Add question as assistant message
+          setMessages(prev => {
+            // Check if we already have this question
+            const questionId = `question-${data.question_number}`
+            if (prev.some(m => m.id === questionId)) return prev
+
+            return [
+              ...prev,
+              {
+                id: questionId,
+                role: 'assistant',
+                content: data.question,
+                status: 'complete',
+                createdAt: new Date().toISOString(),
+              } as LocalMessage,
+            ]
+          })
+          break
+
+        case 'questioning_complete':
+        case 'questioning_skipped':
+          setIsQuestioning(false)
+          setCurrentQuestionNumber(0)
+          if (event.type === 'questioning_skipped') {
+            appendProgressUpdate('Skipped questions: proceeding to build', 'phase')
+          } else {
+            appendProgressUpdate('Requirements gathered: proceeding to build', 'phase')
+          }
+          break
+
         case 'agent_error':
           setMessages((prev) => {
             const lastIdx = prev.length - 1
@@ -1585,11 +1657,16 @@ export function AgenticChatPanel({
         
         if (jobInfo?.has_active_job && jobInfo.job_id) {
           console.log('[AgenticChatPanel] Found active job, reconnecting:', jobInfo.job_id)
-          
+
           // Set loading state
           setIsLoading(true)
           setActiveJobId(jobInfo.job_id)
           setThinkingStartTime(Date.now())
+
+          // Check if job is in questioning phase
+          if (jobInfo.status === 'questioning') {
+            setIsQuestioning(true)
+          }
           
           if (jobInfo.version_id) {
             setGeneratingVersionId(jobInfo.version_id)
@@ -1670,12 +1747,54 @@ export function AgenticChatPanel({
     checkForActiveJob()
   }, [appId, hasCheckedForActiveJob, handleAgentEvent, onGeneratingVersionChange, messagesFetching, sessionMessages, mapApiMessageToLocal, sessionId])
 
+  // Handle skipping the questioning phase
+  const handleSkipQuestioning = useCallback(async () => {
+    if (!activeJobId) return
+
+    try {
+      await questioningApi.skip(activeJobId)
+      // The skip will trigger questioning_skipped event via SSE
+      // No need to update state here - SSE handler will do it
+    } catch (error) {
+      console.error('[AgenticChatPanel] Failed to skip questioning:', error)
+    }
+  }, [activeJobId])
+
   const handleSubmit = async (overrideMessage?: string) => {
     const messageToSend = overrideMessage ?? input.trim()
-    if (!messageToSend || isLoading) return
+    if (!messageToSend) return
 
     const message = messageToSend
     setInput('')
+
+    // During questioning phase, send response to questioning endpoint
+    if (isQuestioning && activeJobId) {
+      // Add user message to chat
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `response-${Date.now()}`,
+          role: 'user',
+          content: message,
+          status: 'complete',
+          createdAt: new Date().toISOString(),
+        },
+      ])
+
+      try {
+        await questioningApi.respond(activeJobId, message)
+        // Response will come via SSE events (question_asked or questioning_complete)
+      } catch (error) {
+        console.error('[AgenticChatPanel] Failed to send response:', error)
+        // Restore input on error
+        setInput(message)
+      }
+      return
+    }
+
+    // Normal flow - start new generation
+    if (isLoading) return
+
     setIsLoading(true)
     setThinkingStartTime(Date.now())
 
@@ -2262,6 +2381,13 @@ export function AgenticChatPanel({
             )})}
           </AnimatePresence>
 
+          {/* Questioning indicator - shows at the bottom when in questioning phase */}
+          {isQuestioning && (
+            <div className="max-w-3xl mx-auto px-4 mb-4">
+              <QuestioningIndicator questionNumber={currentQuestionNumber} />
+            </div>
+          )}
+
           <div ref={messagesEndRef} />
         </div>
       </div>
@@ -2276,9 +2402,9 @@ export function AgenticChatPanel({
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Describe what you want to build..."
+                placeholder={isQuestioning ? "Answer the question or skip to build..." : "Describe what you want to build..."}
                 rows={1}
-                disabled={isLoading}
+                disabled={isLoading && !isQuestioning}
                 className="w-full bg-transparent border-none text-sm text-gray-900 placeholder-gray-500 resize-none
                            focus:outline-none focus:ring-0 disabled:opacity-60 whitespace-pre-wrap break-words"
                 style={{ minHeight: '48px', maxHeight: '140px', wordWrap: 'break-word', overflowWrap: 'break-word' }}
@@ -2298,8 +2424,19 @@ export function AgenticChatPanel({
                 size="sm"
                 placement="up"
               />
+
+              {/* Skip button - only visible during questioning phase */}
+              {isQuestioning && (
+                <button
+                  onClick={handleSkipQuestioning}
+                  className="text-xs text-gray-600 hover:text-gray-900 px-3 py-1.5 rounded-lg border border-gray-200 hover:border-gray-300 transition-colors"
+                >
+                  Skip to build
+                </button>
+              )}
+
               {/* Dev mode: show stop button when loading, otherwise show send button */}
-              {import.meta.env.DEV && isLoading ? (
+              {import.meta.env.DEV && isLoading && !isQuestioning ? (
                 <button
                   onClick={handleCancel}
                   className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-gray-900 text-white
@@ -2311,12 +2448,12 @@ export function AgenticChatPanel({
               ) : (
                 <button
                   onClick={handleSendClick}
-                  disabled={!isLoading && !input.trim()}
+                  disabled={!isLoading && !isQuestioning && !input.trim()}
                   className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-gray-900 text-white
                              hover:bg-gray-800 disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-sm"
-                  title={isLoading ? 'Stop generation' : 'Send message'}
+                  title={isQuestioning ? 'Send response' : isLoading ? 'Stop generation' : 'Send message'}
                 >
-                  {isLoading ? (
+                  {isLoading && !isQuestioning ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     <ArrowUp className="h-4 w-4" />
