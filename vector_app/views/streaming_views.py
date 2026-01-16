@@ -7,6 +7,7 @@ during AI code generation - similar to Cursor, Lovable, Replit.
 import json
 import logging
 import time
+import uuid
 from typing import Generator, Optional
 from django.http import StreamingHttpResponse, JsonResponse
 from django.views import View
@@ -30,35 +31,26 @@ from ..models import (
     CodeGenerationJob,
     CodeGenerationJobStatus,
     InternalApp,
-    UserOrganization,
+    VersionAuditLog,
     VersionFile,
 )
-from chat.models import QuestioningJob, QuestioningSession
-from chat.types import QuestioningJobStatus, QuestioningStatus
 from ..ai.models import AIModel
 from ..ai.client import get_llm_client
 from ..ai.types import LLMSettings
-from ..services.openrouter_service import get_openrouter_service
+from ..services.openrouter_service import (
+    get_openrouter_service,
+    StreamChunk,
+    MODEL_CONFIGS,
+)
 from ..utils.enum_utils import safe_str_enum
 from ..services.validation import AppSpecValidationService
 from ..services.codegen import CodegenService
+from ..services.agentic_service import get_agentic_service
 from ..services.version_service import VersionService
 from ..services.snapshot_service import SnapshotService
-from ..permissions import require_editor_or_above
-from ..tasks import run_questioning_phase
+from ..permissions import require_editor_or_above, require_org_membership
 
 logger = logging.getLogger(__name__)
-
-
-def _build_chat_history(questioning_session: QuestioningSession) -> list:
-    """Build chat_history list from ChatMessages in the linked ChatSession.
-    
-    Returns list of dicts with role and content for each message in order.
-    """
-    return [
-        {"role": msg.role, "content": msg.content}
-        for msg in questioning_session.chat_session.messages.order_by('created_at')
-    ]
 
 
 class AvailableModelsView(APIView):
@@ -165,11 +157,7 @@ class ChatSessionViewSet(APIView):
 
 
 class ChatMessagesView(APIView):
-    """Get messages for a chat session.
-    
-    Query params:
-    - context: Filter by message context ('requirements' or 'build'). If omitted, returns all messages.
-    """
+    """Get messages for a chat session."""
     permission_classes = [IsAuthenticated]
     
     def get(self, request, session_id):
@@ -189,11 +177,6 @@ class ChatMessagesView(APIView):
             
             messages = session.messages.order_by('created_at')
             
-            # Optional context filter
-            context_filter = request.query_params.get('context')
-            if context_filter in ('requirements', 'build'):
-                messages = messages.filter(context=context_filter)
-            
             return Response({
                 "messages": [
                     {
@@ -201,7 +184,6 @@ class ChatMessagesView(APIView):
                         "role": m.role,
                         "content": m.content,
                         "status": m.status,
-                        "context": m.context,
                         "model_id": m.model_id,
                         "created_at": m.created_at.isoformat(),
                         "duration_ms": m.duration_ms,
@@ -228,55 +210,6 @@ def sse_event(event_type: str, data: dict) -> str:
 
 def _parse_model(raw_model: Optional[str]) -> AIModel:
     return safe_str_enum(raw_model, AIModel.CLAUDE_SONNET_4_5, AIModel)
-
-
-def _build_chat_history(questioning_session: QuestioningSession) -> list:
-    """Build chat_history list from ChatMessages in the linked ChatSession.
-    
-    Returns list of dicts with role and content for each message in order.
-    """
-    return [
-        {"role": msg.role, "content": msg.content}
-        for msg in questioning_session.chat_session.messages.order_by('created_at')
-    ]
-
-
-def _authenticate_request(request):
-    """Authenticate the request, return user or JsonResponse error.
-    
-    Supports authentication via:
-    1. Django session (request.user already authenticated)
-    2. Authorization header (Bearer token)
-    3. Query parameter (?token=...) - needed for SSE/EventSource which can't set headers
-    """
-    user = request.user
-    if not user.is_authenticated:
-        # Try Authorization header first
-        auth_header = request.META.get('HTTP_AUTHORIZATION', '')
-        
-        # Fall back to query param token (for SSE/EventSource)
-        if not auth_header:
-            token_param = request.GET.get('token', '')
-            if token_param:
-                auth_header = f'Bearer {token_param}'
-        
-        if not auth_header:
-            return JsonResponse({"error": "Authentication required"}, status=401)
-        
-        try:
-            jwt_auth = JWTAuthentication()
-            drf_request = Request(request)
-            # Inject the auth header if it came from query param
-            if not request.META.get('HTTP_AUTHORIZATION'):
-                drf_request.META['HTTP_AUTHORIZATION'] = auth_header
-            auth_result = jwt_auth.authenticate(drf_request)
-            if auth_result is None:
-                return JsonResponse({"error": "Invalid authentication token"}, status=401)
-            user, _ = auth_result
-        except Exception as e:
-            logger.warning("JWT authentication failed: %s", e)
-            return JsonResponse({"error": "Authentication failed"}, status=401)
-    return user
 
 
 @method_decorator(csrf_exempt, name='dispatch')
@@ -341,6 +274,7 @@ class StreamingGenerateView(View):
             return JsonResponse({"error": "App not found"}, status=404)
         
         # Verify user is editor or above (code generation requires edit permissions)
+        from ..models import UserOrganization
         try:
             membership = UserOrganization.objects.get(user=user, organization=app.organization)
             if not membership.is_editor_or_above():
@@ -475,8 +409,8 @@ class StreamingGenerateView(View):
             else:
                 # Get current files for code mode
                 current_files = {}
-                if latest_stable_version:
-                    for vf in latest_stable_version.files.all():
+                if latest_version:
+                    for vf in latest_version.files.all():
                         current_files[vf.path] = vf.content
                 
                 stream = service.generate_code_streaming(
@@ -778,6 +712,8 @@ class AgenticGenerateView(View):
     
     def post(self, request, app_id):
         """Start agentic code generation (new job-based flow)."""
+        import json
+        
         try:
             body = json.loads(request.body) if request.body else {}
         except json.JSONDecodeError:
@@ -804,6 +740,7 @@ class AgenticGenerateView(View):
             return JsonResponse({"error": "App not found"}, status=404)
         
         # Verify user is editor or above (code generation requires edit permissions)
+        from ..models import UserOrganization
         try:
             membership = UserOrganization.objects.get(user=user, organization=app.organization)
             if not membership.is_editor_or_above():
@@ -867,6 +804,7 @@ class AgenticGenerateView(View):
             return JsonResponse({"error": "App not found"}, status=404)
         
         # Verify user is editor or above (code generation requires edit permissions)
+        from ..models import UserOrganization
         try:
             membership = UserOrganization.objects.get(user=user, organization=app.organization)
             if not membership.is_editor_or_above():
@@ -913,7 +851,23 @@ class AgenticGenerateView(View):
     
     def _authenticate(self, request):
         """Authenticate the request, return user or JsonResponse error."""
-        return _authenticate_request(request)
+        user = request.user
+        if not user.is_authenticated:
+            auth_header = request.META.get('HTTP_AUTHORIZATION', '')
+            if not auth_header:
+                return JsonResponse({"error": "Authentication required"}, status=401)
+            
+            try:
+                jwt_auth = JWTAuthentication()
+                drf_request = Request(request)
+                auth_result = jwt_auth.authenticate(drf_request)
+                if auth_result is None:
+                    return JsonResponse({"error": "Invalid authentication token"}, status=401)
+                user, _ = auth_result
+            except Exception as e:
+                logger.warning(f"JWT authentication failed: {e}")
+                return JsonResponse({"error": "Authentication failed"}, status=401)
+        return user
     
     def _stream_from_job(self, job: 'CodeGenerationJob') -> Generator[str, None, None]:
         """Stream events from job's events_json (for legacy GET compatibility)."""
@@ -1579,6 +1533,7 @@ class FixErrorsView(View):
             return JsonResponse({"error": "Version not found"}, status=404)
         
         # Verify user is editor or above (fixing errors requires edit permissions)
+        from ..models import UserOrganization
         try:
             membership = UserOrganization.objects.get(user=user, organization=version.internal_app.organization)
             if not membership.is_editor_or_above():
@@ -1798,531 +1753,3 @@ Examples:
                 "description": "",
                 "fallback": True,
             })
-
-
-@method_decorator(csrf_exempt, name='dispatch')
-class QuestioningStartView(View):
-    """
-    Start a questioning job for a new requirements session.
-    
-    POST /api/v1/questioning/start/
-    Body: { "app_id": "...", "message": "...", "model": "...", "session_id": "..." }
-    """
-    
-    def post(self, request):
-        try:
-            body = json.loads(request.body) if request.body else {}
-        except json.JSONDecodeError:
-            return JsonResponse({"error": "Invalid JSON body"}, status=400)
-        
-        app_id = body.get("app_id")
-        message = body.get("message", "")
-        model = _parse_model(body.get("model"))
-        session_id = body.get("session_id")
-        
-        if not app_id:
-            return JsonResponse({"error": "app_id is required"}, status=400)
-        if not message:
-            return JsonResponse({"error": "Message is required"}, status=400)
-        
-        user = _authenticate_request(request)
-        if isinstance(user, JsonResponse):
-            return user
-        
-        try:
-            app = InternalApp.objects.select_related("organization").get(pk=app_id)
-        except InternalApp.DoesNotExist:
-            return JsonResponse({"error": "App not found"}, status=404)
-        
-        try:
-            membership = UserOrganization.objects.get(user=user, organization=app.organization)
-            if not membership.is_editor_or_above():
-                return JsonResponse(
-                    {"error": "You must be an editor or admin to start questioning"},
-                    status=403,
-                )
-        except UserOrganization.DoesNotExist:
-            return JsonResponse({"error": "Access denied"}, status=403)
-        
-        if session_id:
-            try:
-                session = ChatSession.objects.get(pk=session_id)
-            except ChatSession.DoesNotExist:
-                return JsonResponse({"error": "Session not found"}, status=404)
-            if session.internal_app_id != app.id:
-                return JsonResponse({"error": "Session does not belong to this app"}, status=400)
-            try:
-                existing = session.questioning_session
-                return JsonResponse(
-                    {
-                        "error": "Questioning session already exists",
-                        "questioning_session_id": str(existing.id),
-                    },
-                    status=400,
-                )
-            except QuestioningSession.DoesNotExist:
-                pass
-        else:
-            session = ChatSession.objects.create(
-                internal_app=app,
-                title=message[:50] + "..." if len(message) > 50 else message,
-                model_id=model,
-                created_by=user,
-            )
-        
-        questioning_session = QuestioningSession.objects.create(
-            chat_session=session,
-            initial_request=message,
-            status=QuestioningStatus.IN_PROGRESS,
-            question_count=0,
-        )
-        
-        job = QuestioningJob.objects.create(
-            questioning_session=questioning_session,
-            status=QuestioningJobStatus.QUEUED,
-            current_question="",
-            user_answer=message,
-            created_by=user,
-        )
-        
-        run_questioning_phase.delay(str(job.id))
-        
-        return JsonResponse(
-            {
-                "job_id": str(job.id),
-                "stream_url": f"/api/v1/questioning/{job.id}/stream/",
-                "status": job.status,
-                "session_id": str(session.id),
-                "questioning_session_id": str(questioning_session.id),
-            },
-            status=201,
-        )
-
-
-@method_decorator(csrf_exempt, name='dispatch')
-class QuestioningStreamView(View):
-    """
-    SSE endpoint for streaming questioning job events.
-    
-    GET /api/v1/questioning/:job_id/stream/?last_index=0
-    """
-    
-    def get(self, request, job_id):
-        last_index = int(request.GET.get("last_index", 0))
-        
-        user = _authenticate_request(request)
-        if isinstance(user, JsonResponse):
-            return user
-        
-        try:
-            job = QuestioningJob.objects.select_related(
-                "questioning_session__chat_session__internal_app__organization"
-            ).get(pk=job_id)
-        except QuestioningJob.DoesNotExist:
-            return JsonResponse({"error": "Job not found"}, status=404)
-        
-        app = job.questioning_session.chat_session.internal_app
-        if not user.user_organizations.filter(organization=app.organization).exists():
-            return JsonResponse({"error": "Access denied"}, status=403)
-        
-        response = StreamingHttpResponse(
-            self._stream_events(job, last_index),
-            content_type="text/event-stream",
-        )
-        response["Cache-Control"] = "no-cache"
-        response["X-Accel-Buffering"] = "no"
-        return response
-    
-    def _stream_events(self, job: QuestioningJob, last_index: int) -> Generator[str, None, None]:
-        poll_interval = 0.3
-        max_wait_for_start = 30
-        waited = 0
-        
-        while True:
-            job.refresh_from_db()
-            events = job.events_json
-            
-            if len(events) > last_index:
-                for event in events[last_index:]:
-                    yield sse_event(event["type"], event["data"])
-                last_index = len(events)
-                waited = 0
-            
-            if job.status in [
-                QuestioningJobStatus.COMPLETE,
-                QuestioningJobStatus.SKIPPED,
-                QuestioningJobStatus.FAILED,
-            ]:
-                break
-            
-            time.sleep(poll_interval)
-            waited += poll_interval
-            
-            if job.status == QuestioningJobStatus.QUEUED and waited > max_wait_for_start:
-                yield sse_event(
-                    "error",
-                    {
-                        "message": "Questioning job timed out waiting to start.",
-                        "recoverable": True,
-                    },
-                )
-                break
-
-
-@method_decorator(csrf_exempt, name='dispatch')
-class QuestioningAnswerView(View):
-    """
-    Handle user answers during the questioning phase.
-    
-    POST /api/v1/questioning/:job_id/answer/
-    Body: { "message": "user's answer" }
-    
-    Queues the next questioning phase task for the job.
-    """
-    
-    def post(self, request, job_id):
-        """Queue the user's answer for processing."""
-        try:
-            body = json.loads(request.body) if request.body else {}
-        except json.JSONDecodeError:
-            return JsonResponse({"error": "Invalid JSON body"}, status=400)
-        
-        # Accept both 'answer' (frontend) and 'message' (legacy) keys
-        message = body.get('answer') or body.get('message', '')
-        if not message:
-            return JsonResponse({"error": "Answer is required"}, status=400)
-        
-        user = _authenticate_request(request)
-        if isinstance(user, JsonResponse):
-            return user
-        
-        try:
-            job = QuestioningJob.objects.select_related(
-                "questioning_session__chat_session__internal_app__organization"
-            ).get(pk=job_id)
-        except QuestioningJob.DoesNotExist:
-            return JsonResponse({"error": "Job not found"}, status=404)
-        
-        questioning_session = job.questioning_session
-        session = questioning_session.chat_session
-        app = session.internal_app
-        
-        try:
-            membership = UserOrganization.objects.get(user=user, organization=app.organization)
-            if not membership.is_editor_or_above():
-                return JsonResponse(
-                    {"error": "You must be an editor or admin to answer questions"},
-                    status=403,
-                )
-        except UserOrganization.DoesNotExist:
-            return JsonResponse({"error": "Access denied"}, status=403)
-        
-        if questioning_session.status in [QuestioningStatus.COMPLETE, QuestioningStatus.SKIPPED]:
-            return JsonResponse(
-                {"error": "Questioning phase is already complete", "status": questioning_session.status},
-                status=400,
-            )
-        
-        if job.status == QuestioningJobStatus.PROCESSING:
-            return JsonResponse({"error": "Questioning job is still processing"}, status=409)
-
-        if job.status == QuestioningJobStatus.FAILED:
-            return JsonResponse({"error": "Questioning job failed"}, status=400)
-        
-        if job.status in [QuestioningJobStatus.COMPLETE, QuestioningJobStatus.SKIPPED]:
-            return JsonResponse(
-                {"error": "Questioning job is already complete", "status": job.status},
-                status=400,
-            )
-
-        if job.status != QuestioningJobStatus.WAITING_FOR_ANSWER:
-            return JsonResponse(
-                {"error": "No question is awaiting an answer", "status": job.status},
-                status=400,
-            )
-        
-        job.user_answer = message
-        job.current_question = ""
-        job.status = QuestioningJobStatus.QUEUED
-        job.save(update_fields=["user_answer", "current_question", "status", "updated_at"])
-        
-        run_questioning_phase.delay(str(job.id))
-        
-        return JsonResponse(
-            {
-                "status": "queued",
-                "job_id": str(job.id),
-                "questioning_session_id": str(questioning_session.id),
-                "stream_url": f"/api/v1/questioning/{job.id}/stream/",
-            },
-            status=202,
-        )
-
-
-@method_decorator(csrf_exempt, name='dispatch')
-class QuestioningSkipView(View):
-    """
-    Skip remaining questions for a job.
-    
-    POST /api/v1/questioning/:job_id/skip/
-    """
-    
-    def post(self, request, job_id):
-        user = _authenticate_request(request)
-        if isinstance(user, JsonResponse):
-            return user
-        
-        try:
-            job = QuestioningJob.objects.select_related(
-                "questioning_session__chat_session__internal_app__organization"
-            ).get(pk=job_id)
-        except QuestioningJob.DoesNotExist:
-            return JsonResponse({"error": "Job not found"}, status=404)
-        
-        questioning_session = job.questioning_session
-        app = questioning_session.chat_session.internal_app
-        
-        try:
-            membership = UserOrganization.objects.get(user=user, organization=app.organization)
-            if not membership.is_editor_or_above():
-                return JsonResponse(
-                    {"error": "You must be an editor or admin to skip questions"},
-                    status=403,
-                )
-        except UserOrganization.DoesNotExist:
-            return JsonResponse({"error": "Access denied"}, status=403)
-        
-        if questioning_session.status in [QuestioningStatus.COMPLETE, QuestioningStatus.SKIPPED]:
-            return JsonResponse(
-                {"error": "Questioning phase is already complete", "status": questioning_session.status},
-                status=400,
-            )
-        
-        if job.status == QuestioningJobStatus.PROCESSING:
-            return JsonResponse({"error": "Questioning job is still processing"}, status=409)
-        
-        if job.status == QuestioningJobStatus.FAILED:
-            return JsonResponse({"error": "Questioning job failed"}, status=400)
-
-        if job.status in [QuestioningJobStatus.COMPLETE, QuestioningJobStatus.SKIPPED]:
-            return JsonResponse(
-                {"error": "Questioning job is already complete", "status": job.status},
-                status=400,
-            )
-        
-        job.user_answer = "skip"
-        job.current_question = ""
-        job.status = QuestioningJobStatus.QUEUED
-        job.save(update_fields=["user_answer", "current_question", "status", "updated_at"])
-        
-        run_questioning_phase.delay(str(job.id))
-        
-        return JsonResponse(
-            {
-                "status": "queued",
-                "job_id": str(job.id),
-                "questioning_session_id": str(questioning_session.id),
-                "stream_url": f"/api/v1/questioning/{job.id}/stream/",
-            },
-            status=202,
-        )
-
-
-@method_decorator(csrf_exempt, name='dispatch')
-class QuestioningStatusView(View):
-    """
-    Get current status for a questioning job.
-    
-    GET /api/v1/questioning/:job_id/status/
-    """
-    
-    def get(self, request, job_id):
-        user = _authenticate_request(request)
-        if isinstance(user, JsonResponse):
-            return user
-        
-        try:
-            job = QuestioningJob.objects.select_related(
-                "questioning_session__chat_session__internal_app__organization"
-            ).get(pk=job_id)
-        except QuestioningJob.DoesNotExist:
-            return JsonResponse({"error": "Job not found"}, status=404)
-        
-        questioning_session = job.questioning_session
-        session = questioning_session.chat_session
-        app = session.internal_app
-        
-        if not user.user_organizations.filter(organization=app.organization).exists():
-            return JsonResponse({"error": "Access denied"}, status=403)
-        
-        return JsonResponse(
-            {
-                "job_id": str(job.id),
-                "status": job.status,
-                "current_question": job.current_question,
-                "events_count": len(job.events_json),
-                "questioning_session_id": str(questioning_session.id),
-                "session_id": str(session.id),
-                "questioning_status": questioning_session.status,
-                "question_count": questioning_session.question_count,
-                "synthesized_requirements": questioning_session.synthesized_requirements,
-            }
-        )
-
-
-@method_decorator(csrf_exempt, name='dispatch')
-class QuestioningStateView(View):
-    """
-    Get the current questioning state for an app.
-    
-    GET /api/v1/apps/:app_id/questioning/state/
-    
-    Returns the latest questioning session state including:
-    - status (idle/questioning/complete)
-    - messages (Q&A chat history)
-    - facts (extracted requirements)
-    - job_id (if in progress)
-    
-    This enables the frontend to restore state when navigating back
-    to the requirements tab.
-    """
-    
-    def get(self, request, app_id):
-        user = _authenticate_request(request)
-        if isinstance(user, JsonResponse):
-            return user
-        
-        try:
-            app = InternalApp.objects.get(pk=app_id)
-        except InternalApp.DoesNotExist:
-            return JsonResponse({"error": "App not found"}, status=404)
-        
-        if not user.user_organizations.filter(organization=app.organization).exists():
-            return JsonResponse({"error": "Access denied"}, status=403)
-        
-        # Find the latest questioning session for this app
-        questioning_session = QuestioningSession.objects.filter(
-            chat_session__internal_app=app
-        ).select_related("chat_session").order_by("-created_at").first()
-        
-        if not questioning_session:
-            # No questioning session exists - return idle state
-            return JsonResponse({
-                "status": "idle",
-                "messages": [],
-                "facts": None,
-                "job_id": None,
-                "question_count": 0,
-            })
-        
-        # Get the chat messages for this session (only requirements context)
-        messages = ChatMessage.objects.filter(
-            session=questioning_session.chat_session,
-            context="requirements",
-        ).order_by("created_at").values("id", "role", "content", "created_at")
-        
-        # Convert to list and format timestamps
-        messages_list = [
-            {
-                "id": str(msg["id"]),
-                "role": msg["role"],
-                "content": msg["content"],
-                "timestamp": msg["created_at"].isoformat(),
-            }
-            for msg in messages
-        ]
-        
-        # Get the latest job for this session (if any)
-        latest_job = QuestioningJob.objects.filter(
-            questioning_session=questioning_session
-        ).order_by("-created_at").first()
-        
-        # Map questioning session status to frontend status
-        # Backend: IN_PROGRESS, COMPLETE, SKIPPED
-        # Frontend: idle, questioning, complete
-        status_map = {
-            QuestioningStatus.IN_PROGRESS: "questioning",
-            QuestioningStatus.COMPLETE: "complete",
-            QuestioningStatus.SKIPPED: "complete",  # Skipped = complete from frontend perspective
-        }
-        # Convert stored status string to enum for lookup
-        session_status = safe_str_enum(
-            questioning_session.status,
-            QuestioningStatus.IN_PROGRESS,
-            QuestioningStatus,
-        )
-        frontend_status = status_map.get(session_status, "idle")
-        
-        # Extract facts from synthesized_requirements
-        facts = None
-        if questioning_session.synthesized_requirements:
-            facts = questioning_session.synthesized_requirements.get("facts")
-        
-        return JsonResponse({
-            "status": frontend_status,
-            "messages": messages_list,
-            "facts": facts,
-            "job_id": str(latest_job.id) if latest_job else None,
-            "job_status": latest_job.status if latest_job else None,
-            "current_question": latest_job.current_question if latest_job else None,
-            "question_count": questioning_session.question_count,
-            "initial_request": questioning_session.initial_request,
-            "session_id": str(questioning_session.chat_session.id),
-            "questioning_session_id": str(questioning_session.id),
-        })
-
-
-@method_decorator(csrf_exempt, name='dispatch')
-class QuestioningResetView(View):
-    """
-    Reset the questioning state for an app to start fresh.
-    
-    POST /api/v1/apps/:app_id/questioning/reset/
-    
-    Deletes all questioning sessions for the app, allowing
-    the user to start a new requirements gathering flow.
-    The app's existing versions (if any) are preserved.
-    """
-    
-    def post(self, request, app_id):
-        user = _authenticate_request(request)
-        if isinstance(user, JsonResponse):
-            return user
-        
-        try:
-            app = InternalApp.objects.get(pk=app_id)
-        except InternalApp.DoesNotExist:
-            return JsonResponse({"error": "App not found"}, status=404)
-        
-        # Check user has edit permission
-        try:
-            membership = UserOrganization.objects.get(user=user, organization=app.organization)
-            if not membership.is_editor_or_above():
-                return JsonResponse(
-                    {"error": "You must be an editor or admin to reset questioning"},
-                    status=403,
-                )
-        except UserOrganization.DoesNotExist:
-            return JsonResponse({"error": "Access denied"}, status=403)
-        
-        # Delete all questioning sessions for this app
-        # This cascades to delete QuestioningJobs and related ChatMessages
-        deleted_count = 0
-        questioning_sessions = QuestioningSession.objects.filter(
-            chat_session__internal_app=app
-        ).select_related("chat_session")
-        
-        for qs in questioning_sessions:
-            # Delete chat messages in requirements context
-            ChatMessage.objects.filter(
-                session=qs.chat_session,
-                context="requirements",
-            ).delete()
-            # Delete the questioning session (cascades to jobs)
-            qs.delete()
-            deleted_count += 1
-        
-        return JsonResponse({
-            "status": "idle",
-            "message": f"Reset complete. Deleted {deleted_count} questioning session(s).",
-        })
