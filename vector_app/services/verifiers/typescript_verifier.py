@@ -59,11 +59,13 @@ class TypeScriptVerifier(BaseVerifier):
         Returns:
             FileVerificationResult with validation status and any errors
         """
+        logger.info("[TS_VERIFIER] Starting verification for: %s", file_path)
         started_at = datetime.now()
         file_type = self._get_file_type(file_path)
 
         # Determine language from extension
         language = self._get_language(file_path)
+        logger.debug("[TS_VERIFIER] Detected language: %s for %s", language, file_path)
 
         # Create FileChange for ValidationService
         file_change = FileChange(
@@ -74,16 +76,20 @@ class TypeScriptVerifier(BaseVerifier):
         )
 
         # Get validation service and validate
+        logger.info("[TS_VERIFIER] Calling ValidationService.validate_typescript for %s", file_path)
         validation_service = get_validation_service()
         result = validation_service.validate_typescript([file_change])
+        logger.info("[TS_VERIFIER] ValidationService returned passed=%s for %s", result.passed, file_path)
 
         # Map ValidationResult to FileVerificationResult
         if result.passed:
             status = VerificationStatus.PASSED
             error_message = None
+            logger.info("[TS_VERIFIER] Verification PASSED for %s", file_path)
         else:
             status = VerificationStatus.FAILED
             error_message = self._format_errors(result.errors)
+            logger.warning("[TS_VERIFIER] Verification FAILED for %s: %s", file_path, error_message)
 
         completed_at = datetime.now()
 

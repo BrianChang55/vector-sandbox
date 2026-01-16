@@ -56,8 +56,10 @@ class VerificationMixin:
         Returns:
             FileVerificationResult with verification status and any errors
         """
+        logger.info("[VERIFY_FILE] Starting verification for: %s", file_change.path)
         registry = get_verifier_registry()
         verifiers = registry.get_verifiers(file_change.path)
+        logger.info("[VERIFY_FILE] Found %d verifiers for %s", len(verifiers) if verifiers else 0, file_change.path)
 
         # No verifiers registered - skip verification
         if not verifiers:
@@ -81,12 +83,14 @@ class VerificationMixin:
 
         for verifier in verifiers:
             verifier_names.append(verifier.name)
+            logger.info("[VERIFY_FILE] Running verifier '%s' on %s", verifier.name, file_change.path)
 
             try:
                 verifier_result = verifier(
                     content=file_change.content,
                     file_path=file_change.path,
                 )
+                logger.info("[VERIFY_FILE] Verifier '%s' returned status: %s", verifier.name, verifier_result.status.value)
 
                 # Track failures
                 if verifier_result.status == VerificationStatus.FAILED:

@@ -143,13 +143,16 @@ class GenerateHandler(BaseHandler):
             List of verified (possibly regenerated) files
         """
         verified_files: List[FileChange] = []
+        logger.info("[VERIFICATION] Starting syntax verification for %d files", len(files))
 
         for file in files:
             # Skip non-TypeScript files (no verifier registered)
             if not file.path.endswith(('.ts', '.tsx')):
+                logger.debug("[VERIFICATION] Skipping non-TypeScript file: %s", file.path)
                 verified_files.append(file)
                 continue
 
+            logger.info("[VERIFICATION] Verifying TypeScript file: %s", file.path)
             # Emit verification started
             yield self.emit_verification_started(file.path, "typescript")
 
@@ -177,12 +180,16 @@ class GenerateHandler(BaseHandler):
                 return regenerate
 
             callback = make_regenerate_callback(file, model, system_prompt)
+            logger.info("[VERIFICATION] Calling verify_and_retry for %s", file.path)
             final_file, result = self.verify_and_retry(file, callback, max_attempts=3)
+            logger.info("[VERIFICATION] verify_and_retry completed for %s with status: %s", file.path, result.status.value)
 
             # Emit result event
             if result.status.value == 'passed':
+                logger.info("[VERIFICATION] PASSED: %s", file.path)
                 yield self.emit_verification_passed(file.path, result.verifier_name or "typescript")
             elif result.status.value == 'failed':
+                logger.warning("[VERIFICATION] FAILED: %s - %s", file.path, result.error_message)
                 yield self.emit_verification_failed(
                     file.path,
                     result.verifier_name or "typescript",
@@ -190,10 +197,12 @@ class GenerateHandler(BaseHandler):
                     is_blocking=True,
                 )
             else:
+                logger.info("[VERIFICATION] SKIPPED: %s", file.path)
                 yield self.emit_verification_skipped(file.path, "verification skipped")
 
             verified_files.append(final_file)
 
+        logger.info("[VERIFICATION] Completed syntax verification. Verified %d files.", len(verified_files))
         return verified_files
 
     def _extract_code_from_regeneration(self, response: str, file_path: str) -> str:
@@ -376,7 +385,12 @@ class GenerateHandler(BaseHandler):
                 )
 
                 data_phase_files.append(types_file)
-                yield self.emit_file_generated(types_file)
+                gen = self.emit_file_generated_and_verify(types_file)
+                try:
+                    while True:
+                        yield next(gen)
+                except StopIteration:
+                    pass
                 logger.info(f"[PRE-CODE] Generated src/lib/types.ts from existing tables")
 
         # PHASE 2b: Execute code steps in parallel (NO DB changes allowed)
@@ -429,13 +443,12 @@ class GenerateHandler(BaseHandler):
             except StopIteration as e:
                 verified_files = e.value if e.value else generated_files
 
-            # Save verification results to database
-            storage = get_verification_storage_service()
-            results = self.get_verification_results()
-            if results:
-                storage.save_verification_results(list(results.values()))
-
-            return verified_files
+        # Save verification results to database (verification happened inline during file generation)
+        storage = get_verification_storage_service()
+        results = self.get_verification_results()
+        if results:
+            logger.info("[VERIFICATION] Saving %d verification results to database", len(results))
+            storage.save_verification_results(results)
 
         return generated_files
 
@@ -741,7 +754,12 @@ class GenerateHandler(BaseHandler):
                     lines_added=ts_types_content.count('\n') + 1,
                 )
 
-                yield self.emit_file_generated(types_file)
+                gen = self.emit_file_generated_and_verify(types_file)
+                try:
+                    while True:
+                        yield next(gen)
+                except StopIteration:
+                    pass
                 logger.info(f"[TYPESCRIPT] Generated src/lib/types.ts ({len(ts_types_content)} chars)")
 
     def _build_tables_summary_for_system_prompt(self, app: 'InternalApp') -> str:
@@ -1179,10 +1197,15 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
                 break
             yield event
         
-        # Emit all files
+        # Emit all files with inline verification
         for file in all_files:
-            yield self.emit_file_generated(file)
-        
+            gen = self.emit_file_generated_and_verify(file)
+            try:
+                while True:
+                    yield next(gen)
+            except StopIteration:
+                pass
+
         logger.info(f"[SUBAGENTS] Step {step_index} complete: generated {len(all_files)} file(s)")
 
     def _execute_step_single_agent(
@@ -1318,9 +1341,14 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
                     break
                 yield event
 
-            # Emit all files
+            # Emit all files with inline verification
             for file in files:
-                yield self.emit_file_generated(file)
+                gen = self.emit_file_generated_and_verify(file)
+                try:
+                    while True:
+                        yield next(gen)
+                except StopIteration:
+                    pass
 
         except Exception as e:
             logger.error(f"Step execution error: {e}")
@@ -1481,8 +1509,13 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
                     f.action = "modify"
                 else:
                     f.action = "create"
-                yield self.emit_file_generated(f)
-            
+                gen = self.emit_file_generated_and_verify(f)
+                try:
+                    while True:
+                        yield next(gen)
+                except StopIteration:
+                    pass
+
             logger.info(f"[EDIT STEP] Applied {len(files)} diff(s) successfully")
             
             # Validate and fix field names (same as generate path)

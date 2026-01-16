@@ -68,7 +68,9 @@ class VerifierRegistry:
             List of verifiers for the file's extension, or empty list if none
         """
         extension = self._get_extension(file_path)
-        return self.get_verifiers_for_extension(extension)
+        verifiers = self.get_verifiers_for_extension(extension)
+        logger.info("[REGISTRY] get_verifiers for %s (ext=%s): found %d verifiers", file_path, extension, len(verifiers))
+        return verifiers
 
     def get_verifiers_for_extension(self, extension: str) -> List[BaseVerifier]:
         """
