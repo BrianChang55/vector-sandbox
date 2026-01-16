@@ -115,6 +115,12 @@ export type AgentEventType =
   | 'fix_file_updated'
   | 'fix_complete'
   | 'fix_failed'
+  // Verification events
+  | 'verification_started'
+  | 'verification_passed'
+  | 'verification_failed'
+  | 'verification_skipped'
+  | 'verification_retry_started'
 
 // SSE Event structure
 export interface AgentEvent {
@@ -158,6 +164,12 @@ export type AgentEventData =
   | FixFileUpdatedData
   | FixCompleteData
   | FixFailedData
+  // Verification event data types
+  | VerificationStartedData
+  | VerificationPassedData
+  | VerificationFailedData
+  | VerificationSkippedData
+  | VerificationRetryStartedData
 
 export interface DoneData {
   success: boolean
@@ -319,6 +331,53 @@ export interface FixCompleteData {
 export interface FixFailedData {
   remaining_errors: number
   fix_attempts: number
+}
+
+// Verification event data interfaces
+export interface VerificationStartedData {
+  file_path: string
+  verifier: string
+}
+
+export interface VerificationPassedData {
+  file_path: string
+  verifier: string
+}
+
+export interface VerificationFailedData {
+  file_path: string
+  verifier: string
+  error_message: string
+  is_blocking: boolean
+}
+
+export interface VerificationSkippedData {
+  file_path: string
+  reason: string
+}
+
+export interface VerificationRetryStartedData {
+  file_path: string
+  attempt_number: number
+  max_attempts: number
+  previous_error: string
+}
+
+// Verification state for tracking per-file status
+export interface VerificationState {
+  isVerifying: boolean
+  totalFiles: number
+  verifiedFiles: number
+  currentFile: string | null
+  results: VerificationFileResult[]
+}
+
+export interface VerificationFileResult {
+  file_path: string
+  status: 'verifying' | 'passed' | 'failed' | 'skipped' | 'retrying'
+  verifier?: string
+  error_message?: string
+  attempt_number?: number
 }
 
 export interface PreviewReadyData {
