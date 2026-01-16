@@ -582,6 +582,8 @@ export function AgenticChatPanel({
 
   // Questioning phase state
   const [isQuestioning, setIsQuestioning] = useState(false)
+  // Track when we're waiting for the question service to respond (after sending an answer)
+  const [isWaitingForQuestion, setIsWaitingForQuestion] = useState(false)
   // Track how questioning ended and after which message to show the status
   const [questioningEndStatus, setQuestioningEndStatus] = useState<'complete' | 'skipped' | null>(null)
   const [questioningEndAfterMessageId, setQuestioningEndAfterMessageId] = useState<string | null>(null)
@@ -1569,6 +1571,7 @@ export function AgenticChatPanel({
           {
             const questionId = `question-${data.question_number}`
             setQuestioningEndAfterMessageId(questionId)
+            setIsWaitingForQuestion(false)
             setMessages(prev => {
               if (prev.some(m => m.id === questionId)) return prev
               return [
@@ -1587,6 +1590,7 @@ export function AgenticChatPanel({
 
         case 'questioning_skipped':
           setIsQuestioning(false)
+          setIsWaitingForQuestion(false)
           setQuestioningEndStatus('skipped')
           // questioningEndAfterMessageId is already set from question_asked
           // Remove the original empty streaming placeholder and add a new one at the end
@@ -1625,6 +1629,7 @@ export function AgenticChatPanel({
 
         case 'questioning_complete':
           setIsQuestioning(false)
+          setIsWaitingForQuestion(false)
           // Only set to 'complete' if not already set to 'skipped' (skip event comes first)
           setQuestioningEndStatus(prev => prev === 'skipped' ? 'skipped' : 'complete')
           // questioningEndAfterMessageId is already set from question_asked
@@ -1822,6 +1827,7 @@ export function AgenticChatPanel({
       // Add user message to chat and update the questioning end message ID
       const responseId = `response-${Date.now()}`
       setQuestioningEndAfterMessageId(responseId)
+      setIsWaitingForQuestion(true)
       setMessages((prev) => [
         ...prev,
         {
@@ -1840,6 +1846,7 @@ export function AgenticChatPanel({
         console.error('[AgenticChatPanel] Failed to send response:', error)
         // Restore input on error
         setInput(message)
+        setIsWaitingForQuestion(false)
       }
       return
     }
@@ -2458,9 +2465,9 @@ export function AgenticChatPanel({
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={isQuestioning ? "Answer the question or skip to build..." : "Describe what you want to build..."}
+                placeholder={isWaitingForQuestion ? "Waiting for response..." : isQuestioning ? "Answer the question or skip to build..." : "Describe what you want to build..."}
                 rows={1}
-                disabled={isLoading && !isQuestioning}
+                disabled={(isLoading && !isQuestioning) || isWaitingForQuestion}
                 className="w-full bg-transparent border-none text-sm text-gray-900 placeholder-gray-500 resize-none
                            focus:outline-none focus:ring-0 disabled:opacity-60 whitespace-pre-wrap break-words"
                 style={{ minHeight: '48px', maxHeight: '140px', wordWrap: 'break-word', overflowWrap: 'break-word' }}
@@ -2485,7 +2492,12 @@ export function AgenticChatPanel({
               {isQuestioning && (
                 <button
                   onClick={handleSkipQuestioning}
-                  className="text-xs text-gray-600 hover:text-gray-900 px-3 py-1.5 rounded-lg border border-gray-200 hover:border-gray-300 transition-colors"
+                  disabled={isWaitingForQuestion}
+                  className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                    isWaitingForQuestion
+                      ? 'text-gray-400 border-gray-200 cursor-not-allowed opacity-50'
+                      : 'text-gray-600 hover:text-gray-900 border-gray-200 hover:border-gray-300'
+                  }`}
                 >
                   Skip to build
                 </button>
@@ -2504,12 +2516,15 @@ export function AgenticChatPanel({
               ) : (
                 <button
                   onClick={handleSendClick}
-                  disabled={!isLoading && !isQuestioning && !input.trim()}
-                  className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-gray-900 text-white
-                             hover:bg-gray-800 disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-sm"
+                  disabled={isWaitingForQuestion || (!isLoading && !isQuestioning && !input.trim())}
+                  className={`inline-flex items-center justify-center h-6 w-6 rounded-full text-white transition-all shadow-sm ${
+                    isWaitingForQuestion
+                      ? 'bg-gray-400 cursor-not-allowed'
+                      : 'bg-gray-900 hover:bg-gray-800 disabled:opacity-30 disabled:cursor-not-allowed'
+                  }`}
                   title={isQuestioning ? 'Send response' : isLoading ? 'Stop generation' : 'Send message'}
                 >
-                  {isLoading && !isQuestioning ? (
+                  {(isLoading && !isQuestioning) || isWaitingForQuestion ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     <ArrowUp className="h-4 w-4" />
