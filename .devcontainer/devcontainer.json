@@ -17,7 +17,7 @@
     "8001": { "label": "Backend (Django)", "onAutoForward": "notify", "visibility": "public" },
     "5555": { "label": "Flower (Celery Monitor)", "onAutoForward": "silent", "visibility": "public" }
   },
-  "postCreateCommand": "curl https://mise.run | sh && echo 'eval \"$(~/.local/bin/mise activate bash)\"' >> ~/.bashrc && export PATH=\"$HOME/.local/bin:$PATH\" && mise trust && mise install && mise run setup && curl -fsSL https://claude.ai/install.sh | bash",
+  "postCreateCommand": "curl https://mise.run | sh && echo 'eval \"$(~/.local/bin/mise activate bash)\"' >> ~/.bashrc && export PATH=\"$HOME/.local/bin:$PATH\" && mise trust && mise install && mise run setup && curl -fsSL https://claude.ai/install.sh | sh",
   "postStartCommand": "export PATH=\"$HOME/.local/bin:$PATH\"",
   "customizations": {
     "vscode": {
