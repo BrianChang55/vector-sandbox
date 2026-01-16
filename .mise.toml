@@ -26,9 +26,17 @@ description = "Start Flower Celery monitor (http://localhost:5555)"
 dir = "{{config_root}}/apps/backend"
 run = "uv run celery -A internal_apps flower --port=5555"
 
-[tasks.redis]
-description = "Start Redis server"
-run = "redis-server"
+[tasks.docker]
+description = "Start Docker services (Redis, PostgreSQL)"
+run = "docker compose up -d"
+
+[tasks.docker-down]
+description = "Stop Docker services"
+run = "docker compose down"
+
+[tasks.docker-logs]
+description = "View Docker service logs"
+run = "docker compose logs -f"
 
 [tasks.migrate]
 description = "Run Django migrations"
