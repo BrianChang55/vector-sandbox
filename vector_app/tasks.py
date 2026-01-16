@@ -6,10 +6,32 @@ Events are stored in the database for replay on reconnection.
 """
 import logging
 import time
+
 from celery import shared_task
 from django.utils import timezone
-from vector_app.models import VersionAuditOperation
-from vector_app.models import VersionAuditOperation
+
+from chat.models import ChatMessage, ChatSession, QuestioningJob
+from chat.types import (
+    ChatMessageRole,
+    ChatMessageStatus,
+    CodeGenerationJobStatus,
+    QuestioningJobStatus,
+    QuestioningStatus,
+)
+from vector_app.models import (
+    AppVersion,
+    AppVersionGenerationStatus,
+    AppVersionSource,
+    AppVersionValidationStatus,
+    CodeGenerationJob,
+    VersionAuditLog,
+    VersionAuditOperation,
+    VersionFile,
+)
+from vector_app.services.agentic_service import get_agentic_service
+from vector_app.services.main_agent_service import get_main_agent_service
+from vector_app.services.snapshot_service import SnapshotService
+from vector_app.services.version_service import VersionService
 
 
 
@@ -30,25 +52,6 @@ def run_agentic_generation(self, job_id: str):
     The client connects to JobStreamView SSE endpoint to receive events
     from the database, enabling reconnection without losing progress.
     """
-    from vector_app.models import (
-        AppVersion,
-        AppVersionGenerationStatus,
-        AppVersionSource,
-        AppVersionValidationStatus,
-        ChatMessage,
-        ChatMessageRole,
-        ChatMessageSource,
-        ChatMessageStatus,
-        ChatSession,
-        CodeGenerationJob,
-        CodeGenerationJobStatus,
-        VersionAuditLog,
-        VersionFile,t
-    )
-    from vector_app.services.agentic_service import get_agentic_service
-    from vector_app.services.version_service import VersionService
-    from vector_app.services.snapshot_service import SnapshotService
-    
     try:
         job = CodeGenerationJob.objects.select_related(
             'internal_app',
@@ -93,7 +96,6 @@ def run_agentic_generation(self, job_id: str):
         role=ChatMessageRole.USER,
         content=message,
         status=ChatMessageStatus.COMPLETE,
-        source=ChatMessageSource.BUILD,
     )
     
     # Update session title if needed
@@ -110,7 +112,6 @@ def run_agentic_generation(self, job_id: str):
         content="",
         status=ChatMessageStatus.STREAMING,
         model_id=model,
-        source=ChatMessageSource.BUILD,
     )
     job.chat_message = assistant_message
     job.save(update_fields=['chat_message', 'updated_at'])
@@ -350,17 +351,6 @@ def run_questioning_phase(self, job_id: str):
     4. Appends events to job.events_json for SSE replay
     """
     logger.info("Starting questioning phase task for job %s", job_id)
-    
-    from vector_app.models import (
-        ChatMessage,
-        ChatMessageRole,
-        ChatMessageSource,
-        ChatMessageStatus,
-        QuestioningJob,
-        QuestioningJobStatus,
-        QuestioningStatus,
-    )
-    from vector_app.services.main_agent_service import get_main_agent_service
 
     try:
         job = QuestioningJob.objects.select_related(
@@ -399,7 +389,6 @@ def run_questioning_phase(self, job_id: str):
             role=ChatMessageRole.USER,
             content=user_message,
             status=ChatMessageStatus.COMPLETE,
-            source=ChatMessageSource.QUESTIONING,
         )
 
         # Build chat history for decision-making
@@ -429,7 +418,6 @@ def run_questioning_phase(self, job_id: str):
                 role=ChatMessageRole.ASSISTANT,
                 content=decision.question,
                 status=ChatMessageStatus.COMPLETE,
-                source=ChatMessageSource.QUESTIONING,
             )
 
             # Increment question count
@@ -494,14 +482,12 @@ def run_questioning_phase(self, job_id: str):
         job.append_event("error", {"message": str(e)})
 
 
-def _append_event(job, event_type: str, data: dict):
+def _append_event(job: CodeGenerationJob, event_type: str, data: dict):
     """
     Append an event to the job's events_json.
-    
+
     Uses a separate function to ensure atomic DB updates.
     """
-    from vector_app.models import CodeGenerationJob
-    
     event = {
         'type': event_type,
         'data': data,
