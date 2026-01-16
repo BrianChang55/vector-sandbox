@@ -25,7 +25,7 @@ None
 
 - [x] **Phase 1: Questioning Service** - Core questioning logic for multi-turn requirement gathering
 - [x] **Phase 2: Main Agent Service** - Orchestrator that uses QuestioningService, decides sufficiency, controls flow
-- [ ] **Phase 3: Questioning Integration** - Hook up services via Celery, new task executes before code generation
+- [x] **Phase 3: Questioning Integration** - Hook up services via Celery, new task executes before code generation
 - [ ] **Phase 4: Question Templates** - App-type specific templates (dashboard, form, data viewer)
 - [ ] **Phase 5: Complexity Detection** - LLM-based classification to skip questioning for simple requests
 - [ ] **Phase 6: Build Phase System** - Phase organization (scaffold → core → styling → polish)
@@ -149,7 +149,7 @@ Key deliverables:
 |-------|----------------|--------|-----------|
 | 1. Questioning Service | 3/3 | Complete | 2026-01-15 |
 | 2. Main Agent Service | 1/1 | Complete | 2026-01-15 |
-| 3. Questioning Integration | 4/5 | In progress | - |
+| 3. Questioning Integration | 5/5 | Complete | 2026-01-16 |
 | 4. Question Templates | 0/TBD | Not started | - |
 | 5. Complexity Detection | 0/TBD | Not started | - |
 | 6. Build Phase System | 0/TBD | Not started | - |
