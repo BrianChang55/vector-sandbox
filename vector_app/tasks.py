@@ -55,16 +55,23 @@ def run_agentic_generation(self, job_id: str):
             'internal_app',
             'session',
             'created_by',
+            'questioning_session',
         ).get(pk=job_id)
     except CodeGenerationJob.DoesNotExist:
         logger.error(f"Job {job_id} not found")
         return
-    
+
     # Check if already cancelled before starting
     if job.status == CodeGenerationJobStatus.CANCELLED:
         logger.info(f"Job {job_id} was cancelled before starting")
         return
-    
+
+    # Get extracted facts from questioning phase (if any)
+    extracted_facts = None
+    if job.questioning_session and job.questioning_session.synthesized_requirements:
+        extracted_facts = job.questioning_session.synthesized_requirements
+        logger.info(f"Using extracted facts from questioning: {list(extracted_facts.keys())}")
+
     # Mark as processing
     job.status = CodeGenerationJobStatus.PROCESSING
     job.started_at = timezone.now()
@@ -173,7 +180,7 @@ def run_agentic_generation(self, job_id: str):
         
         # Run agentic generation
         agentic_service = get_agentic_service()
-        
+
         for event in agentic_service.generate_app(
             user_message=message,
             current_spec=current_spec,
@@ -183,6 +190,7 @@ def run_agentic_generation(self, job_id: str):
             app=app,
             version=version,
             session=session,
+            extracted_facts=extracted_facts,
         ):
             # Debug log: intercept all Agent Events
             logger.debug(
