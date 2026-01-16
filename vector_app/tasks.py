@@ -27,6 +27,11 @@ from vector_app.services.agentic_service import get_agentic_service
 from vector_app.services.main_agent_service import get_main_agent_service
 from vector_app.services.snapshot_service import SnapshotService
 from vector_app.services.version_service import VersionService
+from vector_app.utils.job_utils import append_job_event
+
+
+# Alias for backward compatibility within this module
+_append_event = append_job_event
 
 
 logger = logging.getLogger(__name__)
@@ -339,23 +344,6 @@ def run_agentic_generation(self, job_id: str):
         job.error_message = str(e)
         job.completed_at = timezone.now()
         job.save(update_fields=['status', 'error_message', 'completed_at', 'updated_at'])
-
-
-def _append_event(job, event_type: str, data: dict):
-    """
-    Append an event to the job's events_json.
-
-    Uses a separate function to ensure atomic DB updates.
-    """
-    event = {
-        'type': event_type,
-        'data': data,
-        'timestamp': time.time(),
-        'index': len(job.events_json),
-    }
-    job.events_json.append(event)
-    job.chunk_count = len(job.events_json)
-    job.save(update_fields=['events_json', 'chunk_count', 'updated_at'])
 
 
 @shared_task(bind=True, max_retries=0, soft_time_limit=5 * 60, time_limit=6 * 60)
