@@ -109,6 +109,7 @@
     },
     {
       "name": "Full Stack: All Services",
+      "preLaunchTask": "Docker: Start Services",
       "configurations": [
         "Frontend: Vite Dev Server",
         "Backend: Django Server",
