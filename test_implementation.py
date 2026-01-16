@@ -11,7 +11,9 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'internal_apps.settings')
 sys.path.insert(0, os.path.dirname(__file__))
 django.setup()
 
-from vector_app.models import User, Organization, UserOrganization, UserOrganizationRole, InternalApp
+from accounts.models import User, Organization, UserOrganization
+from accounts.types import UserOrganizationRole
+from vector_app.models import InternalApp
 from vector_app.utils.encryption import encrypt_string, decrypt_string, encrypt_json, decrypt_json
 from vector_app.services.validation import AppSpecValidationService
 from vector_app.services.codegen import CodegenService

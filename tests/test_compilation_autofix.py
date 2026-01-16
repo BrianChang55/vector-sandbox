@@ -19,10 +19,6 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch, MagicMock
 from io import StringIO
-from vector_app.models import AppVersionGenerationStatus, AppVersionValidationStatus, InternalAppStatus
-from vector_app.models import AppVersionGenerationStatus, AppVersionValidationStatus, InternalAppStatus
-
-
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -38,8 +34,10 @@ from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 import base64
 
+from accounts.models import Organization, UserOrganization
 from vector_app.models import (
-    Organization, InternalApp, AppVersion, UserOrganization, VersionFile
+    AppVersionGenerationStatus, AppVersionValidationStatus, InternalAppStatus,
+    InternalApp, AppVersion, VersionFile
 )
 from vector_app.services.agentic_service import (
     AgenticService, FileChange, CompilationError, ValidationResult, AgentEvent

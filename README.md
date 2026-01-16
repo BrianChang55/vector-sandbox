@@ -163,6 +163,33 @@ source venv/bin/activate
 celery -A internal_apps worker --loglevel=info
 ```
 
+### Flower (Celery Monitor)
+
+[Flower](https://flower.readthedocs.io/) is a web-based monitoring tool for Celery. It provides real-time visibility into task execution, worker status, and queue statistics.
+
+```bash
+cd internal-apps-backend
+source venv/bin/activate
+celery -A internal_apps flower --port=5555
+```
+
+Or using mise from the workspace root:
+```bash
+mise run flower
+```
+
+Then open http://localhost:5555 in your browser.
+
+**Flower Features:**
+- **Dashboard**: Overview of workers, tasks, and queues
+- **Tasks**: View running, completed, and failed tasks with full details
+- **Workers**: Monitor worker status, pool size, and resource usage
+- **Broker**: View queue lengths and message rates
+- **Real-time Updates**: Auto-refreshing task and worker status
+- **Persistent History**: Task results stored in database (survives Redis restarts)
+
+**Note:** Task results are stored in the Django database via `django-celery-results`, which means task history persists across Redis and worker restarts. Results are kept for 7 days by default.
+
 ### Frontend
 
 ```bash

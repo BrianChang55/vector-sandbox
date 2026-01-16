@@ -13,10 +13,6 @@ import sys
 import uuid
 from io import BytesIO
 from PIL import Image
-from vector_app.models import UserOrganizationRole
-from vector_app.models import UserOrganizationRole
-
-
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -31,7 +27,8 @@ from django.test import RequestFactory
 from django.contrib.auth import get_user_model
 from rest_framework.test import force_authenticate
 
-from vector_app.models import Organization, UserOrganization
+from accounts.models import Organization, UserOrganization
+from accounts.types import UserOrganizationRole
 from vector_app.views.organization_views import OrganizationViewSet
 from vector_app.services.image_upload_service import ImageUploadService
 from vector_app.services.cloud_storage_service import CloudStorageService
