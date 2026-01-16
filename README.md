@@ -29,22 +29,28 @@ mise run dev
 
 | Command | Description |
 |---------|-------------|
-| `mise run dev` | Start all services (frontend, backend, celery) |
+| `mise run dev` | Start all services (docker, frontend, backend, celery, flower) |
 | `mise run fe` | Frontend only (port 5176) |
 | `mise run be` | Backend only (port 8001) |
 | `mise run celery` | Celery worker |
 | `mise run flower` | Celery monitor (port 5555) |
+| `mise run docker` | Start Docker services (Redis, PostgreSQL) |
+| `mise run docker-down` | Stop Docker services |
 | `mise run migrate` | Run Django migrations |
 | `mise run test` | Run backend tests |
-| `mise run test-fe` | Run frontend lint + build |
 
 ## Environment Setup
 
-Copy the example env file and configure:
+Copy the example env files and configure:
 
 ```bash
-cp apps/backend/.env.example apps/backend/.env
+cp .env.example .env                           # Docker port config
+cp apps/backend/.env.example apps/backend/.env  # Backend config
 ```
+
+Configure Docker ports in root `.env` to avoid conflicts:
+- `REDIS_PORT` - default 6379
+- `POSTGRES_PORT` - default 5432
 
 Required variables:
 - `OPENROUTER_API_KEY` - AI model access
