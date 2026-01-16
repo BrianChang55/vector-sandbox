@@ -1057,6 +1057,7 @@ class JobStatusView(APIView):
             "completed_at": job.completed_at.isoformat() if job.completed_at else None,
             "error_message": job.error_message,
             "is_active": job.status in [
+                CodeGenerationJobStatus.QUESTIONING,
                 CodeGenerationJobStatus.QUEUED,
                 CodeGenerationJobStatus.PROCESSING,
                 CodeGenerationJobStatus.STREAMING,
@@ -1086,10 +1087,11 @@ class LatestJobView(APIView):
         if not request.user.user_organizations.filter(organization=app.organization).exists():
             return Response({"error": "Access denied"}, status=http_status.HTTP_403_FORBIDDEN)
         
-        # First look for active jobs
+        # First look for active jobs (including questioning phase)
         active_job = CodeGenerationJob.objects.filter(
-                    internal_app=app,
+            internal_app=app,
             status__in=[
+                CodeGenerationJobStatus.QUESTIONING,
                 CodeGenerationJobStatus.QUEUED,
                 CodeGenerationJobStatus.PROCESSING,
                 CodeGenerationJobStatus.STREAMING,
