@@ -149,6 +149,14 @@ urlpatterns = [
     path('jobs/<uuid:job_id>/cancel/', streaming_views.JobCancelView.as_view(), name='job-cancel'),
     path('apps/<uuid:app_id>/latest-job/', streaming_views.LatestJobView.as_view(), name='latest-job'),
     
+    # Questioning phase endpoints (multi-turn Q&A before generation)
+    path('questioning/start/', streaming_views.QuestioningStartView.as_view(), name='questioning-start'),
+    path('questioning/<uuid:job_id>/stream/', streaming_views.QuestioningStreamView.as_view(), name='questioning-stream'),
+    path('questioning/<uuid:job_id>/answer/', streaming_views.QuestioningAnswerView.as_view(), name='questioning-answer'),
+    path('questioning/<uuid:job_id>/skip/', streaming_views.QuestioningSkipView.as_view(), name='questioning-skip'),
+    path('questioning/<uuid:job_id>/status/', streaming_views.QuestioningStatusView.as_view(), name='questioning-status'),
+    path('apps/<uuid:app_id>/questioning/state/', streaming_views.QuestioningStateView.as_view(), name='questioning-state'),
+    
     # =========================================================================
     # App Data Store endpoints
     # =========================================================================

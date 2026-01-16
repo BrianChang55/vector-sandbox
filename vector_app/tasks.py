@@ -335,6 +335,159 @@ def run_agentic_generation(self, job_id: str):
         job.save(update_fields=['status', 'error_message', 'completed_at', 'updated_at'])
 
 
+@shared_task(bind=True, max_retries=0, soft_time_limit=5 * 60, time_limit=10 * 60)
+def run_questioning_phase(self, job_id: str):
+    """
+    Run a single turn of the questioning phase in the background.
+
+    This task:
+    1. Loads the QuestioningJob and related session
+    2. Saves the user's message to the chat history
+    3. Calls MainAgentService.process_user_message()
+    4. Appends events to job.events_json for SSE replay
+    """
+    logger.info("Starting questioning phase task for job %s", job_id)
+    
+    from vector_app.models import (
+        ChatMessage,
+        ChatMessageRole,
+        ChatMessageStatus,
+        QuestioningJob,
+        QuestioningJobStatus,
+        QuestioningStatus,
+    )
+    from vector_app.services.main_agent_service import get_main_agent_service
+
+    try:
+        job = QuestioningJob.objects.select_related(
+            "questioning_session__chat_session__internal_app",
+            "created_by",
+        ).get(pk=job_id)
+    except QuestioningJob.DoesNotExist:
+        logger.error("Questioning job %s not found", job_id)
+        return
+
+    if job.status in [
+        QuestioningJobStatus.COMPLETE,
+        QuestioningJobStatus.SKIPPED,
+        QuestioningJobStatus.FAILED,
+    ]:
+        return
+
+    user_message = (job.user_answer or "").strip()
+    if not user_message:
+        job.status = QuestioningJobStatus.FAILED
+        job.save(update_fields=["status", "updated_at"])
+        job.append_event("error", {"message": "No user message provided"})
+        return
+
+    # Mark as processing
+    job.status = QuestioningJobStatus.PROCESSING
+    job.save(update_fields=["status", "updated_at"])
+
+    questioning_session = job.questioning_session
+    chat_session = questioning_session.chat_session
+
+    try:
+        # Save the user's message to the chat session
+        ChatMessage.objects.create(
+            session=chat_session,
+            role=ChatMessageRole.USER,
+            content=user_message,
+            status=ChatMessageStatus.COMPLETE,
+        )
+
+        # Build chat history for decision-making
+        chat_history = [
+            {"role": msg.role, "content": msg.content}
+            for msg in chat_session.messages.order_by("created_at")
+        ]
+
+        logger.info("Calling MainAgentService for job %s with %d messages in history", job_id, len(chat_history))
+        
+        agent_service = get_main_agent_service()
+        decision = agent_service.process_user_message(
+            session=questioning_session,
+            user_message=user_message,
+            chat_history=chat_history,
+        )
+        
+        logger.info("Agent decision for job %s: action=%s", job_id, decision.action)
+
+        if decision.action == "ask_question":
+            if not decision.question:
+                raise ValueError("Agent returned ask_question without a question")
+
+            # Store the question as an assistant message
+            ChatMessage.objects.create(
+                session=chat_session,
+                role=ChatMessageRole.ASSISTANT,
+                content=decision.question,
+                status=ChatMessageStatus.COMPLETE,
+            )
+
+            # Increment question count
+            questioning_session.question_count += 1
+            questioning_session.save(update_fields=["question_count", "updated_at"])
+
+            job.current_question = decision.question
+            job.status = QuestioningJobStatus.WAITING_FOR_ANSWER
+            job.user_answer = ""
+            job.save(update_fields=["current_question", "status", "user_answer", "updated_at"])
+
+            logger.info("Job %s: Generated question #%d", job_id, questioning_session.question_count)
+            job.append_event(
+                "question",
+                {
+                    "question": decision.question,
+                    "question_count": questioning_session.question_count,
+                    "questioning_session_id": str(questioning_session.id),
+                    "session_id": str(chat_session.id),
+                },
+            )
+            return
+
+        # Action is "proceed" or "skip" - mark questioning complete
+        questioning_session.status = (
+            QuestioningStatus.COMPLETE
+            if decision.action == "proceed"
+            else QuestioningStatus.SKIPPED
+        )
+        if decision.extraction:
+            questioning_session.synthesized_requirements = {
+                "facts": decision.extraction.facts,
+                "reasoning": decision.extraction.reasoning,
+                "question_count": decision.extraction.question_count,
+            }
+        questioning_session.save(update_fields=["status", "synthesized_requirements", "updated_at"])
+
+        job.status = (
+            QuestioningJobStatus.COMPLETE
+            if decision.action == "proceed"
+            else QuestioningJobStatus.SKIPPED
+        )
+        job.current_question = ""
+        job.user_answer = ""
+        job.save(update_fields=["current_question", "status", "user_answer", "updated_at"])
+
+        event_type = "extraction_complete" if decision.action == "proceed" else "skip"
+        logger.info("Job %s: Questioning complete with action=%s, emitting %s event", job_id, decision.action, event_type)
+        job.append_event(
+            event_type,
+            {
+                "questioning_session_id": str(questioning_session.id),
+                "status": questioning_session.status,
+                "synthesized_requirements": questioning_session.synthesized_requirements,
+            },
+        )
+
+    except Exception as e:
+        logger.error("Questioning job %s failed: %s", job_id, e, exc_info=True)
+        job.status = QuestioningJobStatus.FAILED
+        job.save(update_fields=["status", "updated_at"])
+        job.append_event("error", {"message": str(e)})
+
+
 def _append_event(job, event_type: str, data: dict):
     """
     Append an event to the job's events_json.
