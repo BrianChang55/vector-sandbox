@@ -43,7 +43,7 @@ def run_agentic_generation(self, job_id: str):
         CodeGenerationJob,
         CodeGenerationJobStatus,
         VersionAuditLog,
-        VersionFile,
+        VersionFile,t
     )
     from vector_app.services.agentic_service import get_agentic_service
     from vector_app.services.version_service import VersionService

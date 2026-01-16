@@ -30,3 +30,11 @@ class QuestioningStatus(StrEnum):
     IN_PROGRESS = "in_progress"
     COMPLETE = "complete"
     SKIPPED = "skipped"
+
+class QuestioningJobStatus(StrEnum):
+   QUEUED = "queued"
+   PROCESSING = "processing"
+   WAITING_FOR_ANSWER = "waiting_for_answer"
+   COMPLETE = "complete"
+   SKIPPED = "skipped"
+   FAILED = "failed"

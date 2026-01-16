@@ -10,7 +10,8 @@ from internal_apps.utils.base_model import DjangoBaseModel
 from internal_apps.utils.enum import choices
 import uuid
 
-from chat.types import ChatMessageRole, ChatMessageStatus, CodeGenerationJobStatus, QuestioningStatus
+from chat.types import ChatMessageRole, ChatMessageStatus, CodeGenerationJobStatus, QuestioningStatus, QuestioningJobStatus
+
 
 
 class ChatSession(DjangoBaseModel):
@@ -86,35 +87,6 @@ class ChatMessage(DjangoBaseModel):
     def __str__(self):
         preview = self.content[:50] + "..." if len(self.content) > 50 else self.content
         return f"{self.role}: {preview}"
-
-
-class QuestioningSession(DjangoBaseModel):
-    """
-    Tracks a multi-turn questioning phase for gathering requirements.
-    Links to a ChatSession where Q&A happens via normal ChatMessages.
-    Stores synthesized requirements after questioning completes.
-    """
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    chat_session = models.OneToOneField(
-        ChatSession, on_delete=models.CASCADE, related_name="questioning_session"
-    )
-    status = models.CharField(
-        max_length=20,
-        choices=choices(QuestioningStatus),
-        default=QuestioningStatus.IN_PROGRESS,
-    )
-    synthesized_requirements = models.JSONField(
-        default=dict, help_text="Final requirements document after questioning completes"
-    )
-    question_count = models.IntegerField(default=0, help_text="Number of questions asked")
-    initial_request = models.TextField(help_text="User's original request that triggered questioning")
-
-    class Meta:
-        ordering = ["-created_at"]
-
-    def __str__(self):
-        return f"QuestioningSession({self.status}) - {self.chat_session}"
 
 
 class CodeGenerationJob(DjangoBaseModel):
@@ -196,3 +168,76 @@ class CodeGenerationJob(DjangoBaseModel):
         self.events_json.append(event)
         self.chunk_count = len(self.events_json)
         self.save(update_fields=["events_json", "chunk_count", "updated_at"])
+
+
+class QuestioningSession(DjangoBaseModel):
+    """
+    Tracks a multi-turn questioning phase for gathering requirements.
+    Links to a ChatSession where Q&A happens via normal ChatMessages.
+    Stores synthesized requirements after questioning completes.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    chat_session = models.OneToOneField(
+        ChatSession, on_delete=models.CASCADE, related_name="questioning_session"
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=choices(QuestioningStatus),
+        default=QuestioningStatus.IN_PROGRESS,
+    )
+    synthesized_requirements = models.JSONField(
+        default=dict, help_text="Final requirements document after questioning completes"
+    )
+    question_count = models.IntegerField(default=0, help_text="Number of questions asked")
+    initial_request = models.TextField(help_text="User's original request that triggered questioning")
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"QuestioningSession({self.status}) - {self.chat_session}"
+
+
+class QuestioningJob(DjangoBaseModel):
+    """
+    Tracks async questioning phase jobs with SSE event streaming.
+    """
+
+    questioning_session = models.ForeignKey(
+        QuestioningSession,
+        on_delete=models.CASCADE,
+        related_name="jobs",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=choices(QuestioningJobStatus),
+        default=QuestioningJobStatus.QUEUED,
+    )
+    events_json = models.JSONField(default=list, blank=True)  # List of {type, data, timestamp}
+    current_question = models.TextField(blank=True)
+    user_answer = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="questioning_jobs"
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["status", "-created_at"]),
+            models.Index(fields=["questioning_session", "status"]),
+        ]
+
+    def __str__(self):
+        return f"QuestioningJob {self.id} - {self.status}"
+
+    def append_event(self, event_type: str, data: dict):
+        """Append an event to events_json and save."""
+        event = {
+            "type": event_type,
+            "data": data,
+            "timestamp": time.time(),
+            "index": len(self.events_json),
+        }
+        self.events_json.append(event)
+        self.save(update_fields=["events_json", "updated_at"])
