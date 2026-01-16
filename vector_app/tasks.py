@@ -109,7 +109,11 @@ def run_agentic_generation(self, job_id: str):
         session.title = message[:50] + "..." if len(message) > 50 else message
         session.save(update_fields=["title", "updated_at"])
     
-    _append_event(job, "user_message", {"id": str(user_chat_message.id), "content": message})
+    # Only emit user_message event if questioning didn't happen.
+    # When questioning happens, the frontend already added the message in handleSubmit()
+    # and we don't want to show it a second time after "Questioning complete".
+    if not job.questioning_session:
+        _append_event(job, "user_message", {"id": str(user_chat_message.id), "content": message})
     
     # Create assistant message
     assistant_message = ChatMessage.objects.create(
