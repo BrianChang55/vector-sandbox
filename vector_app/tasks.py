@@ -391,6 +391,7 @@ def run_questioning_phase(self, job_id: str, user_response: str = None):
     # Emit start event (only on first turn)
     if questioning_session.question_count == 0 and user_response is None:
         _append_event(job, "questioning_started", {
+            "job_id": str(job.id),
             "session_id": str(questioning_session.id),
             "initial_request": job.user_message,
         })
