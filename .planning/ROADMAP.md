@@ -24,13 +24,13 @@ None
 ## Phases
 
 - [x] **Phase 1: Questioning Service** - Core questioning logic for multi-turn requirement gathering
-- [ ] **Phase 2: Main Agent Service** - Orchestrator that uses QuestioningService, decides sufficiency, controls flow
-- [ ] **Phase 3: Question Templates** - App-type specific templates (dashboard, form, data viewer)
-- [ ] **Phase 4: Complexity Detection** - LLM-based classification to skip questioning for simple requests
-- [ ] **Phase 5: Build Phase System** - Phase organization (scaffold → core → styling → polish)
-- [ ] **Phase 6: Phase-Aware Planning** - Generate separate plans per build phase with context compaction
-- [ ] **Phase 7: Progress Streaming** - Real-time phase and file-level progress events via SSE
-- [ ] **Phase 8: Integration** - Wire into existing agentic workflow before intent classification
+- [x] **Phase 2: Main Agent Service** - Orchestrator that uses QuestioningService, decides sufficiency, controls flow
+- [ ] **Phase 3: Questioning Integration** - Hook up services via Celery, new task executes before code generation
+- [ ] **Phase 4: Question Templates** - App-type specific templates (dashboard, form, data viewer)
+- [ ] **Phase 5: Complexity Detection** - LLM-based classification to skip questioning for simple requests
+- [ ] **Phase 6: Build Phase System** - Phase organization (scaffold → core → styling → polish)
+- [ ] **Phase 7: Phase-Aware Planning** - Generate separate plans per build phase with context compaction
+- [ ] **Phase 8: Progress Streaming** - Real-time phase and file-level progress events via SSE
 
 ## Phase Details
 
@@ -60,9 +60,22 @@ Key deliverables:
 
 This phase implements the "main agent decides" principle established in Phase 1.
 
-### Phase 3: Question Templates
+### Phase 3: Questioning Integration
+**Goal**: Hook up QuestioningService and MainAgentService via Celery, including frontend UI
+**Depends on**: Phases 1 & 2
+**Research**: Yes (frontend patterns researched)
+**Plans**: 5
+
+Key deliverables:
+- QUESTIONING status for CodeGenerationJob
+- New `run_questioning_phase` Celery task
+- /respond and /skip endpoints for user interaction
+- Frontend event types and API methods (internal-apps-web-app)
+- QuestioningIndicator component and "Skip to build" button
+
+### Phase 4: Question Templates
 **Goal**: Create app-type specific question templates that guide the questioning phase
-**Depends on**: Phase 2
+**Depends on**: Phase 3
 **Research**: Unlikely (internal data structures)
 **Plans**: TBD
 
@@ -71,9 +84,9 @@ Key deliverables:
 - Templates for: dashboard, form, data viewer, CRUD app, etc.
 - Template selection logic based on initial request
 
-### Phase 4: Complexity Detection
+### Phase 5: Complexity Detection
 **Goal**: LLM-based classification to determine when questioning can be skipped
-**Depends on**: Phase 2
+**Depends on**: Phase 3
 **Research**: Unlikely (extends existing intent classifier)
 **Plans**: TBD
 
@@ -136,9 +149,9 @@ Key deliverables:
 |-------|----------------|--------|-----------|
 | 1. Questioning Service | 3/3 | Complete | 2026-01-15 |
 | 2. Main Agent Service | 1/1 | Complete | 2026-01-15 |
-| 3. Question Templates | 0/TBD | Not started | - |
-| 4. Complexity Detection | 0/TBD | Not started | - |
-| 5. Build Phase System | 0/TBD | Not started | - |
-| 6. Phase-Aware Planning | 0/TBD | Not started | - |
-| 7. Progress Streaming | 0/TBD | Not started | - |
-| 8. Integration | 0/TBD | Not started | - |
+| 3. Questioning Integration | 1/5 | In progress | - |
+| 4. Question Templates | 0/TBD | Not started | - |
+| 5. Complexity Detection | 0/TBD | Not started | - |
+| 6. Build Phase System | 0/TBD | Not started | - |
+| 7. Phase-Aware Planning | 0/TBD | Not started | - |
+| 8. Progress Streaming | 0/TBD | Not started | - |
