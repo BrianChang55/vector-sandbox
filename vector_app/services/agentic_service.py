@@ -192,6 +192,7 @@ class AgenticService:
         version: Optional["AppVersion"] = None,
         use_intent_routing: bool = True,
         session: Optional["ChatSession"] = None,
+        extracted_facts: Optional[Dict[str, Any]] = None,
     ) -> Generator[AgentEvent, None, None]:
         """
         Generate an app with intelligent intent-aware routing.
@@ -211,7 +212,11 @@ class AgenticService:
             version: Optional AppVersion for versioned table operations
             use_intent_routing: Whether to use intent-aware routing (default True)
             session: Optional ChatSession to get message history from
+            extracted_facts: Optional facts extracted from questioning phase
         """
+        # Log if we have extracted facts (will be used in future phases)
+        if extracted_facts:
+            logger.info("Generate app called with extracted facts: %s", list(extracted_facts.keys()))
         session_id = str(uuid.uuid4())
         start_time = time.time()
 

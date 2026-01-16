@@ -20,6 +20,14 @@ internal-apps-backend/
 │       ├── enum.py                    # Enum utilities
 │       └── decorators.py              # Auth decorators
 │
+├── chat/                              # Chat & Questioning Django app (NEW)
+│   ├── models.py                      # QuestioningSession, ChatSession, ChatMessage
+│   ├── types.py                       # QuestioningStatus, ChatMessageRole, etc.
+│   ├── admin.py                       # Django admin for QuestioningSession
+│   ├── views/                         # Chat-related views
+│   ├── serializers/                   # Chat serializers
+│   └── services/                      # Chat-specific services
+│
 ├── vector_app/                        # Main Django app
 │   ├── models.py                      # All data models (30+)
 │   ├── urls.py                        # API route definitions
@@ -53,12 +61,15 @@ internal-apps-backend/
 │   │   └── backend_connection.py
 │   │
 │   ├── services/                      # Business Logic Layer
+│   │   ├── main_agent_service.py      # Questioning flow orchestrator (NEW)
+│   │   ├── questioning_service.py     # Fact extraction distillation (NEW)
 │   │   ├── agentic_service.py         # AI code generation orchestrator
 │   │   ├── enhanced_codegen.py        # Advanced code generation
 │   │   ├── react_codegen.py           # React component generation
 │   │   ├── validation_service.py      # Schema/code validation
 │   │   ├── intent_router.py           # Intent classification routing
 │   │   ├── intent_classifier.py       # LLM-based intent analysis
+│   │   ├── context_analyzer.py        # App state analysis
 │   │   ├── planning_service.py        # Generation planning
 │   │   ├── error_fix_service.py       # Automatic error correction
 │   │   ├── diff.py                    # Diff generation
@@ -71,6 +82,7 @@ internal-apps-backend/
 │   │   ├── image_upload_service.py    # S3/R2 uploads
 │   │   ├── app_data_service.py        # Data table service
 │   │   ├── connectors_context.py      # Integration context
+│   │   ├── types.py                   # Shared types (FileChange, AgentEvent)
 │   │   │
 │   │   ├── handlers/                  # Domain-specific handlers
 │   │   │   ├── base_handler.py
@@ -96,6 +108,8 @@ internal-apps-backend/
 │   │
 │   ├── prompts/                       # LLM Prompt Templates
 │   │   ├── agentic.py                 # Main agentic prompts
+│   │   ├── questioning.py             # Question generation & extraction (NEW)
+│   │   ├── main_agent.py              # Continuation decision prompts (NEW)
 │   │   ├── intent_classification.py
 │   │   ├── error_fix.py
 │   │   ├── execution_scope.py

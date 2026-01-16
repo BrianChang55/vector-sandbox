@@ -148,6 +148,14 @@ class CodeGenerationJob(DjangoBaseModel):
         null=True,
         blank=True,
     )
+    questioning_session = models.ForeignKey(
+        QuestioningSession,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="generation_jobs",
+        help_text="QuestioningSession that gathered requirements for this job",
+    )
 
     # Generation parameters
     user_message = models.TextField(blank=True)
@@ -196,7 +204,6 @@ class CodeGenerationJob(DjangoBaseModel):
         self.events_json.append(event)
         self.chunk_count = len(self.events_json)
         self.save(update_fields=["events_json", "chunk_count", "updated_at"])
-
 
 # ============================================================================
 # File Verification Models (Handler Validation Service)
