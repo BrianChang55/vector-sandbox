@@ -228,7 +228,7 @@ export function startAgenticGeneration(
   
   // Track IDs when they're created
   let currentVersionId: string | null = null
-  const currentJobId: string | null = null
+  let currentJobId: string | null = null
 
   const params = new URLSearchParams({
     message,
@@ -299,6 +299,11 @@ export function startAgenticGeneration(
                 // Track the version ID when a draft version is created
                 if (eventType === 'version_draft' && data.version_id) {
                   currentVersionId = data.version_id
+                }
+                
+                // Track job_id from any event that includes it (e.g., questioning_started)
+                if (data.job_id && !currentJobId) {
+                  currentJobId = data.job_id
                 }
                 
                 const event: AgentEvent = {

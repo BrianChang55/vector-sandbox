@@ -24,7 +24,6 @@ import {
   Search,
   ListChecks,
   Square,
-  MessageCircle,
 } from 'lucide-react'
 import { ModelSelector } from './ModelSelector'
 import {
@@ -129,33 +128,6 @@ function ThinkingIndicator({ startTime }: { startTime: number }) {
       <div>
         <span className="text-sm text-gray-600">Thought for </span>
         <span className="text-sm font-medium text-gray-900">{elapsed}s</span>
-      </div>
-    </div>
-  )
-}
-
-// Animated questioning indicator for requirement gathering phase
-function QuestioningIndicator({ questionNumber }: { questionNumber: number }) {
-  return (
-    <div className="flex items-center gap-3 py-3">
-      <motion.div
-        className="w-8 h-8 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center"
-        animate={{
-          boxShadow: [
-            '0 0 0 0 rgba(59, 130, 246, 0)',
-            '0 0 0 4px rgba(59, 130, 246, 0.1)',
-            '0 0 0 0 rgba(59, 130, 246, 0)',
-          ]
-        }}
-        transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-      >
-        <MessageCircle className="h-4 w-4 text-blue-500" />
-      </motion.div>
-      <div>
-        <span className="text-sm text-gray-600">Gathering requirements </span>
-        {questionNumber > 0 && (
-          <span className="text-sm font-medium text-gray-900">· Question {questionNumber}</span>
-        )}
       </div>
     </div>
   )
@@ -610,7 +582,9 @@ export function AgenticChatPanel({
 
   // Questioning phase state
   const [isQuestioning, setIsQuestioning] = useState(false)
-  const [currentQuestionNumber, setCurrentQuestionNumber] = useState(0)
+  // Track how questioning ended and after which message to show the status
+  const [questioningEndStatus, setQuestioningEndStatus] = useState<'complete' | 'skipped' | null>(null)
+  const [questioningEndAfterMessageId, setQuestioningEndAfterMessageId] = useState<string | null>(null)
 
   // Notify parent component of generating version changes
   useEffect(() => {
@@ -752,11 +726,20 @@ export function AgenticChatPanel({
       const timestamp = new Date().toISOString()
       setMessages((prev) => {
         if (!prev.length) return prev
-        const lastIdx = prev.length - 1
-        const lastMsg = prev[lastIdx]
-        if (lastMsg?.role !== 'assistant') return prev
         
-        const existing = lastMsg.progressUpdates || []
+        // Find the last assistant message that's NOT a question message
+        let targetIdx = -1
+        for (let i = prev.length - 1; i >= 0; i--) {
+          const msg = prev[i]
+          if (msg.role === 'assistant' && !msg.id.startsWith('question-')) {
+            targetIdx = i
+            break
+          }
+        }
+        if (targetIdx < 0) return prev
+        
+        const targetMsg = prev[targetIdx]
+        const existing = targetMsg.progressUpdates || []
 
         const dedupeWindow = opts?.dedupeWindowMs ?? 4000
         const last = existing[existing.length - 1]
@@ -780,8 +763,9 @@ export function AgenticChatPanel({
         
         // Create new message object to trigger React re-render
         return [
-          ...prev.slice(0, lastIdx),
-          { ...lastMsg, progressUpdates: next },
+          ...prev.slice(0, targetIdx),
+          { ...targetMsg, progressUpdates: next },
+          ...prev.slice(targetIdx + 1),
         ]
       })
     },
@@ -1574,40 +1558,106 @@ export function AgenticChatPanel({
         // Questioning phase events
         case 'questioning_started':
           setIsQuestioning(true)
-          setCurrentQuestionNumber(0)
-          appendProgressUpdate('Gathering requirements: asking clarifying questions', 'phase')
+          // Track job_id for responding to questions
+          if (data.job_id) {
+            setActiveJobId(data.job_id)
+          }
           break
 
         case 'question_asked':
-          setCurrentQuestionNumber(data.question_number)
-          // Add question as assistant message
-          setMessages(prev => {
-            // Check if we already have this question
+          // Add question as assistant message and track it for questioning end status
+          {
             const questionId = `question-${data.question_number}`
-            if (prev.some(m => m.id === questionId)) return prev
+            setQuestioningEndAfterMessageId(questionId)
+            setMessages(prev => {
+              if (prev.some(m => m.id === questionId)) return prev
+              return [
+                ...prev,
+                {
+                  id: questionId,
+                  role: 'assistant',
+                  content: data.question,
+                  status: 'complete',
+                  createdAt: new Date().toISOString(),
+                } as LocalMessage,
+              ]
+            })
+          }
+          break
 
+        case 'questioning_skipped':
+          setIsQuestioning(false)
+          setQuestioningEndStatus('skipped')
+          // questioningEndAfterMessageId is already set from question_asked
+          // Remove the original empty streaming placeholder and add a new one at the end
+          // so that live activity appears after questions, not before them
+          setMessages(prev => {
+            // Filter out empty streaming assistant messages (the original placeholder)
+            const filtered = prev.filter(msg => {
+              // Keep non-assistant messages
+              if (msg.role !== 'assistant') return true
+              // Keep question messages
+              if (msg.id.startsWith('question-')) return true
+              // Keep messages with content or that are complete
+              if (msg.content || msg.status === 'complete') return true
+              // Keep messages with files, tasks, or meaningful progress
+              if (msg.files?.length || msg.tasks?.length || msg.progressUpdates?.length) return true
+              // Filter out empty streaming placeholders
+              return false
+            })
+            // Add new streaming assistant for generation phase
             return [
-              ...prev,
+              ...filtered,
               {
-                id: questionId,
-                role: 'assistant',
-                content: data.question,
-                status: 'complete',
+                id: `gen-${Date.now()}`,
+                role: 'assistant' as const,
+                content: '',
+                status: 'streaming' as const,
+                isAgentic: true,
+                tasks: [],
+                files: [],
+                progressUpdates: [],
                 createdAt: new Date().toISOString(),
-              } as LocalMessage,
+              },
             ]
           })
           break
 
         case 'questioning_complete':
-        case 'questioning_skipped':
           setIsQuestioning(false)
-          setCurrentQuestionNumber(0)
-          if (event.type === 'questioning_skipped') {
-            appendProgressUpdate('Skipped questions: proceeding to build', 'phase')
-          } else {
-            appendProgressUpdate('Requirements gathered: proceeding to build', 'phase')
-          }
+          // Only set to 'complete' if not already set to 'skipped' (skip event comes first)
+          setQuestioningEndStatus(prev => prev === 'skipped' ? 'skipped' : 'complete')
+          // questioningEndAfterMessageId is already set from question_asked
+          // Add new streaming assistant for generation if we haven't already (skip case)
+          setMessages(prev => {
+            // Check if we already have a gen-* message (from questioning_skipped)
+            if (prev.some(msg => msg.id.startsWith('gen-'))) {
+              return prev
+            }
+            // Filter out empty streaming assistant messages (the original placeholder)
+            const filtered = prev.filter(msg => {
+              if (msg.role !== 'assistant') return true
+              if (msg.id.startsWith('question-')) return true
+              if (msg.content || msg.status === 'complete') return true
+              if (msg.files?.length || msg.tasks?.length || msg.progressUpdates?.length) return true
+              return false
+            })
+            // Add new streaming assistant for generation phase
+            return [
+              ...filtered,
+              {
+                id: `gen-${Date.now()}`,
+                role: 'assistant' as const,
+                content: '',
+                status: 'streaming' as const,
+                isAgentic: true,
+                tasks: [],
+                files: [],
+                progressUpdates: [],
+                createdAt: new Date().toISOString(),
+              },
+            ]
+          })
           break
 
         case 'agent_error':
@@ -1769,11 +1819,13 @@ export function AgenticChatPanel({
 
     // During questioning phase, send response to questioning endpoint
     if (isQuestioning && activeJobId) {
-      // Add user message to chat
+      // Add user message to chat and update the questioning end message ID
+      const responseId = `response-${Date.now()}`
+      setQuestioningEndAfterMessageId(responseId)
       setMessages((prev) => [
         ...prev,
         {
-          id: `response-${Date.now()}`,
+          id: responseId,
           role: 'user',
           content: message,
           status: 'complete',
@@ -1840,14 +1892,15 @@ export function AgenticChatPanel({
       sessionId: sessionId || undefined,
       model: selectedModel,
       onEvent: (event) => {
-        // Track job ID from version_draft event (job creates version)
         const data = event.data as Record<string, unknown>
+        // Track job ID from any event that includes it (e.g., questioning_started, version_draft)
+        const jobId = getJobId()
+        if (jobId) {
+          setActiveJobId(jobId)
+        }
+        // Track version_id for cancellation
         if (event.type === 'version_draft' && data.version_id) {
-          // The job ID is tracked internally, but we use version_id for cancellation
-          const jobId = getJobId()
-          if (jobId) {
-            setActiveJobId(jobId)
-          }
+          setGeneratingVersionId(data.version_id as string)
         }
         handleAgentEvent(event)
       },
@@ -2121,13 +2174,15 @@ export function AgenticChatPanel({
       model: selectedModel,
       isHiddenPrompt: true, // Flag to tell backend not to echo the prompt
       onEvent: (event) => {
-        // Track job ID from version_draft event (job creates version)
         const data = event.data as Record<string, unknown>
+        // Track job ID from any event that includes it (e.g., questioning_started, version_draft)
+        const jobId = getJobId()
+        if (jobId) {
+          setActiveJobId(jobId)
+        }
+        // Track version_id for cancellation
         if (event.type === 'version_draft' && data.version_id) {
-          const jobId = getJobId()
-          if (jobId) {
-            setActiveJobId(jobId)
-          }
+          setGeneratingVersionId(data.version_id as string)
         }
         
         // For hidden prompts, skip user_message events
@@ -2377,16 +2432,17 @@ export function AgenticChatPanel({
                     )}
                   </div>
                 )}
+
+                {/* Questioning end status - shown after the last question/answer */}
+                {questioningEndStatus && message.id === questioningEndAfterMessageId && (
+                  <div className="flex items-center gap-2 pt-3 text-sm text-gray-600">
+                    <CheckCircle className="h-4 w-4 text-green-600" />
+                    <span>{questioningEndStatus === 'skipped' ? 'Skipped questioning.' : 'Questioning complete.'}</span>
+                  </div>
+                )}
               </motion.div>
             )})}
           </AnimatePresence>
-
-          {/* Questioning indicator - shows at the bottom when in questioning phase */}
-          {isQuestioning && (
-            <div className="max-w-3xl mx-auto px-4 mb-4">
-              <QuestioningIndicator questionNumber={currentQuestionNumber} />
-            </div>
-          )}
 
           <div ref={messagesEndRef} />
         </div>
