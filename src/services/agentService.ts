@@ -157,7 +157,7 @@ export async function cancelJob(jobId: string): Promise<void> {
 export interface JobStatus {
   job_id: string
   app_id: string
-  status: 'queued' | 'processing' | 'streaming' | 'complete' | 'failed' | 'cancelled'
+  status: 'questioning' | 'queued' | 'processing' | 'streaming' | 'complete' | 'failed' | 'cancelled'
   version_id: string | null
   event_count: number
   created_at: string
@@ -678,6 +678,28 @@ export function agentStateReducer(
         error: data.message,
       }
     }
+
+    // Questioning phase events
+    case 'questioning_started':
+      return {
+        ...state,
+        isQuestioning: true,
+        questioningSessionId: data.session_id,
+        currentQuestionNumber: 0,
+      }
+
+    case 'question_asked':
+      return {
+        ...state,
+        currentQuestionNumber: data.question_number,
+      }
+
+    case 'questioning_complete':
+    case 'questioning_skipped':
+      return {
+        ...state,
+        isQuestioning: false,
+      }
 
     default:
       return state
