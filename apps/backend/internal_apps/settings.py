@@ -4,6 +4,10 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 env = environ.Env()
+# Read root .env first (for shared config like CELERY_BROKER_URL, REDIS_PORT)
+ROOT_DIR = BASE_DIR.parent.parent
+environ.Env.read_env(ROOT_DIR / '.env')
+# Then read backend-specific .env (can override root settings)
 environ.Env.read_env(BASE_DIR / '.env')
 
 SECRET_KEY = env('DJANGO_SECRET_KEY', default='django-insecure-change-this-in-production')

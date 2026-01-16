@@ -1,0 +1,62 @@
+{
+  "name": "Vector",
+  "dockerComposeFile": ["../docker-compose.yml", "docker-compose.devcontainer.yml"],
+  "service": "app",
+  "workspaceFolder": "/workspace",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "24"
+    },
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.13"
+    },
+    "ghcr.io/jdx/devcontainer-feature/mise:1": {}
+  },
+  "forwardPorts": [5176, 8001, 5555],
+  "portsAttributes": {
+    "5176": { "label": "Frontend (Vite)", "onAutoForward": "notify" },
+    "8001": { "label": "Backend (Django)", "onAutoForward": "notify" },
+    "5555": { "label": "Flower (Celery Monitor)", "onAutoForward": "silent" }
+  },
+  "postCreateCommand": "mise trust && mise install && mise run setup && npm install -g @anthropic-ai/claude-code",
+  "postStartCommand": "mise run docker",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "anthropic.claude-code",
+        "ms-python.python",
+        "ms-python.debugpy",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "bradlc.vscode-tailwindcss",
+        "ms-azuretools.vscode-docker"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/workspace/apps/backend/.venv/bin/python",
+        "python.terminal.activateEnvironment": true,
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.formatOnSave": true,
+          "editor.codeActionsOnSave": {
+            "source.organizeImports": "explicit"
+          }
+        },
+        "[typescript]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode",
+          "editor.formatOnSave": true
+        },
+        "[typescriptreact]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode",
+          "editor.formatOnSave": true
+        }
+      }
+    }
+  },
+  "remoteEnv": {
+    "REDIS_PORT": "6379",
+    "CELERY_BROKER_URL": "redis://redis:6379/0",
+    "POSTGRES_PORT": "5432"
+  }
+}
