@@ -50,7 +50,7 @@
       "envFile": "${workspaceFolder}/.env",
       "env": {
         "PYTHONUNBUFFERED": "1",
-        "PYTHONPATH": "${workspaceFolder}/apps/backend"
+        "PYTHONPATH": "${workspaceFolder}/apps/backend",
       },
       "console": "integratedTerminal",
       "justMyCode": true

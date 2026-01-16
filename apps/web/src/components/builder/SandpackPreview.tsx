@@ -33,7 +33,7 @@ import { TEMPLATE_UI_COMPONENTS } from './templateComponents'
 
 // Get the API base URL for runtime injection into Sandpack
 // This should point to the actual backend, not the Sandpack iframe origin
-const RUNTIME_API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001/api/v1'
+const RUNTIME_API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1'
 
 interface SandpackPreviewProps {
   files: FileChange[]
