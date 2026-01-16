@@ -49,6 +49,7 @@ from ..services.agentic_service import get_agentic_service
 from ..services.version_service import VersionService
 from ..services.snapshot_service import SnapshotService
 from ..permissions import require_editor_or_above, require_org_membership
+from ..utils.job_utils import append_job_event
 
 logger = logging.getLogger(__name__)
 
@@ -761,26 +762,26 @@ class AgenticGenerateView(View):
             except ChatSession.DoesNotExist:
                 return JsonResponse({"error": "Session not found"}, status=404)
         
-        # Create the job
+        # Create the job with QUESTIONING status
         job = CodeGenerationJob.objects.create(
             internal_app=app,
             session=session,
             user_message=message,
             model_id=model,
             created_by=user,
-            status=CodeGenerationJobStatus.QUEUED,
+            status=CodeGenerationJobStatus.QUESTIONING,
         )
-        
-        # Queue the Celery task
-        from vector_app.tasks import run_agentic_generation
-        run_agentic_generation.delay(str(job.id))
-        
+
+        # Queue the questioning phase task (not generation)
+        from vector_app.tasks import run_questioning_phase
+        run_questioning_phase.delay(str(job.id))
+
         return JsonResponse({
             "job_id": str(job.id),
             "stream_url": f"/api/v1/jobs/{job.id}/stream/",
-            "status": "queued",
+            "status": "questioning",
         }, status=201)
-    
+
     def get(self, request, app_id):
         """Legacy GET endpoint - redirects to job-based flow for SSE streaming."""
         # Get parameters from query string
@@ -824,21 +825,21 @@ class AgenticGenerateView(View):
                     return JsonResponse({"error": "Session does not belong to this app"}, status=400)
             except ChatSession.DoesNotExist:
                 return JsonResponse({"error": "Session not found"}, status=404)
-        
-        # Create the job
+
+        # Create the job with QUESTIONING status
         job = CodeGenerationJob.objects.create(
             internal_app=app,
             session=session,
             user_message=message,
             model_id=model,
             created_by=user,
-            status=CodeGenerationJobStatus.QUEUED,
+            status=CodeGenerationJobStatus.QUESTIONING,
         )
-        
-        # Queue the Celery task
-        from vector_app.tasks import run_agentic_generation
-        run_agentic_generation.delay(str(job.id))
-        
+
+        # Queue the questioning phase task (not generation)
+        from vector_app.tasks import run_questioning_phase
+        run_questioning_phase.delay(str(job.id))
+
         # For GET requests (legacy), return SSE stream from job
         # This maintains backward compatibility
         response = StreamingHttpResponse(
@@ -1056,6 +1057,7 @@ class JobStatusView(APIView):
             "completed_at": job.completed_at.isoformat() if job.completed_at else None,
             "error_message": job.error_message,
             "is_active": job.status in [
+                CodeGenerationJobStatus.QUESTIONING,
                 CodeGenerationJobStatus.QUEUED,
                 CodeGenerationJobStatus.PROCESSING,
                 CodeGenerationJobStatus.STREAMING,
@@ -1085,10 +1087,11 @@ class LatestJobView(APIView):
         if not request.user.user_organizations.filter(organization=app.organization).exists():
             return Response({"error": "Access denied"}, status=http_status.HTTP_403_FORBIDDEN)
         
-        # First look for active jobs
+        # First look for active jobs (including questioning phase)
         active_job = CodeGenerationJob.objects.filter(
-                    internal_app=app,
+            internal_app=app,
             status__in=[
+                CodeGenerationJobStatus.QUESTIONING,
                 CodeGenerationJobStatus.QUEUED,
                 CodeGenerationJobStatus.PROCESSING,
                 CodeGenerationJobStatus.STREAMING,
@@ -1169,6 +1172,135 @@ class JobCancelView(APIView):
             "message": "Job is not cancellable in its current state",
             "job_id": str(job.id),
             })
+
+
+class JobRespondView(APIView):
+    """
+    Submit a response to a question during the questioning phase.
+
+    POST /api/v1/jobs/:job_id/respond/
+    Body: { "message": "..." }
+
+    Saves the user message and triggers the next questioning turn.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, job_id):
+        """Submit response to questioning."""
+        message = request.data.get('message', '').strip()
+
+        if not message:
+            return Response(
+                {"error": "Message is required"},
+                status=http_status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            job = CodeGenerationJob.objects.select_related(
+                'internal_app__organization',
+                'session',
+            ).get(pk=job_id)
+        except CodeGenerationJob.DoesNotExist:
+            return Response(
+                {"error": "Job not found"},
+                status=http_status.HTTP_404_NOT_FOUND
+            )
+
+        # Verify access
+        if not request.user.user_organizations.filter(
+            organization=job.internal_app.organization
+        ).exists():
+            return Response(
+                {"error": "Access denied"},
+                status=http_status.HTTP_403_FORBIDDEN
+            )
+
+        # Verify job is in QUESTIONING status
+        if job.status != CodeGenerationJobStatus.QUESTIONING:
+            return Response(
+                {"error": f"Job is not in questioning phase (current: {job.status})"},
+                status=http_status.HTTP_400_BAD_REQUEST
+            )
+
+        # Save user message to chat session
+        user_message = ChatMessage.objects.create(
+            session=job.session,
+            role=ChatMessageRole.USER,
+            content=message,
+            status=ChatMessageStatus.COMPLETE,
+        )
+
+        # Emit user_message event
+        append_job_event(job, "user_message", {
+            "id": str(user_message.id),
+            "content": message,
+        })
+
+        # Trigger next questioning turn
+        from vector_app.tasks import run_questioning_phase
+        run_questioning_phase.delay(str(job.id), user_response=message)
+
+        return Response({
+            "status": "processing",
+            "job_id": str(job.id),
+            "message_id": str(user_message.id),
+        })
+
+
+class JobSkipView(APIView):
+    """
+    Skip the questioning phase and proceed directly to generation.
+
+    POST /api/v1/jobs/:job_id/skip/
+
+    Extracts whatever facts are available from current conversation
+    and triggers code generation immediately.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, job_id):
+        """Skip questioning and proceed to generation."""
+        try:
+            job = CodeGenerationJob.objects.select_related(
+                'internal_app__organization',
+                'session',
+            ).get(pk=job_id)
+        except CodeGenerationJob.DoesNotExist:
+            return Response(
+                {"error": "Job not found"},
+                status=http_status.HTTP_404_NOT_FOUND
+            )
+
+        # Verify access
+        if not request.user.user_organizations.filter(
+            organization=job.internal_app.organization
+        ).exists():
+            return Response(
+                {"error": "Access denied"},
+                status=http_status.HTTP_403_FORBIDDEN
+            )
+
+        # Verify job is in QUESTIONING status
+        if job.status != CodeGenerationJobStatus.QUESTIONING:
+            return Response(
+                {"error": f"Job is not in questioning phase (current: {job.status})"},
+                status=http_status.HTTP_400_BAD_REQUEST
+            )
+
+        # Emit skip event
+        append_job_event(job, "questioning_skipped", {
+            "job_id": str(job.id),
+        })
+
+        # Trigger questioning with skip signal
+        # The "skip" keyword will be detected by MainAgentService
+        from vector_app.tasks import run_questioning_phase
+        run_questioning_phase.delay(str(job.id), user_response="skip")
+
+        return Response({
+            "status": "skipping",
+            "job_id": str(job.id),
+        })
 
 
 class GenerationStateView(APIView):
@@ -1753,4 +1885,3 @@ Examples:
                 "description": "",
                 "fallback": True,
             })
-

@@ -13,47 +13,50 @@ __all__ = [
     "build_continuation_decision_prompt",
 ]
 
-CONTINUATION_DECISION_SYSTEM_PROMPT = """You are a conversation analyst that determines if clarifying questions are needed before building an app.
+CONTINUATION_DECISION_SYSTEM_PROMPT = """You are a procedural conversation controller.
 
-You will be given:
+Your task is NOT to decide whether an app could be built.
+Your task is to decide whether continuing without clarification would
+force the system to silently choose between multiple plausible interpretations.
+
+You are given:
 - The user's initial request
-- The conversation so far (questions asked and answers given)
-- Number of questions already asked
+- The conversation so far
+- The number of questions already asked
 
-Your job is to determine: Do we know WHAT to build, or would we be guessing?
+You MUST CONTINUE QUESTIONING if ANY of the following are true:
 
-MUST ASK MORE QUESTIONS if ANY of these are true:
-- The request doesn't specify what KIND of app (e.g., "build me an app" with no details)
-- Core functionality is ambiguous (we don't know what the app should DO)
-- The user gave a vague or non-committal answer to a direct question
-- We would have to GUESS about primary features to build anything
+- A core term is ambiguous and has multiple reasonable meanings
+  (e.g., "my PRs", "dashboard", "analytics", "tracking")
+- The user's answer avoided commitment or deferred choice
+- Proceeding would require assuming user intent that was not stated
+- Multiple reasonable app shapes are possible
 
-STOP QUESTIONING if ALL of these are true:
-- We've asked 5 or more questions (hard limit), OR
-- The request explicitly describes what to build (e.g., "todo app", "counter with buttons", "weather dashboard")
-- AND we know the primary functionality (what the user will DO with the app)
-- AND recent answers were clear and direct (not "whatever" or "I don't know")
+You MUST STOP QUESTIONING if ALL of the following are true:
 
-CRITICAL DISTINCTION:
-- "Build me an app" → MUST ask (we don't know what KIND)
-- "Build me a todo app" → MAY proceed (we know the domain)
-- "Build me an app for something" → MUST ask (vague)
+- The user has clearly defined the core object or domain
+  AND that domain has a widely accepted default behavior
+  (e.g., "todo app", "counter", "URL shortener")
+- The primary action the user wants to perform is explicit
+- There are no unresolved ambiguities that would affect core behavior
 
-The question is NOT "can we build something?" (always yes).
-The question is "do we know what the user actually wants?"
+IMPORTANT:
+- Do NOT assume defaults.
+- Do NOT say "we can make something reasonable".
+- If you would have to pick one interpretation over another, you MUST continue questioning.
 
-Respond with JSON:
+Respond ONLY with JSON:
 {{
   "should_continue": true/false,
-  "reasoning": "Brief explanation of why",
-  "unclear_aspects": ["what we don't know and would have to guess"]
-}}"""
+  "reasoning": "Short explanation",
+  "unclear_aspects": ["ambiguous or unresolved items"]
+}}
+"""
 
 
 def build_continuation_decision_prompt(
     initial_request: str,
     chat_history: str,
-    question_count: int,
 ) -> str:
     """Build prompt for continuation decision.
 
@@ -74,8 +77,6 @@ def build_continuation_decision_prompt(
 ## Conversation So Far
 {chat_history}
 
-## Questions Asked
-{question_count} questions have been asked so far.
 
 ## Your Decision
 Do we know WHAT to build, or would we be guessing about core functionality?
