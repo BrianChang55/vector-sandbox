@@ -37,6 +37,7 @@ def run_agentic_generation(self, job_id: str):
         AppVersionValidationStatus,
         ChatMessage,
         ChatMessageRole,
+        ChatMessageSource,
         ChatMessageStatus,
         ChatSession,
         CodeGenerationJob,
@@ -92,6 +93,7 @@ def run_agentic_generation(self, job_id: str):
         role=ChatMessageRole.USER,
         content=message,
         status=ChatMessageStatus.COMPLETE,
+        source=ChatMessageSource.BUILD,
     )
     
     # Update session title if needed
@@ -108,6 +110,7 @@ def run_agentic_generation(self, job_id: str):
         content="",
         status=ChatMessageStatus.STREAMING,
         model_id=model,
+        source=ChatMessageSource.BUILD,
     )
     job.chat_message = assistant_message
     job.save(update_fields=['chat_message', 'updated_at'])
@@ -351,6 +354,7 @@ def run_questioning_phase(self, job_id: str):
     from vector_app.models import (
         ChatMessage,
         ChatMessageRole,
+        ChatMessageSource,
         ChatMessageStatus,
         QuestioningJob,
         QuestioningJobStatus,
@@ -395,6 +399,7 @@ def run_questioning_phase(self, job_id: str):
             role=ChatMessageRole.USER,
             content=user_message,
             status=ChatMessageStatus.COMPLETE,
+            source=ChatMessageSource.QUESTIONING,
         )
 
         # Build chat history for decision-making
@@ -424,6 +429,7 @@ def run_questioning_phase(self, job_id: str):
                 role=ChatMessageRole.ASSISTANT,
                 content=decision.question,
                 status=ChatMessageStatus.COMPLETE,
+                source=ChatMessageSource.QUESTIONING,
             )
 
             # Increment question count

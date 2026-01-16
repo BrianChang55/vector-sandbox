@@ -9,6 +9,7 @@ import logging
 import time
 import uuid
 from typing import Generator, Optional
+from django.db.models import Q
 from django.http import StreamingHttpResponse, JsonResponse
 from django.views import View
 from django.utils.decorators import method_decorator
@@ -26,6 +27,7 @@ from ..models import (
     AppVersionSource,
     ChatMessage,
     ChatMessageRole,
+    ChatMessageSource,
     ChatMessageStatus,
     ChatSession,
     CodeGenerationJob,
@@ -167,7 +169,11 @@ class ChatMessagesView(APIView):
     permission_classes = [IsAuthenticated]
     
     def get(self, request, session_id):
-        """List messages in a session."""
+        """List messages in a session.
+        
+        Only returns 'build' messages (not questioning messages).
+        For backwards compatibility, also includes messages with null source.
+        """
         try:
             session = ChatSession.objects.select_related(
                 'internal_app__organization'
@@ -181,7 +187,10 @@ class ChatMessagesView(APIView):
                     status=http_status.HTTP_403_FORBIDDEN
                 )
             
-            messages = session.messages.order_by('created_at')
+            # Filter to only build messages (or null for backwards compatibility)
+            messages = session.messages.filter(
+                Q(source=ChatMessageSource.BUILD) | Q(source__isnull=True)
+            ).order_by('created_at')
             
             return Response({
                 "messages": [
@@ -380,6 +389,7 @@ class StreamingGenerateView(View):
             role=ChatMessageRole.USER,
             content=message,
             status=ChatMessageStatus.COMPLETE,
+            source=ChatMessageSource.BUILD,
         )
         if not session.title or session.title.strip() == "" or session.title == "New Chat":
             session.title = message[:50] + "..." if len(message) > 50 else message
@@ -396,6 +406,7 @@ class StreamingGenerateView(View):
             content="",
             status=ChatMessageStatus.STREAMING,
             model_id=model,
+            source=ChatMessageSource.BUILD,
         )
         yield sse_event("assistant_start", {
             "id": str(assistant_message.id),
@@ -628,6 +639,7 @@ class NonStreamingGenerateView(APIView):
                 session=session,
                 role=ChatMessageRole.USER,
                 content=message,
+                source=ChatMessageSource.BUILD,
             )
             if not session.title or session.title.strip() == "" or session.title == "New Chat":
                 session.title = message[:50] + "..." if len(message) > 50 else message
@@ -665,6 +677,7 @@ class NonStreamingGenerateView(APIView):
                 model_id=model,
                 duration_ms=duration_ms,
                 generated_spec_json=spec_json,
+                source=ChatMessageSource.BUILD,
             )
             
             # Create version
@@ -1388,9 +1401,11 @@ class QuestioningStateView(View):
                 "question_count": 0,
             })
         
-        # Get the chat messages for this session
+        # Get the chat messages for this session - only questioning messages
+        # Filter by source='questioning' to exclude build messages
         messages = ChatMessage.objects.filter(
-            session=questioning_session.chat_session
+            session=questioning_session.chat_session,
+            source=ChatMessageSource.QUESTIONING,
         ).order_by("created_at").values("id", "role", "content", "created_at")
         
         # Convert to list and format timestamps
