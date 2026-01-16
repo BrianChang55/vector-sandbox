@@ -18,6 +18,7 @@ class ChatMessageStatus(StrEnum):
 
 
 class CodeGenerationJobStatus(StrEnum):
+    QUESTIONING = "questioning"  # Gathering requirements before generation
     QUEUED = "queued"
     PROCESSING = "processing"
     STREAMING = "streaming"
