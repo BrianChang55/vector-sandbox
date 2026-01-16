@@ -46,6 +46,7 @@
       "args": ["-A", "internal_apps", "worker", "--loglevel=info", "--pool=solo"],
       "cwd": "${workspaceFolder}/apps/backend",
       "python": "${workspaceFolder}/apps/backend/.venv/bin/python",
+      "envFile": "${workspaceFolder}/.env",
       "env": {
         "PYTHONUNBUFFERED": "1",
         "PYTHONPATH": "${workspaceFolder}/apps/backend"
@@ -61,6 +62,7 @@
       "args": ["-A", "internal_apps", "flower", "--port=5555"],
       "cwd": "${workspaceFolder}/apps/backend",
       "python": "${workspaceFolder}/apps/backend/.venv/bin/python",
+      "envFile": "${workspaceFolder}/.env",
       "env": {
         "PYTHONUNBUFFERED": "1",
         "PYTHONPATH": "${workspaceFolder}/apps/backend"
