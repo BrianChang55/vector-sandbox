@@ -10,7 +10,7 @@ from internal_apps.utils.base_model import DjangoBaseModel
 from internal_apps.utils.enum import choices
 import uuid
 
-from chat.types import ChatMessageRole, ChatMessageStatus, CodeGenerationJobStatus, QuestioningStatus
+from chat.types import ChatMessageRole, ChatMessageStatus, CodeGenerationJobStatus, QuestioningStatus, VerificationStatus
 
 
 class ChatSession(DjangoBaseModel):
@@ -204,3 +204,135 @@ class CodeGenerationJob(DjangoBaseModel):
         self.events_json.append(event)
         self.chunk_count = len(self.events_json)
         self.save(update_fields=["events_json", "chunk_count", "updated_at"])
+
+# ============================================================================
+# File Verification Models (Handler Validation Service)
+# ============================================================================
+
+
+class FileVerificationRecord(DjangoBaseModel):
+    """
+    Record of verifying a single file during code generation.
+
+    Stores the complete audit trail including all retry attempts,
+    enabling analysis of verification patterns and LLM fix effectiveness.
+    """
+
+    # Optional link to the code generation job that triggered this verification
+    code_generation_job = models.ForeignKey(
+        CodeGenerationJob,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="verification_records",
+        help_text="The code generation job that triggered this verification",
+    )
+
+    # File identification
+    file_path = models.CharField(max_length=500, help_text="Path of the verified file")
+    file_type = models.CharField(max_length=20, help_text='File extension (e.g., ".ts", ".tsx")')
+
+    # Verification result
+    status = models.CharField(
+        max_length=20,
+        choices=choices(VerificationStatus),
+        default=VerificationStatus.PENDING,
+        help_text="Final verification status",
+    )
+    verifier_name = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        help_text="Name of the verifier used (e.g., 'typescript')",
+    )
+
+    # Content and errors
+    final_content = models.TextField(
+        null=True,
+        blank=True,
+        help_text="The file content after all retries",
+    )
+    error_message = models.TextField(
+        null=True,
+        blank=True,
+        help_text="Final error message if verification failed",
+    )
+
+    # Timing
+    started_at = models.DateTimeField(null=True, blank=True, help_text="When verification started")
+    completed_at = models.DateTimeField(null=True, blank=True, help_text="When verification completed")
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["code_generation_job", "-created_at"]),
+            models.Index(fields=["status", "-created_at"]),
+            models.Index(fields=["file_type", "-created_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.file_path} ({self.status})"
+
+    @property
+    def attempt_count(self) -> int:
+        """Number of verification attempts made."""
+        return self.attempts.count()  # pylint: disable=no-member
+
+    @property
+    def passed(self) -> bool:
+        """Whether the verification passed."""
+        return self.status == VerificationStatus.PASSED
+
+    @property
+    def duration_seconds(self) -> float | None:
+        """Duration of verification in seconds."""
+        if self.started_at and self.completed_at:
+            return (self.completed_at - self.started_at).total_seconds()
+        return None
+
+
+class VerificationAttemptRecord(DjangoBaseModel):
+    """
+    Record of a single verification attempt (for retry tracking).
+
+    Each attempt captures the code content and result at that point,
+    enabling analysis of how errors evolve across retries.
+    """
+
+    # Parent verification record
+    verification_record = models.ForeignKey(
+        FileVerificationRecord,
+        on_delete=models.CASCADE,
+        related_name="attempts",
+        help_text="The verification record this attempt belongs to",
+    )
+
+    # Attempt metadata
+    attempt_number = models.PositiveIntegerField(help_text="Attempt number (1-based)")
+
+    # Content at this attempt
+    content = models.TextField(help_text="The code content that was verified in this attempt")
+
+    # Result of this attempt
+    status = models.CharField(
+        max_length=20,
+        choices=choices(VerificationStatus),
+        help_text="Status of this specific attempt",
+    )
+    error_message = models.TextField(
+        null=True,
+        blank=True,
+        help_text="Error message if this attempt failed",
+    )
+
+    # Timing
+    timestamp = models.DateTimeField(null=True, blank=True, help_text="When this attempt occurred")
+
+    class Meta:
+        ordering = ["attempt_number"]
+        indexes = [
+            models.Index(fields=["verification_record", "attempt_number"]),
+        ]
+
+    def __str__(self):
+        return f"Attempt {self.attempt_number} for {self.verification_record.file_path}"

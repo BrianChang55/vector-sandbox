@@ -22,6 +22,7 @@ from vector_app.services.types import (
     AgentEvent,
 )
 from vector_app.services.validation_service import get_validation_service
+from vector_app.services.handlers.verification_mixin import VerificationMixin
 
 if TYPE_CHECKING:
     from vector_app.models import InternalApp, AppVersion
@@ -162,10 +163,11 @@ class StreamingValidator:
         return self.warnings.copy()
 
 
-class BaseHandler(ABC):
+class BaseHandler(VerificationMixin, ABC):
     """
     Abstract base class for intent handlers.
 
+    Includes VerificationMixin for automatic file verification.
     All handlers must implement the execute() method which yields AgentEvent
     objects for the streaming response.
     """
@@ -309,6 +311,56 @@ class BaseHandler(ABC):
                 "file": file.to_dict(),
             },
         )
+
+    def emit_file_generated_and_verify(
+        self,
+        file: FileChange,
+    ) -> Generator[AgentEvent, None, FileChange]:
+        """
+        Emit file generated event and immediately verify TypeScript files.
+
+        This method yields the file_generated event, then for TypeScript files,
+        yields verification events (started, passed/failed) inline.
+
+        Args:
+            file: The generated FileChange
+
+        Yields:
+            AgentEvent for file generation and verification
+
+        Returns:
+            The file (possibly modified if verification triggered regeneration)
+        """
+        # Always emit the file_generated event first
+        yield self.emit_file_generated(file)
+
+        # Only verify TypeScript files
+        if not file.path.endswith(('.ts', '.tsx')):
+            return file
+
+        # Emit verification started
+        yield self.emit_verification_started(file.path, "typescript")
+
+        # Run verification (without retry for inline verification)
+        result = self.verify_file(file)
+
+        # Emit result
+        if result.status.value == 'passed':
+            yield self.emit_verification_passed(
+                file.path,
+                result.verifier_name or "typescript"
+            )
+        elif result.status.value == 'failed':
+            yield self.emit_verification_failed(
+                file.path,
+                result.verifier_name or "typescript",
+                result.error_message or "Unknown error",
+                is_blocking=True,
+            )
+        else:
+            yield self.emit_verification_skipped(file.path, "verification skipped")
+
+        return file
 
     def emit_table_created(self, slug: str, name: str, columns: int) -> AgentEvent:
         """Emit table created event."""

@@ -31,3 +31,13 @@ class QuestioningStatus(StrEnum):
     IN_PROGRESS = "in_progress"
     COMPLETE = "complete"
     SKIPPED = "skipped"
+
+
+class VerificationStatus(StrEnum):
+    """Status of a file verification."""
+
+    PENDING = "pending"  # Not yet verified
+    PASSED = "passed"  # Verification succeeded
+    FAILED = "failed"  # Verification failed (code has errors)
+    SKIPPED = "skipped"  # No verifier available for file type
+    ERROR = "error"  # Verifier service error (tsc not found, timeout)

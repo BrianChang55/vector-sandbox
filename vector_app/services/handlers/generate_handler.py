@@ -14,7 +14,7 @@ import re
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Dict, Generator, List, Optional, TYPE_CHECKING
+from typing import Any, Callable, Dict, Generator, List, Optional, TYPE_CHECKING
 
 from .base_handler import BaseHandler, AgentEvent, FileChange, exclude_protected_files
 from .parallel_executor import create_parallel_executor, ParallelStepExecutor
@@ -42,6 +42,8 @@ from vector_app.services.types import CompilationError
 from vector_app.services.validation_service import get_validation_service
 from vector_app.services.schema_extraction_service import get_schema_extraction_service
 from vector_app.services.datastore.table_creator import create_tables_from_definitions
+from vector_app.prompts.verification_retry import build_verification_retry_prompt
+from vector_app.services.verification_storage_service import get_verification_storage_service
 
 if TYPE_CHECKING:
     from vector_app.models import InternalApp, AppVersion
@@ -116,6 +118,104 @@ class GenerateHandler(BaseHandler):
         if self._parallel_executor is None:
             self._parallel_executor = create_parallel_executor(max_workers=5)
         return self._parallel_executor
+
+    def _verify_and_fix_syntax(
+        self,
+        files: List[FileChange],
+        model: AIModel,
+        system_prompt: str,
+    ) -> Generator[AgentEvent, None, List[FileChange]]:
+        """
+        Verify generated TypeScript files and retry on syntax errors.
+
+        Emits per-file verification events for frontend visibility.
+        Uses verify_and_retry() with callback that regenerates via LLM.
+
+        Args:
+            files: List of generated FileChange objects
+            model: AI model for regeneration
+            system_prompt: Original system prompt for context
+
+        Yields:
+            AgentEvent for verification status updates
+
+        Returns:
+            List of verified (possibly regenerated) files
+        """
+        verified_files: List[FileChange] = []
+        logger.info("[VERIFICATION] Starting syntax verification for %d files", len(files))
+
+        for file in files:
+            # Skip non-TypeScript files (no verifier registered)
+            if not file.path.endswith(('.ts', '.tsx')):
+                logger.debug("[VERIFICATION] Skipping non-TypeScript file: %s", file.path)
+                verified_files.append(file)
+                continue
+
+            logger.info("[VERIFICATION] Verifying TypeScript file: %s", file.path)
+            # Emit verification started
+            yield self.emit_verification_started(file.path, "typescript")
+
+            def make_regenerate_callback(
+                orig_file: FileChange,
+                m: AIModel,
+                sys_prompt: str,
+            ) -> Callable[[FileChange, str], FileChange]:
+                """Create closure capturing model and system prompt."""
+                def regenerate(failed_file: FileChange, error: str) -> FileChange:
+                    retry_prompt = build_verification_retry_prompt(
+                        failed_file,
+                        error,
+                        original_prompt=f"Regenerate {failed_file.path} fixing the syntax error.",
+                    )
+                    response = m.complete(system=sys_prompt, user=retry_prompt)
+                    new_content = self._extract_code_from_regeneration(response, failed_file.path)
+                    return FileChange(
+                        path=failed_file.path,
+                        action=failed_file.action,
+                        language=failed_file.language,
+                        content=new_content,
+                        previous_content=failed_file.content,
+                    )
+                return regenerate
+
+            callback = make_regenerate_callback(file, model, system_prompt)
+            logger.info("[VERIFICATION] Calling verify_and_retry for %s", file.path)
+            final_file, result = self.verify_and_retry(file, callback, max_attempts=3)
+            logger.info("[VERIFICATION] verify_and_retry completed for %s with status: %s", file.path, result.status.value)
+
+            # Emit result event
+            if result.status.value == 'passed':
+                logger.info("[VERIFICATION] PASSED: %s", file.path)
+                yield self.emit_verification_passed(file.path, result.verifier_name or "typescript")
+            elif result.status.value == 'failed':
+                logger.warning("[VERIFICATION] FAILED: %s - %s", file.path, result.error_message)
+                yield self.emit_verification_failed(
+                    file.path,
+                    result.verifier_name or "typescript",
+                    result.error_message or "Unknown error",
+                    is_blocking=True,
+                )
+            else:
+                logger.info("[VERIFICATION] SKIPPED: %s", file.path)
+                yield self.emit_verification_skipped(file.path, "verification skipped")
+
+            verified_files.append(final_file)
+
+        logger.info("[VERIFICATION] Completed syntax verification. Verified %d files.", len(verified_files))
+        return verified_files
+
+    def _extract_code_from_regeneration(self, response: str, file_path: str) -> str:
+        """Extract code content from LLM regeneration response."""
+        patterns = [
+            r'```(?:typescript|tsx|ts)\n(.*?)```',
+            r'```\n(.*?)```',
+        ]
+        for pattern in patterns:
+            matches = re.findall(pattern, response, re.DOTALL)
+            if matches:
+                return matches[0].strip()
+        return response.strip()
 
     def execute(
         self,
@@ -285,7 +385,12 @@ class GenerateHandler(BaseHandler):
                 )
 
                 data_phase_files.append(types_file)
-                yield self.emit_file_generated(types_file)
+                gen = self.emit_file_generated_and_verify(types_file)
+                try:
+                    while True:
+                        yield next(gen)
+                except StopIteration:
+                    pass
                 logger.info(f"[PRE-CODE] Generated src/lib/types.ts from existing tables")
 
         # PHASE 2b: Execute code steps in parallel (NO DB changes allowed)
@@ -327,6 +432,23 @@ class GenerateHandler(BaseHandler):
             passed=validation_passed,
             fix_attempts=fix_attempts,
         )
+
+        # Verify generated TypeScript files (syntax verification with retry)
+        if generated_files:
+            system_prompt = build_codegen_system_prompt(registry_surface)
+            verification_gen = self._verify_and_fix_syntax(generated_files, model, system_prompt)
+            try:
+                while True:
+                    yield next(verification_gen)
+            except StopIteration as e:
+                verified_files = e.value if e.value else generated_files
+
+        # Save verification results to database (verification happened inline during file generation)
+        storage = get_verification_storage_service()
+        results = self.get_verification_results()
+        if results:
+            logger.info("[VERIFICATION] Saving %d verification results to database", len(results))
+            storage.save_verification_results(results)
 
         return generated_files
 
@@ -632,7 +754,12 @@ class GenerateHandler(BaseHandler):
                     lines_added=ts_types_content.count('\n') + 1,
                 )
 
-                yield self.emit_file_generated(types_file)
+                gen = self.emit_file_generated_and_verify(types_file)
+                try:
+                    while True:
+                        yield next(gen)
+                except StopIteration:
+                    pass
                 logger.info(f"[TYPESCRIPT] Generated src/lib/types.ts ({len(ts_types_content)} chars)")
 
     def _build_tables_summary_for_system_prompt(self, app: 'InternalApp') -> str:
@@ -1070,10 +1197,15 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
                 break
             yield event
         
-        # Emit all files
+        # Emit all files with inline verification
         for file in all_files:
-            yield self.emit_file_generated(file)
-        
+            gen = self.emit_file_generated_and_verify(file)
+            try:
+                while True:
+                    yield next(gen)
+            except StopIteration:
+                pass
+
         logger.info(f"[SUBAGENTS] Step {step_index} complete: generated {len(all_files)} file(s)")
 
     def _execute_step_single_agent(
@@ -1209,9 +1341,14 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
                     break
                 yield event
 
-            # Emit all files
+            # Emit all files with inline verification
             for file in files:
-                yield self.emit_file_generated(file)
+                gen = self.emit_file_generated_and_verify(file)
+                try:
+                    while True:
+                        yield next(gen)
+                except StopIteration:
+                    pass
 
         except Exception as e:
             logger.error(f"Step execution error: {e}")
@@ -1372,8 +1509,13 @@ Common issue: Code queries the WRONG table - check if the field exists on a diff
                     f.action = "modify"
                 else:
                     f.action = "create"
-                yield self.emit_file_generated(f)
-            
+                gen = self.emit_file_generated_and_verify(f)
+                try:
+                    while True:
+                        yield next(gen)
+                except StopIteration:
+                    pass
+
             logger.info(f"[EDIT STEP] Applied {len(files)} diff(s) successfully")
             
             # Validate and fix field names (same as generate path)
