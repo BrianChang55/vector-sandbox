@@ -156,6 +156,7 @@ urlpatterns = [
     path('questioning/<uuid:job_id>/skip/', streaming_views.QuestioningSkipView.as_view(), name='questioning-skip'),
     path('questioning/<uuid:job_id>/status/', streaming_views.QuestioningStatusView.as_view(), name='questioning-status'),
     path('apps/<uuid:app_id>/questioning/state/', streaming_views.QuestioningStateView.as_view(), name='questioning-state'),
+    path('apps/<uuid:app_id>/questioning/reset/', streaming_views.QuestioningResetView.as_view(), name='questioning-reset'),
     
     # =========================================================================
     # App Data Store endpoints

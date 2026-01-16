@@ -2270,3 +2270,59 @@ class QuestioningStateView(View):
             "session_id": str(questioning_session.chat_session.id),
             "questioning_session_id": str(questioning_session.id),
         })
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class QuestioningResetView(View):
+    """
+    Reset the questioning state for an app to start fresh.
+    
+    POST /api/v1/apps/:app_id/questioning/reset/
+    
+    Deletes all questioning sessions for the app, allowing
+    the user to start a new requirements gathering flow.
+    The app's existing versions (if any) are preserved.
+    """
+    
+    def post(self, request, app_id):
+        user = _authenticate_request(request)
+        if isinstance(user, JsonResponse):
+            return user
+        
+        try:
+            app = InternalApp.objects.get(pk=app_id)
+        except InternalApp.DoesNotExist:
+            return JsonResponse({"error": "App not found"}, status=404)
+        
+        # Check user has edit permission
+        try:
+            membership = UserOrganization.objects.get(user=user, organization=app.organization)
+            if not membership.is_editor_or_above():
+                return JsonResponse(
+                    {"error": "You must be an editor or admin to reset questioning"},
+                    status=403,
+                )
+        except UserOrganization.DoesNotExist:
+            return JsonResponse({"error": "Access denied"}, status=403)
+        
+        # Delete all questioning sessions for this app
+        # This cascades to delete QuestioningJobs and related ChatMessages
+        deleted_count = 0
+        questioning_sessions = QuestioningSession.objects.filter(
+            chat_session__internal_app=app
+        ).select_related("chat_session")
+        
+        for qs in questioning_sessions:
+            # Delete chat messages in requirements context
+            ChatMessage.objects.filter(
+                session=qs.chat_session,
+                context="requirements",
+            ).delete()
+            # Delete the questioning session (cascades to jobs)
+            qs.delete()
+            deleted_count += 1
+        
+        return JsonResponse({
+            "status": "idle",
+            "message": f"Reset complete. Deleted {deleted_count} questioning session(s).",
+        })
