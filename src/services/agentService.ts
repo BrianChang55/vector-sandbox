@@ -157,7 +157,7 @@ export async function cancelJob(jobId: string): Promise<void> {
 export interface JobStatus {
   job_id: string
   app_id: string
-  status: 'queued' | 'processing' | 'streaming' | 'complete' | 'failed' | 'cancelled'
+  status: 'questioning' | 'queued' | 'processing' | 'streaming' | 'complete' | 'failed' | 'cancelled'
   version_id: string | null
   event_count: number
   created_at: string
@@ -228,7 +228,7 @@ export function startAgenticGeneration(
   
   // Track IDs when they're created
   let currentVersionId: string | null = null
-  const currentJobId: string | null = null
+  let currentJobId: string | null = null
 
   const params = new URLSearchParams({
     message,
@@ -299,6 +299,11 @@ export function startAgenticGeneration(
                 // Track the version ID when a draft version is created
                 if (eventType === 'version_draft' && data.version_id) {
                   currentVersionId = data.version_id
+                }
+                
+                // Track job_id from any event that includes it (e.g., questioning_started)
+                if (data.job_id && !currentJobId) {
+                  currentJobId = data.job_id
                 }
                 
                 const event: AgentEvent = {
@@ -678,6 +683,28 @@ export function agentStateReducer(
         error: data.message,
       }
     }
+
+    // Questioning phase events
+    case 'questioning_started':
+      return {
+        ...state,
+        isQuestioning: true,
+        questioningSessionId: data.session_id,
+        currentQuestionNumber: 0,
+      }
+
+    case 'question_asked':
+      return {
+        ...state,
+        currentQuestionNumber: data.question_number,
+      }
+
+    case 'questioning_complete':
+    case 'questioning_skipped':
+      return {
+        ...state,
+        isQuestioning: false,
+      }
 
     default:
       return state
