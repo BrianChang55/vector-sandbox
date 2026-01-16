@@ -4,7 +4,10 @@ python = "3.11"
 uv = "latest"
 
 [env]
+_.file = ".env"
 VIRTUAL_ENV = "{{config_root}}/apps/backend/.venv"
+REDIS_PORT = "{{env.REDIS_PORT | default(value='6379')}}"
+CELERY_BROKER_URL = "redis://localhost:{{env.REDIS_PORT | default(value='6379')}}/0"
 
 [tasks.fe]
 description = "Start frontend dev server"
@@ -19,12 +22,12 @@ run = "uv run python manage.py runserver 8001"
 [tasks.celery]
 description = "Start Celery worker"
 dir = "{{config_root}}/apps/backend"
-run = "uv run celery -A internal_apps worker --loglevel=info"
+run = "uv run celery -A internal_apps worker --loglevel=info --broker=$CELERY_BROKER_URL"
 
 [tasks.flower]
 description = "Start Flower Celery monitor (http://localhost:5555)"
 dir = "{{config_root}}/apps/backend"
-run = "uv run celery -A internal_apps flower --port=5555"
+run = "uv run celery -A internal_apps flower --port=5555 --broker=$CELERY_BROKER_URL"
 
 [tasks.docker]
 description = "Start Docker services (Redis, PostgreSQL)"
