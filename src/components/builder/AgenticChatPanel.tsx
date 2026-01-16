@@ -1486,6 +1486,61 @@ export function AgenticChatPanel({
           break
         }
 
+        // Verification events - per-file syntax verification
+        case 'verification_started': {
+          const filePath = data.file_path || 'file'
+          const fileName = filePath.split('/').pop() || filePath
+          appendProgressUpdate(
+            `Verifying ${fileName}...`,
+            'step',
+            { dedupeWindowMs: 500 }
+          )
+          break
+        }
+
+        case 'verification_passed': {
+          const filePath = data.file_path || 'file'
+          const fileName = filePath.split('/').pop() || filePath
+          appendProgressUpdate(
+            `✓ ${fileName} verified`,
+            'file',
+            { dedupeWindowMs: 500 }
+          )
+          break
+        }
+
+        case 'verification_failed': {
+          const filePath = data.file_path || 'file'
+          const fileName = filePath.split('/').pop() || filePath
+          const errorPreview = data.error_message
+            ? data.error_message.slice(0, 50) + (data.error_message.length > 50 ? '...' : '')
+            : 'syntax error'
+          appendProgressUpdate(
+            `✗ ${fileName} failed: ${errorPreview}`,
+            'error',
+            { dedupeWindowMs: 500 }
+          )
+          break
+        }
+
+        case 'verification_skipped': {
+          // Silent - don't show skipped files (non-TS files)
+          break
+        }
+
+        case 'verification_retry_started': {
+          const filePath = data.file_path || 'file'
+          const fileName = filePath.split('/').pop() || filePath
+          const attempt = data.attempt_number || 1
+          const maxAttempts = data.max_attempts || 3
+          appendProgressUpdate(
+            `Retrying ${fileName} (attempt ${attempt}/${maxAttempts})...`,
+            'step',
+            { dedupeWindowMs: 500 }
+          )
+          break
+        }
+
         case 'preview_ready': {
           onVersionCreated(data.versionId || data.version_id, data.versionNumber || data.version_number)
           appendProgressUpdate(
