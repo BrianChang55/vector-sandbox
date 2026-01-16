@@ -47,24 +47,34 @@ Serializers handle validation and data transformation.
 
 Services contain all business logic - views and models are logic-free.
 
-**Core Services:**
-- `agentic_service.py` - AI code generation orchestrator
-- `validation_service.py` - Schema, code, spec validation
+**Questioning & Decision Services (New):**
+- `main_agent_service.py` - Central orchestrator for questioning flow decisions
+- `questioning_service.py` - Pure distillation layer for fact extraction (no inference)
+
+**Core Orchestration:**
+- `agentic_service.py` - AI code generation orchestrator (legacy backbone)
+- `intent_router.py` - Routes classified intents to specialized handlers
+- `intent_classifier.py` - Classifies user requests into intent categories
+- `planning_service.py` - Generates execution plans with dependency resolution
+- `context_analyzer.py` - Deep analysis of existing app state
+
+**Validation & Error Handling:**
+- `validation_service.py` - TypeScript compilation validation, error filtering
+- `error_fix_service.py` - Automatic error fixing via LLM (max 2 attempts)
 - `diff.py` - Diff generation and application
-- `error_fix_service.py` - Automatic error fixing via LLM
-- `intent_router.py` - Intent classification routing
-- `planning_service.py` - Generation planning
+- `diff_application_service.py` - Applies diffs from LLM output
 
 **Code Generation:**
 - `enhanced_codegen.py` - Advanced code generation
 - `react_codegen.py` - React component generation
-- `typescript_types_generator.py` - Type inference
+- `typescript_types_generator.py` - Auto-generates TS types from table schemas
 
 **Data & Integration:**
 - `cloud_storage_service.py` - File storage
 - `merge_service.py` - Merge Agent Handler API
 - `snapshot_service.py` - State snapshots
 - `version_service.py` - Version operations
+- `app_data_service.py` - Table/schema management and queries
 
 ### Layer 4: Data Models (`vector_app/models.py`)
 
@@ -78,8 +88,31 @@ All models inherit from `BaseModel` providing `id`, `created_at`, `updated_at`.
 - **Data Store**: `AppDataTable`, `AppDataRow`, `AppDataQuery`
 - **Audit**: `VersionAuditLog`, `VersionStateSnapshot`, `AIUsageLog`
 - **Integration**: `BackendConnection`, `MergeIntegrationProvider`, `ConnectorCache`
+- **Questioning**: `QuestioningSession` (in `chat/models.py`) - Tracks questioning phase state
 
 ## Data Flow Patterns
+
+### Questioning Flow (New)
+
+```
+User sends initial request
+  → MainAgentService.process_user_message() orchestrates
+  → Checks for skip request ("pass", "skip", "go ahead")
+  → If continuing: _should_continue_questioning() uses LLM to decide
+  → If more questions needed: QuestioningService.generate_question()
+  → Returns AgentDecision with question or extraction
+
+When questioning ends (skip or complete):
+  → _cross_extraction_boundary() called ONCE
+  → QuestioningService.extract_facts() extracts ONLY explicit statements
+  → ExtractionResult created (chat_history_destroyed=True)
+  → Downstream stages receive ONLY extracted facts
+```
+
+**Key Architectural Principles:**
+- **Distillation vs Decision**: QuestioningService only extracts facts (no inference), MainAgentService makes all control-flow decisions
+- **Extraction Boundary**: Facts extracted exactly once; high-entropy context (chat history) destroyed after extraction
+- **No Inference Guarantee**: QuestioningService extracts ONLY what user explicitly stated
 
 ### Code Generation Request (AI-Powered)
 
@@ -88,6 +121,8 @@ Frontend sends message to /api/v1/streaming/generation/stream
   → Backend creates CodeGenerationJob
   → Celery task run_agentic_generation spawned
   → AgenticService.generate_app() processes request
+  → Intent classification → routing to specialized handler
+  → Handler executes: Plan → Execute → Validate → Fix
   → LLM calls via LLMClient (OpenRouter)
   → Events appended to job.events_json
   → SSE endpoint streams events to frontend
@@ -142,13 +177,59 @@ Domain-specific handlers in `services/handlers/`:
 - `FeatureHandler` - Feature addition
 - `SchemaHandler` - Schema operations
 
-### Service Locator Pattern
+### Service Locator Pattern (Singleton)
 
 Factory functions for dependency injection:
-- `get_agentic_service()`
-- `get_llm_client()`
-- `get_react_codegen_service()`
-- `get_execution_scope_classifier()`
+- `get_main_agent_service()` - Questioning orchestrator
+- `get_questioning_service()` - Fact extraction
+- `get_agentic_service()` - Code generation orchestrator
+- `get_intent_classifier()` - Intent classification
+- `get_intent_router()` - Intent routing
+- `get_planning_service()` - Plan generation
+- `get_context_analyzer()` - App state analysis
+- `get_validation_service()` - Code validation
+- `get_error_fix_service()` - Error auto-fixing
+- `get_llm_client()` - LLM communication
+
+### Questioning Architecture
+
+**State Machine:**
+```python
+class AgentState(StrEnum):
+    IDLE = "idle"
+    QUESTIONING = "questioning"
+    EXTRACTED = "extracted"
+    READY = "ready"
+```
+
+**Key Data Structures:**
+```python
+@dataclass
+class ExtractionResult:
+    facts: Dict[str, Any]
+    reasoning: str
+    question_count: int
+    chat_history_destroyed: bool = True  # Marks context destroyed
+    initial_request_destroyed: bool = True
+
+@dataclass
+class AgentDecision:
+    action: str  # "ask_question" | "skip" | "proceed"
+    next_state: AgentState
+    question: Optional[str] = None
+    extraction: Optional[ExtractionResult] = None
+    reasoning: str = ""
+```
+
+**QuestioningSession Model:**
+```python
+class QuestioningSession(DjangoBaseModel):
+    chat_session: OneToOneField → ChatSession
+    status: CharField (IN_PROGRESS | COMPLETE | SKIPPED)
+    synthesized_requirements: JSONField
+    question_count: IntegerField
+    initial_request: TextField
+```
 
 ## Entry Points
 
