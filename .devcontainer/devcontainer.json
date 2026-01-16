@@ -17,8 +17,8 @@
     "8001": { "label": "Backend (Django)", "onAutoForward": "notify" },
     "5555": { "label": "Flower (Celery Monitor)", "onAutoForward": "silent" }
   },
-  "postCreateCommand": "curl https://mise.run | sh && echo 'eval \"$(~/.local/bin/mise activate bash)\"' >> ~/.bashrc && export PATH=\"$HOME/.local/bin:$PATH\" && mise trust && mise install && mise run setup && npm install -g @anthropic-ai/claude-code",
-  "postStartCommand": "export PATH=\"$HOME/.local/bin:$PATH\" && mise run docker",
+  "postCreateCommand": "curl https://mise.run | sh && echo 'eval \"$(~/.local/bin/mise activate bash)\"' >> ~/.bashrc && export PATH=\"$HOME/.local/bin:$PATH\" && mise trust && mise install && mise run setup && curl -fsSL https://claude.ai/install.sh | bash",
+  "postStartCommand": "export PATH=\"$HOME/.local/bin:$PATH\"",
   "customizations": {
     "vscode": {
       "extensions": [
