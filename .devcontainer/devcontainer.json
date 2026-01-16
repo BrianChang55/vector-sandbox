@@ -2,7 +2,7 @@
   "name": "Vector",
   "dockerComposeFile": ["../docker-compose.yml", "docker-compose.devcontainer.yml"],
   "service": "app",
-  "workspaceFolder": "/workspace",
+  "workspaceFolder": "/workspace/vector",
   "features": {
     "ghcr.io/devcontainers/features/node:1": {
       "version": "24"
