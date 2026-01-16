@@ -1,198 +1,90 @@
-# Internal Apps Backend
+# Vector Backend
 
-Django + Celery backend for the Internal Apps platform.
-
-## Prerequisites
-
-Before getting started, you'll need to obtain the `.env` secrets file. **Ask someone on the team** for the `.env` file or the required environment variables.
+Django + Celery backend for the Vector platform.
 
 ## Quick Start
 
-### One-Command Setup
-
-Run the setup script to configure everything automatically:
+From the **repository root** (not this directory):
 
 ```bash
-bash scripts/setup_localdev.sh
+# Install dependencies
+mise run setup
+
+# Start all services (docker, frontend, backend, celery, flower)
+mise run dev
 ```
 
-This will:
-- ✅ Check/install prerequisites (Python 3, Node.js, Redis)
-- ✅ Create the workspace directory structure
-- ✅ Set up Python virtual environment
-- ✅ Install all dependencies (backend + frontend)
-- ✅ Run database migrations
-- ✅ Create a `.env` template for your API keys
+## Prerequisites
 
-### After Setup
+- [mise](https://mise.run) - Runtime manager
+- Docker - For Redis and PostgreSQL
 
-1. **Configure your API keys** (if not already done):
-   ```bash
-   # Edit the .env file and add your keys
-   nano .env
-   ```
+## Environment Setup
 
-   Required keys:
-   - `OPENROUTER_API_KEY` - For AI features
-   - `MERGE_TOOL_PACK_ID` and `MERGE_ACCESS_KEY` - For connectors
+```bash
+# Copy env files
+cp .env.example .env                           # Root: Docker port config
+cp apps/backend/.env.example apps/backend/.env  # Backend config
+```
 
-2. **Start development**:
-   ```bash
-   cd ..  # Go to workspace root (internal-apps/)
-   ./dev.sh --start
-   ```
-
-That's it! The app will:
-- Start all services (Django, Celery, React frontend)
-- Auto-create a dev user and open Chrome logged in
-- Auto-reload on file changes
-
----
+Required variables in `apps/backend/.env`:
+- `OPENROUTER_API_KEY` - For AI features
+- `ENCRYPTION_KEY` - For data encryption
 
 ## Development Commands
 
-From the workspace root (`internal-apps/`):
+From the repository root:
 
-```bash
-./dev.sh --start    # Start all services + auto-login
-./dev.sh --stop     # Stop all services
-./dev.sh --restart  # Restart all services
-./dev.sh --logs     # View live logs (streaming)
-./dev.sh --help     # Show help
-```
-
-### Viewing Logs
-
-```bash
-./dev.sh --logs              # All logs (live streaming)
-tail -f logs/django.log      # Django only
-tail -f logs/celery.log      # Celery only
-tail -f logs/frontend.log    # Frontend only
-```
-
-> **Note:** Opening log files in your editor won't auto-refresh. Use `./dev.sh --logs` or `tail -f` in a terminal for live updates.
-
----
-
-## Workspace Structure
-
-After setup, your workspace should look like:
-
-```
-internal-apps/                 # Workspace root
-├── dev.sh                     # Start everything with one command
-├── logs/                      # Log files
-├── internal-apps-backend/     # This repo (Django + Celery)
-│   ├── .env                   # Your API keys (not committed)
-│   ├── venv/                  # Python virtual environment
-│   └── ...
-└── internal-apps-web-app/     # Frontend repo (React)
-    └── ...
-```
-
----
-
-## Manual Setup (Alternative)
-
-If you prefer to set things up manually:
-
-### Prerequisites
-
-- Python 3.10+
-- Node.js 18+
-- Redis
-
-### Steps
-
-```bash
-# 1. Create workspace
-mkdir internal-apps && cd internal-apps
-
-# 2. Clone repos
-git clone <backend-repo-url> internal-apps-backend
-git clone <frontend-repo-url> internal-apps-web-app
-
-# 3. Backend setup
-cd internal-apps-backend
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# 4. Create .env with your API keys
-cp .env.example .env  # or create manually
-
-# 5. Run migrations
-python manage.py migrate
-
-# 6. Frontend setup
-cd ../internal-apps-web-app
-npm install
-
-# 7. Copy dev.sh to workspace root
-cd ..
-cp internal-apps-backend/scripts/dev.sh .
-chmod +x dev.sh
-
-# 8. Start Redis
-brew services start redis  # macOS
-# or: sudo systemctl start redis  # Linux
-
-# 9. Start everything
-./dev.sh --start
-```
-
----
+| Command | Description |
+|---------|-------------|
+| `mise run dev` | Start all services |
+| `mise run be` | Backend only (port 8001) |
+| `mise run celery` | Celery worker |
+| `mise run flower` | Celery monitor (port 5555) |
+| `mise run docker` | Start Docker services |
+| `mise run migrate` | Run migrations |
+| `mise run test` | Run tests |
+| `mise run shell` | Django shell_plus |
 
 ## Running Services Individually
 
-If you need to run services separately:
-
-### Django
-
 ```bash
-cd internal-apps-backend
-source venv/bin/activate
-python manage.py runserver 8001
+cd apps/backend
+
+# Django
+uv run python manage.py runserver 8001
+
+# Celery
+uv run celery -A internal_apps worker --loglevel=info
+
+# Flower
+uv run celery -A internal_apps flower --port=5555
 ```
 
-### Celery
+## Flower (Celery Monitor)
 
-```bash
-cd internal-apps-backend
-source venv/bin/activate
-celery -A internal_apps worker --loglevel=info
+[Flower](https://flower.readthedocs.io/) provides real-time visibility into Celery tasks.
+
+Open http://localhost:5555 after starting with `mise run flower`.
+
+**Features:**
+- Dashboard: Overview of workers, tasks, and queues
+- Tasks: View running, completed, and failed tasks
+- Workers: Monitor worker status and resource usage
+- Real-time updates and persistent history
+
+Task results are stored in the Django database via `django-celery-results`.
+
+## Project Structure
+
 ```
-
-### Flower (Celery Monitor)
-
-[Flower](https://flower.readthedocs.io/) is a web-based monitoring tool for Celery. It provides real-time visibility into task execution, worker status, and queue statistics.
-
-```bash
-cd internal-apps-backend
-source venv/bin/activate
-celery -A internal_apps flower --port=5555
-```
-
-Or using mise from the workspace root:
-```bash
-mise run flower
-```
-
-Then open http://localhost:5555 in your browser.
-
-**Flower Features:**
-- **Dashboard**: Overview of workers, tasks, and queues
-- **Tasks**: View running, completed, and failed tasks with full details
-- **Workers**: Monitor worker status, pool size, and resource usage
-- **Broker**: View queue lengths and message rates
-- **Real-time Updates**: Auto-refreshing task and worker status
-- **Persistent History**: Task results stored in database (survives Redis restarts)
-
-**Note:** Task results are stored in the Django database via `django-celery-results`, which means task history persists across Redis and worker restarts. Results are kept for 7 days by default.
-
-### Frontend
-
-```bash
-cd internal-apps-web-app
-npm run dev
+apps/backend/
+├── accounts/        # User & organization models
+├── apps/            # InternalApp, AppVersion models
+├── audit/           # Version audit logging
+├── chat/            # Chat sessions & code generation
+├── data_store/      # App data tables
+├── integrations/    # External service connectors
+├── internal_apps/   # Django project settings
+└── vector_app/      # Core app logic & services
 ```

@@ -1,69 +1,43 @@
-# Internal Apps Web App
+# Vector Web App
 
-React frontend for the Internal Apps platform.
+React frontend for the Vector platform.
 
 ## Quick Start
 
-> **Note:** This frontend requires the backend to be running. For the full development setup, see the **[Backend README](../internal-apps-backend/README.md)**.
-
-### Full Stack Setup (Recommended)
-
-If you haven't set up the project yet, go to the backend repo and run:
+From the **repository root** (not this directory):
 
 ```bash
-cd ../internal-apps-backend
-./scripts/setup_localdev.sh
+# Install dependencies
+mise run setup
+
+# Start all services (docker, frontend, backend, celery, flower)
+mise run dev
 ```
 
-This sets up both frontend and backend automatically.
+The app will be available at http://localhost:5176
 
-### Starting Development
+## Prerequisites
 
-From the workspace root (`internal-apps/`):
-
-```bash
-./dev.sh --start
-```
-
-This starts Django, Celery, and the React frontend with:
-- Hot module replacement (HMR) for instant updates
-- Auto-login with a dev user
-- Chrome opens automatically
-
----
+- [mise](https://mise.run) - Runtime manager
 
 ## Development Commands
 
-From the workspace root:
+From the repository root:
 
-```bash
-./dev.sh --start    # Start all services + auto-login
-./dev.sh --stop     # Stop all services
-./dev.sh --restart  # Restart all services
-./dev.sh --logs     # View live logs
-```
-
-### Viewing Frontend Logs
-
-```bash
-./dev.sh --logs                # All logs
-tail -f ../logs/frontend.log   # Frontend only
-```
-
----
+| Command | Description |
+|---------|-------------|
+| `mise run dev` | Start all services |
+| `mise run fe` | Frontend only (port 5176) |
 
 ## Running Frontend Only
 
-If you just need to run the frontend (backend already running elsewhere):
+If you need to run just the frontend (backend already running):
 
 ```bash
+cd apps/web
 npm install
 npm run dev
 ```
-
-The app will be available at `http://localhost:5176`.
-
----
 
 ## Git Hooks
 
@@ -78,21 +52,16 @@ This repository includes Git hooks to enforce code quality.
 
 ### Installing Hooks
 
-**Option 1: Configure Git hooks path (recommended)**
-
 ```bash
 git config core.hooksPath hooks
 ```
 
-**Option 2: Copy hooks manually**
+Or manually:
 
 ```bash
 cp hooks/pre-push .git/hooks/pre-push
-cp hooks/pre-commit .git/hooks/pre-commit
-chmod +x .git/hooks/pre-push .git/hooks/pre-commit
+chmod +x .git/hooks/pre-push
 ```
-
----
 
 ## Project Structure
 
