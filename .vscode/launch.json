@@ -120,6 +120,16 @@
         "Backend: Flower Monitor"
       ],
       "stopAll": true
+    },
+    {
+      "name": "Full Stack: Devcontainer",
+      "configurations": [
+        "Frontend: Vite Dev Server",
+        "Backend: Django Server",
+        "Backend: Celery Worker",
+        "Backend: Flower Monitor"
+      ],
+      "stopAll": true
     }
   ]
 }
