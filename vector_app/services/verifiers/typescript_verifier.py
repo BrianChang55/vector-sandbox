@@ -17,7 +17,7 @@ from vector_app.services.types import (
     VerifierConfig,
     CompilationError,
 )
-from vector_app.types import VerificationStatus
+from chat.types import VerificationStatus
 from vector_app.services.validation_service import get_validation_service
 from vector_app.services.verifiers.base_verifier import BaseVerifier
 

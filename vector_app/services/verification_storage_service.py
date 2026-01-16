@@ -7,11 +7,8 @@ Persists verification results to the database for audit trail and analysis.
 import logging
 from typing import Dict, List, Optional
 
-from vector_app.models import (
-    CodeGenerationJob,
-    FileVerificationRecord,
-    VerificationAttemptRecord,
-)
+from chat.models import FileVerificationRecord, VerificationAttemptRecord
+from vector_app.models import CodeGenerationJob
 from vector_app.services.types import FileVerificationResult
 
 logger = logging.getLogger(__name__)

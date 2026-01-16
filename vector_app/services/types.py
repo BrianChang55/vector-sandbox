@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from vector_app.types import VerificationStatus
+from chat.types import VerificationStatus
 
 
 @dataclass

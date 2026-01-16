@@ -22,7 +22,7 @@ from vector_app.services.types import (
     FileVerificationResult,
     VerificationAttempt,
 )
-from vector_app.types import VerificationStatus
+from chat.types import VerificationStatus
 from vector_app.services.handlers.base_handler import BaseHandler
 from vector_app.services.verifiers import get_verifier_registry
 from vector_app.services.verification_storage_service import (
@@ -274,7 +274,7 @@ class TestVerificationStorageService:
     def test_save_verification_result(self):
         """save_verification_result should create database records."""
         # Note: Requires django_db marker when run with pytest
-        from vector_app.models import FileVerificationRecord
+        from chat.models import FileVerificationRecord
 
         service = VerificationStorageService()
         result = FileVerificationResult(
@@ -308,7 +308,7 @@ class TestVerificationStorageService:
     def test_save_verification_result_with_multiple_attempts(self):
         """save_verification_result should save all attempts."""
         # Note: Requires django_db marker when run with pytest
-        from vector_app.models import FileVerificationRecord
+        from chat.models import FileVerificationRecord
 
         service = VerificationStorageService()
         result = FileVerificationResult(

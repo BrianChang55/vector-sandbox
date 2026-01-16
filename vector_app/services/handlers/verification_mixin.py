@@ -15,7 +15,7 @@ from vector_app.services.types import (
     VerificationAttempt,
 )
 from vector_app.services.verifiers import get_verifier_registry
-from vector_app.types import VerificationStatus
+from chat.types import VerificationStatus
 
 logger = logging.getLogger(__name__)
 
