@@ -10,7 +10,7 @@ from internal_apps.utils.base_model import DjangoBaseModel
 from internal_apps.utils.enum import choices
 import uuid
 
-from chat.types import ChatMessageRole, ChatMessageStatus, CodeGenerationJobStatus, QuestioningStatus, QuestioningJobStatus
+from chat.types import ChatMessageRole, ChatMessageStatus, ChatMessageContext, CodeGenerationJobStatus, QuestioningStatus, QuestioningJobStatus
 
 
 
@@ -51,6 +51,12 @@ class ChatMessage(DjangoBaseModel):
         max_length=20,
         choices=choices(ChatMessageStatus),
         default=ChatMessageStatus.COMPLETE,
+    )
+    context = models.CharField(
+        max_length=20,
+        choices=choices(ChatMessageContext),
+        default=ChatMessageContext.BUILD,
+        help_text="Which phase/tab this message belongs to (requirements or build)",
     )
 
     # Metadata

@@ -12,6 +12,7 @@ from django.utils import timezone
 
 from chat.models import ChatMessage, ChatSession, QuestioningJob
 from chat.types import (
+    ChatMessageContext,
     ChatMessageRole,
     ChatMessageStatus,
     CodeGenerationJobStatus,
@@ -383,12 +384,13 @@ def run_questioning_phase(self, job_id: str):
     chat_session = questioning_session.chat_session
 
     try:
-        # Save the user's message to the chat session
+        # Save the user's message to the chat session (tagged as requirements context)
         ChatMessage.objects.create(
             session=chat_session,
             role=ChatMessageRole.USER,
             content=user_message,
             status=ChatMessageStatus.COMPLETE,
+            context=ChatMessageContext.REQUIREMENTS,
         )
 
         # Build chat history for decision-making
@@ -412,12 +414,13 @@ def run_questioning_phase(self, job_id: str):
             if not decision.question:
                 raise ValueError("Agent returned ask_question without a question")
 
-            # Store the question as an assistant message
+            # Store the question as an assistant message (tagged as requirements context)
             ChatMessage.objects.create(
                 session=chat_session,
                 role=ChatMessageRole.ASSISTANT,
                 content=decision.question,
                 status=ChatMessageStatus.COMPLETE,
+                context=ChatMessageContext.REQUIREMENTS,
             )
 
             # Increment question count

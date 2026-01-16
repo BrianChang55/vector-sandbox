@@ -165,7 +165,11 @@ class ChatSessionViewSet(APIView):
 
 
 class ChatMessagesView(APIView):
-    """Get messages for a chat session."""
+    """Get messages for a chat session.
+    
+    Query params:
+    - context: Filter by message context ('requirements' or 'build'). If omitted, returns all messages.
+    """
     permission_classes = [IsAuthenticated]
     
     def get(self, request, session_id):
@@ -185,6 +189,11 @@ class ChatMessagesView(APIView):
             
             messages = session.messages.order_by('created_at')
             
+            # Optional context filter
+            context_filter = request.query_params.get('context')
+            if context_filter in ('requirements', 'build'):
+                messages = messages.filter(context=context_filter)
+            
             return Response({
                 "messages": [
                     {
@@ -192,6 +201,7 @@ class ChatMessagesView(APIView):
                         "role": m.role,
                         "content": m.content,
                         "status": m.status,
+                        "context": m.context,
                         "model_id": m.model_id,
                         "created_at": m.created_at.isoformat(),
                         "duration_ms": m.duration_ms,
@@ -2205,9 +2215,10 @@ class QuestioningStateView(View):
                 "question_count": 0,
             })
         
-        # Get the chat messages for this session
+        # Get the chat messages for this session (only requirements context)
         messages = ChatMessage.objects.filter(
             session=questioning_session.chat_session,
+            context="requirements",
         ).order_by("created_at").values("id", "role", "content", "created_at")
         
         # Convert to list and format timestamps

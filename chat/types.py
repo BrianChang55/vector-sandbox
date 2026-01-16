@@ -38,3 +38,9 @@ class QuestioningJobStatus(StrEnum):
    COMPLETE = "complete"
    SKIPPED = "skipped"
    FAILED = "failed"
+
+
+class ChatMessageContext(StrEnum):
+    """Context in which a chat message was created (requirements vs build phase)."""
+    REQUIREMENTS = "requirements"
+    BUILD = "build"
