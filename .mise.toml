@@ -22,12 +22,12 @@ run = "uv run python manage.py runserver 8001"
 [tasks.celery]
 description = "Start Celery worker"
 dir = "{{config_root}}/apps/backend"
-run = "uv run celery -A internal_apps worker --loglevel=info --broker=$CELERY_BROKER_URL"
+run = "uv run celery -A internal_apps worker --loglevel=info"
 
 [tasks.flower]
 description = "Start Flower Celery monitor (http://localhost:5555)"
 dir = "{{config_root}}/apps/backend"
-run = "uv run celery -A internal_apps flower --port=5555 --broker=$CELERY_BROKER_URL"
+run = "uv run celery -A internal_apps flower --port=5555"
 
 [tasks.docker]
 description = "Start Docker services (Redis, PostgreSQL)"
