@@ -73,5 +73,5 @@ dir = "{{config_root}}/apps/backend"
 run = "uv sync"
 
 [tasks.dev]
-description = "Start all development services (frontend, backend, celery)"
-depends = ["fe", "be", "celery"]
+description = "Start all development services (docker, frontend, backend, celery, flower)"
+depends = ["docker", "fe", "be", "celery", "flower"]
