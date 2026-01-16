@@ -86,7 +86,7 @@ export function DataPanel({ appId, className = '' }: DataPanelProps) {
               <p className="text-xs text-gray-500 text-center mb-4">
                 Create your first data table
               </p>
-              <Button size="sm" onClick={() => setCreateDialogOpen(true)}>
+              <Button variant="outline" size="sm" onClick={() => setCreateDialogOpen(true)}>
                 <Plus className="h-3.5 w-3.5 mr-1.5" />
                 New Table
               </Button>

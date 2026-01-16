@@ -5,9 +5,15 @@
  * Slides in from the left side.
  */
 import { useState } from 'react'
-import { Plus, Trash2, AlertCircle } from 'lucide-react'
+import { Plus, Trash2, AlertCircle, ChevronDown, Check } from 'lucide-react'
 import { useCreateTable } from '@/hooks/useDataStore'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   Drawer,
   DrawerBody,
@@ -67,9 +73,6 @@ const inputClasses =
 
 const inputSmClasses = 
   'w-full h-8 px-2.5 rounded text-sm border border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 focus:border-gray-400 focus:outline-none disabled:bg-gray-50 disabled:text-gray-500 transition-colors'
-
-const selectClasses = 
-  'w-full h-8 px-2 rounded text-sm border border-gray-200 bg-white text-gray-900 focus:border-gray-400 focus:outline-none transition-colors'
 
 export function CreateTableDrawer({
   open,
@@ -304,17 +307,31 @@ export function CreateTableDrawer({
                             placeholder="Column name"
                             className={inputSmClasses}
                           />
-                          <select
-                            value={col.type}
-                            onChange={(e) => updateColumn(col.id, { type: e.target.value as ColumnType })}
-                            className={selectClasses}
-                          >
-                            {COLUMN_TYPES.map((t) => (
-                              <option key={t.value} value={t.value}>
-                                {t.label}
-                              </option>
-                            ))}
-                          </select>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button
+                                type="button"
+                                className="w-full h-8 px-2.5 rounded text-sm border border-gray-200 bg-white text-gray-900 hover:border-gray-300 focus:border-gray-400 focus:outline-none transition-colors flex items-center justify-between"
+                              >
+                                <span>{COLUMN_TYPES.find(t => t.value === col.type)?.label || col.type}</span>
+                                <ChevronDown className="h-4 w-4 text-gray-400" />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="start" sideOffset={4} className="min-w-[140px]">
+                              {COLUMN_TYPES.map((t) => (
+                                <DropdownMenuItem
+                                  key={t.value}
+                                  onSelect={() => updateColumn(col.id, { type: t.value })}
+                                  className="flex items-center justify-between gap-2"
+                                >
+                                  <span>{t.label}</span>
+                                  {col.type === t.value && (
+                                    <Check className="h-4 w-4 text-gray-900" />
+                                  )}
+                                </DropdownMenuItem>
+                              ))}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
 
                         {/* Row 2: Options */}

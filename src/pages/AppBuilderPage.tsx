@@ -437,21 +437,14 @@ export function AppBuilderPage() {
               ) : (
                 <h1 className="text-sm font-semibold text-gray-900">{app.name}</h1>
               )}
-              <div className="flex items-center gap-2">
-                <span className={cn(
-                  'text-[10px] px-1.5 py-0.5 rounded-full font-medium',
-                  app.status === 'published' 
-                    ? 'bg-green-50 text-green-700 border border-green-200'
-                    : 'bg-gray-100 text-gray-600'
-                )}>
-                  {app.status}
-                </span>
-                {selectedVersion && (
-                  <span className="text-[10px] text-gray-600">
-                    v{selectedVersion.version_number}
-                  </span>
-                )}
-              </div>
+              <span className={cn(
+                'text-[10px] px-1.5 py-0.5 rounded-full font-medium',
+                app.status === 'published' 
+                  ? 'bg-green-50 text-green-700 border border-green-200'
+                  : 'bg-gray-100 text-gray-600'
+              )}>
+                {app.status}
+              </span>
             </div>
           </div>
         </div>

@@ -73,6 +73,10 @@ export interface AgentState {
   error: string | null
   startedAt: string | null
   completedAt: string | null
+  // Questioning phase state
+  isQuestioning: boolean
+  currentQuestionNumber: number
+  questioningSessionId: string | null
 }
 
 // SSE Event types from backend
@@ -100,6 +104,11 @@ export type AgentEventType =
   | 'agent_error'
   | 'done'
   | 'connected'
+  // Questioning phase events
+  | 'questioning_started'
+  | 'question_asked'
+  | 'questioning_skipped'
+  | 'questioning_complete'
   // Error fix events
   | 'fix_started'
   | 'fix_progress'
@@ -144,6 +153,11 @@ export type AgentEventData =
   | AgentCompleteData
   | AgentErrorData
   | DoneData
+  // Questioning event data types
+  | QuestioningStartedData
+  | QuestionAskedData
+  | QuestioningSkippedData
+  | QuestioningCompleteData
   // Fix event data types
   | FixStartedData
   | FixProgressData
@@ -163,6 +177,27 @@ export interface DoneData {
   duration?: number
   validated?: boolean
   fix_attempts?: number
+}
+
+// Questioning phase event data interfaces
+export interface QuestioningStartedData {
+  session_id: string
+  initial_request: string
+}
+
+export interface QuestionAskedData {
+  question: string
+  question_number: number
+}
+
+export interface QuestioningSkippedData {
+  job_id: string
+}
+
+export interface QuestioningCompleteData {
+  facts: Record<string, unknown>
+  question_count: number
+  was_skipped: boolean
 }
 
 export interface AgentStartData {
@@ -391,6 +426,10 @@ export const initialAgentState: AgentState = {
   error: null,
   startedAt: null,
   completedAt: null,
+  // Questioning phase defaults
+  isQuestioning: false,
+  currentQuestionNumber: 0,
+  questioningSessionId: null,
 }
 
 // Helper to create a new plan step

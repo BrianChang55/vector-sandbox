@@ -37,6 +37,7 @@ import {
   cancelJob,
   startFixErrors,
 } from '../../services/agentService'
+import { questioningApi } from '../../services/apiService'
 import type { BundlerError } from '../../hooks/useSandpackValidation'
 import type { AgentEvent, PlanStep, FileChange, AgentState } from '../../types/agent'
 import { initialAgentState } from '../../types/agent'
@@ -578,7 +579,15 @@ export function AgenticChatPanel({
   const [fixAttempt, setFixAttempt] = useState(0)
   const fixControllerRef = useRef<AbortController | null>(null)
   const lastFixedErrorSignatureRef = useRef<string>('')
-  
+
+  // Questioning phase state
+  const [isQuestioning, setIsQuestioning] = useState(false)
+  // Track when we're waiting for the question service to respond (after sending an answer)
+  const [isWaitingForQuestion, setIsWaitingForQuestion] = useState(false)
+  // Track how questioning ended and after which message to show the status
+  const [questioningEndStatus, setQuestioningEndStatus] = useState<'complete' | 'skipped' | null>(null)
+  const [questioningEndAfterMessageId, setQuestioningEndAfterMessageId] = useState<string | null>(null)
+
   // Notify parent component of generating version changes
   useEffect(() => {
     onGeneratingVersionChange?.(generatingVersionId)
@@ -719,11 +728,20 @@ export function AgenticChatPanel({
       const timestamp = new Date().toISOString()
       setMessages((prev) => {
         if (!prev.length) return prev
-        const lastIdx = prev.length - 1
-        const lastMsg = prev[lastIdx]
-        if (lastMsg?.role !== 'assistant') return prev
         
-        const existing = lastMsg.progressUpdates || []
+        // Find the last assistant message that's NOT a question message
+        let targetIdx = -1
+        for (let i = prev.length - 1; i >= 0; i--) {
+          const msg = prev[i]
+          if (msg.role === 'assistant' && !msg.id.startsWith('question-')) {
+            targetIdx = i
+            break
+          }
+        }
+        if (targetIdx < 0) return prev
+        
+        const targetMsg = prev[targetIdx]
+        const existing = targetMsg.progressUpdates || []
 
         const dedupeWindow = opts?.dedupeWindowMs ?? 4000
         const last = existing[existing.length - 1]
@@ -747,8 +765,9 @@ export function AgenticChatPanel({
         
         // Create new message object to trigger React re-render
         return [
-          ...prev.slice(0, lastIdx),
-          { ...lastMsg, progressUpdates: next },
+          ...prev.slice(0, targetIdx),
+          { ...targetMsg, progressUpdates: next },
+          ...prev.slice(targetIdx + 1),
         ]
       })
     },
@@ -795,12 +814,6 @@ export function AgenticChatPanel({
     loadExistingState()
   }, [appId, hasLoadedState, onFilesGenerated, onVersionCreated])
 
-  // Auto-select latest session for this app
-  useEffect(() => {
-    if (sessionId || !chatSessions || chatSessions.length === 0) return
-    onSessionChange(chatSessions[0].id)
-  }, [chatSessions, onSessionChange, sessionId])
-
   // Load persisted chat history for the active session
   useEffect(() => {
     if (!sessionId || !sessionMessages) return
@@ -823,36 +836,28 @@ export function AgenticChatPanel({
     setHydratedSessionId(sessionId)
   }, [hydratedSessionId, mapApiMessageToLocal, messages, sessionId, sessionMessages, isHiddenPromptContent])
 
-  // Auto-create a session if none exists for this app
+  // Single effect: select existing session OR create one if none exist
   useEffect(() => {
-    // Wait for the initial session fetch before deciding to create one
-    if (!chatSessions) return
+    // Wait for sessions to load
+    if (chatSessions === undefined) return
+    // Already have a valid session
+    if (sessionId && chatSessions.some(s => s.id === sessionId)) return
+    // Already creating
+    if (creatingSession) return
 
-    // Always pick the latest session; if none, create one.
-    if (chatSessions && chatSessions.length > 0) {
-      const latest = chatSessions[0]
-      if (!sessionId || !chatSessions.some(s => s.id === sessionId)) {
-        onSessionChange(latest.id)
-      }
+    // If sessions exist, use the latest
+    if (chatSessions.length > 0) {
+      onSessionChange(chatSessions[0].id)
       return
     }
-    if (sessionId || creatingSession) return
+
+    // No sessions exist - create one
     let cancelled = false
-    const ensureSession = async () => {
-      try {
-        const session = await createChatSession({ appId })
-        if (!cancelled) {
-          onSessionChange(session.id)
-        }
-      } catch (error) {
-        console.error('Failed to auto-create chat session', error)
-      }
-    }
-    ensureSession()
-    return () => {
-      cancelled = true
-    }
-  }, [appId, chatSessions, createChatSession, creatingSession, onSessionChange, sessionId])
+    createChatSession({ appId }).then(session => {
+      if (!cancelled) onSessionChange(session.id)
+    }).catch(err => console.error('Failed to create chat session', err))
+    return () => { cancelled = true }
+  }, [appId, chatSessions, sessionId, creatingSession, createChatSession, onSessionChange])
 
   // Auto-scroll
   useEffect(() => {
@@ -1607,6 +1612,114 @@ export function AgenticChatPanel({
           setThinkingStartTime(null)
           break
 
+        // Questioning phase events
+        case 'questioning_started':
+          setIsQuestioning(true)
+          // Track job_id for responding to questions
+          if (data.job_id) {
+            setActiveJobId(data.job_id)
+          }
+          break
+
+        case 'question_asked':
+          // Add question as assistant message and track it for questioning end status
+          {
+            const questionId = `question-${data.question_number}`
+            setQuestioningEndAfterMessageId(questionId)
+            setIsWaitingForQuestion(false)
+            setMessages(prev => {
+              if (prev.some(m => m.id === questionId)) return prev
+              return [
+                ...prev,
+                {
+                  id: questionId,
+                  role: 'assistant',
+                  content: data.question,
+                  status: 'complete',
+                  createdAt: new Date().toISOString(),
+                } as LocalMessage,
+              ]
+            })
+          }
+          break
+
+        case 'questioning_skipped':
+          setIsQuestioning(false)
+          setIsWaitingForQuestion(false)
+          setQuestioningEndStatus('skipped')
+          // questioningEndAfterMessageId is already set from question_asked
+          // Remove the original empty streaming placeholder and add a new one at the end
+          // so that live activity appears after questions, not before them
+          setMessages(prev => {
+            // Filter out empty streaming assistant messages (the original placeholder)
+            const filtered = prev.filter(msg => {
+              // Keep non-assistant messages
+              if (msg.role !== 'assistant') return true
+              // Keep question messages
+              if (msg.id.startsWith('question-')) return true
+              // Keep messages with content or that are complete
+              if (msg.content || msg.status === 'complete') return true
+              // Keep messages with files, tasks, or meaningful progress
+              if (msg.files?.length || msg.tasks?.length || msg.progressUpdates?.length) return true
+              // Filter out empty streaming placeholders
+              return false
+            })
+            // Add new streaming assistant for generation phase
+            return [
+              ...filtered,
+              {
+                id: `gen-${Date.now()}`,
+                role: 'assistant' as const,
+                content: '',
+                status: 'streaming' as const,
+                isAgentic: true,
+                tasks: [],
+                files: [],
+                progressUpdates: [],
+                createdAt: new Date().toISOString(),
+              },
+            ]
+          })
+          break
+
+        case 'questioning_complete':
+          setIsQuestioning(false)
+          setIsWaitingForQuestion(false)
+          // Only set to 'complete' if not already set to 'skipped' (skip event comes first)
+          setQuestioningEndStatus(prev => prev === 'skipped' ? 'skipped' : 'complete')
+          // questioningEndAfterMessageId is already set from question_asked
+          // Add new streaming assistant for generation if we haven't already (skip case)
+          setMessages(prev => {
+            // Check if we already have a gen-* message (from questioning_skipped)
+            if (prev.some(msg => msg.id.startsWith('gen-'))) {
+              return prev
+            }
+            // Filter out empty streaming assistant messages (the original placeholder)
+            const filtered = prev.filter(msg => {
+              if (msg.role !== 'assistant') return true
+              if (msg.id.startsWith('question-')) return true
+              if (msg.content || msg.status === 'complete') return true
+              if (msg.files?.length || msg.tasks?.length || msg.progressUpdates?.length) return true
+              return false
+            })
+            // Add new streaming assistant for generation phase
+            return [
+              ...filtered,
+              {
+                id: `gen-${Date.now()}`,
+                role: 'assistant' as const,
+                content: '',
+                status: 'streaming' as const,
+                isAgentic: true,
+                tasks: [],
+                files: [],
+                progressUpdates: [],
+                createdAt: new Date().toISOString(),
+              },
+            ]
+          })
+          break
+
         case 'agent_error':
           setMessages((prev) => {
             const lastIdx = prev.length - 1
@@ -1654,11 +1767,16 @@ export function AgenticChatPanel({
         
         if (jobInfo?.has_active_job && jobInfo.job_id) {
           console.log('[AgenticChatPanel] Found active job, reconnecting:', jobInfo.job_id)
-          
+
           // Set loading state
           setIsLoading(true)
           setActiveJobId(jobInfo.job_id)
           setThinkingStartTime(Date.now())
+
+          // Check if job is in questioning phase
+          if (jobInfo.status === 'questioning') {
+            setIsQuestioning(true)
+          }
           
           if (jobInfo.version_id) {
             setGeneratingVersionId(jobInfo.version_id)
@@ -1739,12 +1857,58 @@ export function AgenticChatPanel({
     checkForActiveJob()
   }, [appId, hasCheckedForActiveJob, handleAgentEvent, onGeneratingVersionChange, messagesFetching, sessionMessages, mapApiMessageToLocal, sessionId])
 
+  // Handle skipping the questioning phase
+  const handleSkipQuestioning = useCallback(async () => {
+    if (!activeJobId) return
+
+    try {
+      await questioningApi.skip(activeJobId)
+      // The skip will trigger questioning_skipped event via SSE
+      // No need to update state here - SSE handler will do it
+    } catch (error) {
+      console.error('[AgenticChatPanel] Failed to skip questioning:', error)
+    }
+  }, [activeJobId])
+
   const handleSubmit = async (overrideMessage?: string) => {
     const messageToSend = overrideMessage ?? input.trim()
-    if (!messageToSend || isLoading) return
+    if (!messageToSend) return
 
     const message = messageToSend
     setInput('')
+
+    // During questioning phase, send response to questioning endpoint
+    if (isQuestioning && activeJobId) {
+      // Add user message to chat and update the questioning end message ID
+      const responseId = `response-${Date.now()}`
+      setQuestioningEndAfterMessageId(responseId)
+      setIsWaitingForQuestion(true)
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: responseId,
+          role: 'user',
+          content: message,
+          status: 'complete',
+          createdAt: new Date().toISOString(),
+        },
+      ])
+
+      try {
+        await questioningApi.respond(activeJobId, message)
+        // Response will come via SSE events (question_asked or questioning_complete)
+      } catch (error) {
+        console.error('[AgenticChatPanel] Failed to send response:', error)
+        // Restore input on error
+        setInput(message)
+        setIsWaitingForQuestion(false)
+      }
+      return
+    }
+
+    // Normal flow - start new generation
+    if (isLoading) return
+
     setIsLoading(true)
     setThinkingStartTime(Date.now())
 
@@ -1790,14 +1954,15 @@ export function AgenticChatPanel({
       sessionId: sessionId || undefined,
       model: selectedModel,
       onEvent: (event) => {
-        // Track job ID from version_draft event (job creates version)
         const data = event.data as Record<string, unknown>
+        // Track job ID from any event that includes it (e.g., questioning_started, version_draft)
+        const jobId = getJobId()
+        if (jobId) {
+          setActiveJobId(jobId)
+        }
+        // Track version_id for cancellation
         if (event.type === 'version_draft' && data.version_id) {
-          // The job ID is tracked internally, but we use version_id for cancellation
-          const jobId = getJobId()
-          if (jobId) {
-            setActiveJobId(jobId)
-          }
+          setGeneratingVersionId(data.version_id as string)
         }
         handleAgentEvent(event)
       },
@@ -2071,13 +2236,15 @@ export function AgenticChatPanel({
       model: selectedModel,
       isHiddenPrompt: true, // Flag to tell backend not to echo the prompt
       onEvent: (event) => {
-        // Track job ID from version_draft event (job creates version)
         const data = event.data as Record<string, unknown>
+        // Track job ID from any event that includes it (e.g., questioning_started, version_draft)
+        const jobId = getJobId()
+        if (jobId) {
+          setActiveJobId(jobId)
+        }
+        // Track version_id for cancellation
         if (event.type === 'version_draft' && data.version_id) {
-          const jobId = getJobId()
-          if (jobId) {
-            setActiveJobId(jobId)
-          }
+          setGeneratingVersionId(data.version_id as string)
         }
         
         // For hidden prompts, skip user_message events
@@ -2327,6 +2494,14 @@ export function AgenticChatPanel({
                     )}
                   </div>
                 )}
+
+                {/* Questioning end status - shown after the last question/answer */}
+                {questioningEndStatus && message.id === questioningEndAfterMessageId && (
+                  <div className="flex items-center gap-2 pt-3 text-sm text-gray-600">
+                    <CheckCircle className="h-4 w-4 text-green-600" />
+                    <span>{questioningEndStatus === 'skipped' ? 'Skipped questioning.' : 'Questioning complete.'}</span>
+                  </div>
+                )}
               </motion.div>
             )})}
           </AnimatePresence>
@@ -2345,9 +2520,9 @@ export function AgenticChatPanel({
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Describe what you want to build..."
+                placeholder={isWaitingForQuestion ? "Waiting for response..." : isQuestioning ? "Answer the question or skip to build..." : "Describe what you want to build..."}
                 rows={1}
-                disabled={isLoading}
+                disabled={(isLoading && !isQuestioning) || isWaitingForQuestion}
                 className="w-full bg-transparent border-none text-sm text-gray-900 placeholder-gray-500 resize-none
                            focus:outline-none focus:ring-0 disabled:opacity-60 whitespace-pre-wrap break-words"
                 style={{ minHeight: '48px', maxHeight: '140px', wordWrap: 'break-word', overflowWrap: 'break-word' }}
@@ -2367,12 +2542,28 @@ export function AgenticChatPanel({
                 size="sm"
                 placement="up"
               />
-              {/* Dev mode: show red stop button when loading, otherwise show send button */}
-              {import.meta.env.DEV && isLoading ? (
+
+              {/* Skip button - only visible during questioning phase */}
+              {isQuestioning && (
+                <button
+                  onClick={handleSkipQuestioning}
+                  disabled={isWaitingForQuestion}
+                  className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                    isWaitingForQuestion
+                      ? 'text-gray-400 border-gray-200 cursor-not-allowed opacity-50'
+                      : 'text-gray-600 hover:text-gray-900 border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  Skip to build
+                </button>
+              )}
+
+              {/* Dev mode: show stop button when loading, otherwise show send button */}
+              {import.meta.env.DEV && isLoading && !isQuestioning ? (
                 <button
                   onClick={handleCancel}
-                  className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-red-600 text-white
-                             hover:bg-red-700 transition-all shadow-sm"
+                  className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-gray-900 text-white
+                             hover:bg-gray-800 transition-all shadow-sm"
                   title="Cancel generation"
                 >
                   <Square className="h-3 w-3 fill-current" />
@@ -2380,12 +2571,15 @@ export function AgenticChatPanel({
               ) : (
                 <button
                   onClick={handleSendClick}
-                  disabled={!isLoading && !input.trim()}
-                  className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-gray-900 text-white
-                             hover:bg-gray-800 disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-sm"
-                  title={isLoading ? 'Stop generation' : 'Send message'}
+                  disabled={isWaitingForQuestion || (!isLoading && !isQuestioning && !input.trim())}
+                  className={`inline-flex items-center justify-center h-6 w-6 rounded-full text-white transition-all shadow-sm ${
+                    isWaitingForQuestion
+                      ? 'bg-gray-400 cursor-not-allowed'
+                      : 'bg-gray-900 hover:bg-gray-800 disabled:opacity-30 disabled:cursor-not-allowed'
+                  }`}
+                  title={isQuestioning ? 'Send response' : isLoading ? 'Stop generation' : 'Send message'}
                 >
-                  {isLoading ? (
+                  {(isLoading && !isQuestioning) || isWaitingForQuestion ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     <ArrowUp className="h-4 w-4" />
