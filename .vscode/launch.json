@@ -6,7 +6,7 @@
       "type": "node",
       "request": "launch",
       "runtimeExecutable": "mise",
-      "runtimeArgs": ["x", "--", "npm", "run", "dev", "--", "--port", "5176"],
+      "runtimeArgs": ["x", "--", "npm", "run", "dev", "--", "--port", "5176", "--host"],
       "cwd": "${workspaceFolder}/apps/web",
       "console": "integratedTerminal",
       "skipFiles": ["<node_internals>/**"]
@@ -27,7 +27,7 @@
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/apps/backend/manage.py",
-      "args": ["runserver", "8001", "--noreload"],
+      "args": ["runserver", "0.0.0.0:8001", "--noreload"],
       "django": true,
       "cwd": "${workspaceFolder}/apps/backend",
       "python": "${workspaceFolder}/apps/backend/.venv/bin/python",
