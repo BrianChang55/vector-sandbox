@@ -1,6 +1,9 @@
 {
   "name": "Vector",
-  "dockerComposeFile": ["../docker-compose.yml", "docker-compose.devcontainer.yml"],
+  "dockerComposeFile": [
+    "../docker-compose.yml",
+    "docker-compose.devcontainer.yml"
+  ],
   "service": "app",
   "workspaceFolder": "/workspace/vector",
   "features": {
@@ -11,15 +14,25 @@
       "version": "3.13"
     }
   },
-  "forwardPorts": [5176, 8001, 5555],
+  "forwardPorts": [
+    5176,
+    8001,
+    5555
+  ],
   "portsAttributes": {
-    "5176": { "label": "Frontend (Vite)", "onAutoForward": "notify", "visibility": "public" },
-    "8001": { "label": "Backend (Django)", "onAutoForward": "notify", "visibility": "public" },
-    "5555": { "label": "Flower (Celery Monitor)", "onAutoForward": "silent", "visibility": "public" }
+    "5176": {
+      "label": "Frontend (Vite)"
+    },
+    "8001": {
+      "label": "Backend (Django)"
+    },
+    "5555": {
+      "label": "Flower (Celery Monitor)"
+    }
   },
-  "postCreateCommand": "curl https://mise.run | sh && echo 'eval \"$(~/.local/bin/mise activate bash)\"' >> ~/.bashrc && export PATH=\"$HOME/.local/bin:$PATH\" && curl -fsSL https://claude.ai/install.sh | bash",
-  "postStartCommand": "export PATH=\"$HOME/.local/bin:$PATH\"",
-  "postAttachCommand": "mise trust && mise install && mise setup && mise migrate",
+  "postCreateCommand": ".devcontainer/scripts/post-create.sh",
+  "postStartCommand": ".devcontainer/scripts/post-start.sh",
+  "postAttachCommand": ".devcontainer/scripts/post-attach.sh",
   "customizations": {
     "vscode": {
       "extensions": [

@@ -7,7 +7,7 @@ uv = "latest"
 _.file = ".env"
 VIRTUAL_ENV = "{{config_root}}/apps/backend/.venv"
 REDIS_PORT = "{{env.REDIS_PORT | default(value='6379')}}"
-CELERY_BROKER_URL = "{{env.CELERY_BROKER_URL | default(value='redis://localhost:' ~ (env.REDIS_PORT | default(value='6379')) ~ '/0')}}"
+CELERY_BROKER_URL = "{{env.CELERY_BROKER_URL | default(value='redis://localhost:6379/0')}}"
 
 [tasks.fe]
 description = "Start frontend dev server"
