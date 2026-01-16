@@ -12,7 +12,7 @@ CELERY_BROKER_URL = "redis://localhost:{{env.REDIS_PORT | default(value='6379')}
 [tasks.fe]
 description = "Start frontend dev server"
 dir = "{{config_root}}/apps/web"
-run = "npm run dev -- --port 5176"
+run = "npm run dev -- --port 5176 --host"
 
 [tasks.be]
 description = "Start backend Django server"
