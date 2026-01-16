@@ -57,6 +57,23 @@ Required variables:
 - `ENCRYPTION_KEY` - Data encryption (generate with Fernet)
 - `FRONTEND_URL` - Frontend base URL (http://localhost:5176)
 
+## GitHub Codespaces
+
+To use this project in a Codespace, first configure your secrets:
+
+1. Go to **GitHub → Settings → Codespaces → Secrets** (or repo Settings → Secrets and variables → Codespaces)
+2. Add the following secrets:
+
+| Secret | Required | Description |
+|--------|----------|-------------|
+| `OPENROUTER_API_KEY` | Yes | AI model access - get from [openrouter.ai/keys](https://openrouter.ai/keys) |
+| `ENCRYPTION_KEY` | Yes | Data encryption key - generate with `python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'` |
+| `DJANGO_SECRET_KEY` | Yes | Django secret key - use a long random string |
+| `GOOGLE_OAUTH_CLIENT_ID` | No | For Google OAuth login |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | No | For Google OAuth login |
+
+3. Create or rebuild your Codespace - secrets will be automatically injected as environment variables.
+
 ## Tech Stack
 
 **Backend:**

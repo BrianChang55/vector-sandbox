@@ -13,9 +13,9 @@
   },
   "forwardPorts": [5176, 8001, 5555],
   "portsAttributes": {
-    "5176": { "label": "Frontend (Vite)", "onAutoForward": "notify" },
-    "8001": { "label": "Backend (Django)", "onAutoForward": "notify" },
-    "5555": { "label": "Flower (Celery Monitor)", "onAutoForward": "silent" }
+    "5176": { "label": "Frontend (Vite)", "onAutoForward": "notify", "visibility": "public" },
+    "8001": { "label": "Backend (Django)", "onAutoForward": "notify", "visibility": "public" },
+    "5555": { "label": "Flower (Celery Monitor)", "onAutoForward": "silent", "visibility": "public" }
   },
   "postCreateCommand": "curl https://mise.run | sh && echo 'eval \"$(~/.local/bin/mise activate bash)\"' >> ~/.bashrc && export PATH=\"$HOME/.local/bin:$PATH\" && mise trust && mise install && mise run setup && curl -fsSL https://claude.ai/install.sh | bash",
   "postStartCommand": "export PATH=\"$HOME/.local/bin:$PATH\"",
@@ -56,6 +56,11 @@
   "remoteEnv": {
     "REDIS_PORT": "6379",
     "CELERY_BROKER_URL": "redis://redis:6379/0",
-    "POSTGRES_PORT": "5432"
+    "POSTGRES_PORT": "5432",
+    "OPENROUTER_API_KEY": "${localEnv:OPENROUTER_API_KEY}",
+    "ENCRYPTION_KEY": "${localEnv:ENCRYPTION_KEY}",
+    "DJANGO_SECRET_KEY": "${localEnv:DJANGO_SECRET_KEY}",
+    "GOOGLE_OAUTH_CLIENT_ID": "${localEnv:GOOGLE_OAUTH_CLIENT_ID}",
+    "GOOGLE_OAUTH_CLIENT_SECRET": "${localEnv:GOOGLE_OAUTH_CLIENT_SECRET}"
   }
 }
