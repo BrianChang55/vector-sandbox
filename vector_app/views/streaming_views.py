@@ -762,26 +762,26 @@ class AgenticGenerateView(View):
             except ChatSession.DoesNotExist:
                 return JsonResponse({"error": "Session not found"}, status=404)
         
-        # Create the job
+        # Create the job with QUESTIONING status
         job = CodeGenerationJob.objects.create(
             internal_app=app,
             session=session,
             user_message=message,
             model_id=model,
             created_by=user,
-            status=CodeGenerationJobStatus.QUEUED,
+            status=CodeGenerationJobStatus.QUESTIONING,
         )
-        
-        # Queue the Celery task
-        from vector_app.tasks import run_agentic_generation
-        run_agentic_generation.delay(str(job.id))
-        
+
+        # Queue the questioning phase task (not generation)
+        from vector_app.tasks import run_questioning_phase
+        run_questioning_phase.delay(str(job.id))
+
         return JsonResponse({
             "job_id": str(job.id),
             "stream_url": f"/api/v1/jobs/{job.id}/stream/",
-            "status": "queued",
+            "status": "questioning",
         }, status=201)
-    
+
     def get(self, request, app_id):
         """Legacy GET endpoint - redirects to job-based flow for SSE streaming."""
         # Get parameters from query string
@@ -825,21 +825,21 @@ class AgenticGenerateView(View):
                     return JsonResponse({"error": "Session does not belong to this app"}, status=400)
             except ChatSession.DoesNotExist:
                 return JsonResponse({"error": "Session not found"}, status=404)
-        
-        # Create the job
+
+        # Create the job with QUESTIONING status
         job = CodeGenerationJob.objects.create(
             internal_app=app,
             session=session,
             user_message=message,
             model_id=model,
             created_by=user,
-            status=CodeGenerationJobStatus.QUEUED,
+            status=CodeGenerationJobStatus.QUESTIONING,
         )
-        
-        # Queue the Celery task
-        from vector_app.tasks import run_agentic_generation
-        run_agentic_generation.delay(str(job.id))
-        
+
+        # Queue the questioning phase task (not generation)
+        from vector_app.tasks import run_questioning_phase
+        run_questioning_phase.delay(str(job.id))
+
         # For GET requests (legacy), return SSE stream from job
         # This maintains backward compatibility
         response = StreamingHttpResponse(
