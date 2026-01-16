@@ -61,6 +61,8 @@
     "ENCRYPTION_KEY": "${localEnv:ENCRYPTION_KEY}",
     "DJANGO_SECRET_KEY": "${localEnv:DJANGO_SECRET_KEY}",
     "GOOGLE_OAUTH_CLIENT_ID": "${localEnv:GOOGLE_OAUTH_CLIENT_ID}",
-    "GOOGLE_OAUTH_CLIENT_SECRET": "${localEnv:GOOGLE_OAUTH_CLIENT_SECRET}"
+    "GOOGLE_OAUTH_CLIENT_SECRET": "${localEnv:GOOGLE_OAUTH_CLIENT_SECRET}",
+    "GOOGLE_OAUTH_REDIRECT_URI": "https://${localEnv:CODESPACE_NAME}-5176.app.github.dev/api/v1/auth/google/callback",
+    "FRONTEND_URL": "https://${localEnv:CODESPACE_NAME}-5176.app.github.dev"
   }
 }

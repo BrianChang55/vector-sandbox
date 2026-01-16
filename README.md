@@ -74,6 +74,25 @@ To use this project in a Codespace, first configure your secrets:
 
 3. Create or rebuild your Codespace - secrets will be automatically injected as environment variables.
 
+### Sync Local Env to GitHub Codespaces
+
+Sync your local environment secrets to GitHub Codespaces:
+
+```bash
+gh secret set OPENROUTER_API_KEY --user --body "$OPENROUTER_API_KEY"
+gh secret set GOOGLE_OAUTH_CLIENT_ID --user --body "$GOOGLE_OAUTH_CLIENT_ID"
+gh secret set GOOGLE_OAUTH_CLIENT_SECRET --user --body "$GOOGLE_OAUTH_CLIENT_SECRET"
+```
+
+**Note:** For Google OAuth in Codespaces, add your Codespace URL to Google Cloud Console once per Codespace:
+
+```bash
+# Print the redirect URI to add to Google Console
+echo $GOOGLE_OAUTH_REDIRECT_URI
+```
+
+Add this URL to [Google Cloud Console → Credentials](https://console.cloud.google.com/apis/credentials) → your OAuth 2.0 Client → **Authorized redirect URIs**.
+
 ## Tech Stack
 
 **Backend:**
