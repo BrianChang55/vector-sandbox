@@ -1313,20 +1313,67 @@ export const aiApi = {
 }
 
 // =============================================================================
+// QUESTIONING API
+// =============================================================================
+
+/**
+ * Questioning API
+ *
+ * Handle questioning phase interactions during app generation.
+ *
+ * @example
+ * ```typescript
+ * // Respond to a question during questioning phase
+ * await questioningApi.respond('job-123', 'I want a dark theme')
+ *
+ * // Skip the questioning phase
+ * await questioningApi.skip('job-123')
+ * ```
+ */
+export const questioningApi = {
+  /**
+   * Submit a response to a question during the questioning phase.
+   * @param jobId - Job ID
+   * @param message - User's response to the question
+   */
+  respond: async (
+    jobId: string,
+    message: string
+  ): Promise<{ status: string; job_id: string; message_id: string }> => {
+    const response = await api.post<{ status: string; job_id: string; message_id: string }>(
+      `/jobs/${jobId}/respond/`,
+      { message }
+    )
+    return response.data
+  },
+
+  /**
+   * Skip the questioning phase and proceed directly to generation.
+   * @param jobId - Job ID
+   */
+  skip: async (jobId: string): Promise<{ status: string; job_id: string }> => {
+    const response = await api.post<{ status: string; job_id: string }>(
+      `/jobs/${jobId}/skip/`
+    )
+    return response.data
+  },
+}
+
+// =============================================================================
 // AUTH API
 // =============================================================================
 
 /**
  * Auth API
- * 
+ *
  * Authentication endpoints (magic link, OAuth, etc.).
  * Note: Most auth operations are in authService.ts for token handling.
- * 
+ *
  * @example
  * ```typescript
  * // Get Google OAuth URL
  * const { oauth_url } = await authApi.getGoogleOAuthUrl()
- * 
+ *
  * // Handle OAuth callback
  * const result = await authApi.handleGoogleCallback(code)
  * ```

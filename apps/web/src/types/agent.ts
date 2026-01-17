@@ -73,6 +73,10 @@ export interface AgentState {
   error: string | null
   startedAt: string | null
   completedAt: string | null
+  // Questioning phase state
+  isQuestioning: boolean
+  currentQuestionNumber: number
+  questioningSessionId: string | null
 }
 
 // SSE Event types from backend
@@ -100,12 +104,23 @@ export type AgentEventType =
   | 'agent_error'
   | 'done'
   | 'connected'
+  // Questioning phase events
+  | 'questioning_started'
+  | 'question_asked'
+  | 'questioning_skipped'
+  | 'questioning_complete'
   // Error fix events
   | 'fix_started'
   | 'fix_progress'
   | 'fix_file_updated'
   | 'fix_complete'
   | 'fix_failed'
+  // Verification events
+  | 'verification_started'
+  | 'verification_passed'
+  | 'verification_failed'
+  | 'verification_skipped'
+  | 'verification_retry_started'
 
 // SSE Event structure
 export interface AgentEvent {
@@ -138,12 +153,23 @@ export type AgentEventData =
   | AgentCompleteData
   | AgentErrorData
   | DoneData
+  // Questioning event data types
+  | QuestioningStartedData
+  | QuestionAskedData
+  | QuestioningSkippedData
+  | QuestioningCompleteData
   // Fix event data types
   | FixStartedData
   | FixProgressData
   | FixFileUpdatedData
   | FixCompleteData
   | FixFailedData
+  // Verification event data types
+  | VerificationStartedData
+  | VerificationPassedData
+  | VerificationFailedData
+  | VerificationSkippedData
+  | VerificationRetryStartedData
 
 export interface DoneData {
   success: boolean
@@ -151,6 +177,27 @@ export interface DoneData {
   duration?: number
   validated?: boolean
   fix_attempts?: number
+}
+
+// Questioning phase event data interfaces
+export interface QuestioningStartedData {
+  session_id: string
+  initial_request: string
+}
+
+export interface QuestionAskedData {
+  question: string
+  question_number: number
+}
+
+export interface QuestioningSkippedData {
+  job_id: string
+}
+
+export interface QuestioningCompleteData {
+  facts: Record<string, unknown>
+  question_count: number
+  was_skipped: boolean
 }
 
 export interface AgentStartData {
@@ -286,6 +333,53 @@ export interface FixFailedData {
   fix_attempts: number
 }
 
+// Verification event data interfaces
+export interface VerificationStartedData {
+  file_path: string
+  verifier: string
+}
+
+export interface VerificationPassedData {
+  file_path: string
+  verifier: string
+}
+
+export interface VerificationFailedData {
+  file_path: string
+  verifier: string
+  error_message: string
+  is_blocking: boolean
+}
+
+export interface VerificationSkippedData {
+  file_path: string
+  reason: string
+}
+
+export interface VerificationRetryStartedData {
+  file_path: string
+  attempt_number: number
+  max_attempts: number
+  previous_error: string
+}
+
+// Verification state for tracking per-file status
+export interface VerificationState {
+  isVerifying: boolean
+  totalFiles: number
+  verifiedFiles: number
+  currentFile: string | null
+  results: VerificationFileResult[]
+}
+
+export interface VerificationFileResult {
+  file_path: string
+  status: 'verifying' | 'passed' | 'failed' | 'skipped' | 'retrying'
+  verifier?: string
+  error_message?: string
+  attempt_number?: number
+}
+
 export interface PreviewReadyData {
   versionId: string
   versionNumber: number
@@ -332,6 +426,10 @@ export const initialAgentState: AgentState = {
   error: null,
   startedAt: null,
   completedAt: null,
+  // Questioning phase defaults
+  isQuestioning: false,
+  currentQuestionNumber: 0,
+  questioningSessionId: null,
 }
 
 // Helper to create a new plan step
