@@ -147,6 +147,8 @@ urlpatterns = [
     path('jobs/<uuid:job_id>/', streaming_views.JobStatusView.as_view(), name='job-status'),
     path('jobs/<uuid:job_id>/stream/', streaming_views.JobStreamView.as_view(), name='job-stream'),
     path('jobs/<uuid:job_id>/cancel/', streaming_views.JobCancelView.as_view(), name='job-cancel'),
+    path('jobs/<uuid:job_id>/respond/', streaming_views.JobRespondView.as_view(), name='job-respond'),
+    path('jobs/<uuid:job_id>/skip/', streaming_views.JobSkipView.as_view(), name='job-skip'),
     path('apps/<uuid:app_id>/latest-job/', streaming_views.LatestJobView.as_view(), name='latest-job'),
     
     # =========================================================================

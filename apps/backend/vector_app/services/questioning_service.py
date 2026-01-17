@@ -204,9 +204,11 @@ class QuestioningService:
                 json_mode=True,
             )
 
-            data = result.validated(json.loads, default=None)
-            if data and isinstance(data, dict):
+            content = result.validated(default="")
+            data = self._parse_json_response(content)
+            if data:
                 logger.info("Extracted facts: %s", list(data.keys()))
+                logger.debug("Extracted facts: %s", data)
                 return data
 
             logger.warning("Failed to parse extraction response")

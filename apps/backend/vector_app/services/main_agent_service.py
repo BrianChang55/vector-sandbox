@@ -48,7 +48,7 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 # Policy constants for questioning phase
-MAX_QUESTIONS = 5
+MAX_QUESTIONS = 50
 MIN_QUESTIONS_BEFORE_COMPLETION = 1
 
 
@@ -312,7 +312,6 @@ class MainAgentService:
         prompt = build_continuation_decision_prompt(
             initial_request=session.initial_request,
             chat_history=formatted_history,
-            question_count=session.question_count,
         )
 
         try:
