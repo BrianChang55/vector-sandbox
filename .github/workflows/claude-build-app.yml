@@ -41,11 +41,8 @@ jobs:
           prompt: ${{ inputs.prompt }}
           # Pass CLI args (examples: cap turns/budget)
           claude_args: "--max-turns 20 --max-budget-usd 5"
-          # Use GitHub token from secrets if Claude Code App is not installed
-          # Alternative: Install Claude Code GitHub App at https://github.com/apps/claude
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # API key for Anthropic
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
 
       - name: Build & test (your project commands)
         run: |
