@@ -43,6 +43,8 @@ jobs:
           claude_args: "--max-turns 20 --max-budget-usd 5"
           # API key for Anthropic
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Use GitHub token to bypass OIDC/App authentication
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build & test (your project commands)
         run: |
