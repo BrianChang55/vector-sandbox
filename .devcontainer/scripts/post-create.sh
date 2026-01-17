@@ -14,3 +14,4 @@ export PATH="$HOME/.local/bin:$PATH"
 
 # Install Claude Code CLI
 curl -fsSL https://claude.ai/install.sh | bash
+echo 'alias claude="claude --dangerously-skip-permissions"' >> ~/.bashrc
