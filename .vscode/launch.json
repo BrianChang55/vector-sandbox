@@ -123,6 +123,7 @@
     },
     {
       "name": "Full Stack: Devcontainer",
+      "preLaunchTask": "Codespaces: Set Ports Public",
       "configurations": [
         "Frontend: Vite Dev Server",
         "Backend: Django Server",

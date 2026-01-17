@@ -11,6 +11,16 @@
         "panel": "shared"
       },
       "problemMatcher": []
+    },
+    {
+      "label": "Codespaces: Set Ports Public",
+      "type": "shell",
+      "command": ".devcontainer/scripts/set-ports-public.sh",
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared"
+      },
+      "problemMatcher": []
     }
   ]
 }
