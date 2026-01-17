@@ -1,0 +1,53 @@
+name: Claude Build App
+
+on:
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: "Instruction to Claude Code (what to build/fix)"
+        required: true
+        type: string
+      ref:
+        description: "Branch or SHA to run against"
+        required: false
+        default: "main"
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  claude:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      # Optional but strongly recommended hardening
+      # (see Step Security guidance for harden-runner style controls)
+      # - name: Harden runner
+      #   uses: step-security/harden-runner@v2
+      #   with:
+      #     egress-policy: audit
+
+      - name: Run Claude Code Action
+        uses: anthropics/claude-code-action@v1
+        with:
+          prompt: ${{ inputs.prompt }}
+          # Pass CLI args (examples: cap turns/budget)
+          claude_args: "--max-turns 20 --max-budget-usd 5"
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Build & test (your project commands)
+        run: |
+          # customize per stack
+          if [ -f package.json ]; then
+            npm ci
+            npm test --if-present
+            npm run build --if-present
+          fi
