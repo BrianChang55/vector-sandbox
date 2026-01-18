@@ -29,6 +29,11 @@ from .member_serializers import (
     InviteDetailsSerializer,
     MembersListResponseSerializer,
 )
+from .task_serializers import (
+    TaskSerializer,
+    TaskCreateSerializer,
+    TaskUpdateSerializer,
+)
 
 __all__ = [
     'OrganizationSerializer',
@@ -63,5 +68,8 @@ __all__ = [
     'InviteVerifySerializer',
     'InviteDetailsSerializer',
     'MembersListResponseSerializer',
+    'TaskSerializer',
+    'TaskCreateSerializer',
+    'TaskUpdateSerializer',
 ]
 

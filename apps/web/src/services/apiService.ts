@@ -1389,6 +1389,101 @@ export const authApi = {
 }
 
 // =============================================================================
+// TASKS API
+// =============================================================================
+
+/**
+ * Task interface
+ */
+export interface Task {
+  id: string
+  organization: string
+  title: string
+  description: string
+  completed: boolean
+  completed_at: string | null
+  created_by: string
+  created_by_email: string
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Tasks API
+ *
+ * Manage user tasks within an organization.
+ *
+ * @example
+ * ```typescript
+ * // List all tasks for an organization
+ * const tasks = await tasksApi.list('org-123')
+ *
+ * // Create a new task
+ * const task = await tasksApi.create('org-123', { title: 'My Task' })
+ *
+ * // Update a task
+ * await tasksApi.update('org-123', 'task-456', { completed: true })
+ *
+ * // Delete a task
+ * await tasksApi.delete('org-123', 'task-456')
+ * ```
+ */
+export const tasksApi = {
+  /**
+   * List all tasks for an organization
+   * @param orgId - Organization ID
+   */
+  list: async (orgId: string): Promise<Task[]> => {
+    const response = await api.get<Task[]>(`/orgs/${orgId}/tasks/`)
+    return response.data
+  },
+
+  /**
+   * Get a single task by ID
+   * @param orgId - Organization ID
+   * @param taskId - Task ID
+   */
+  get: async (orgId: string, taskId: string): Promise<Task> => {
+    const response = await api.get<Task>(`/orgs/${orgId}/tasks/${taskId}/`)
+    return response.data
+  },
+
+  /**
+   * Create a new task
+   * @param orgId - Organization ID
+   * @param data - Task creation data (title, description)
+   */
+  create: async (orgId: string, data: { title: string; description?: string }): Promise<Task> => {
+    const response = await api.post<Task>(`/orgs/${orgId}/tasks/`, data)
+    return response.data
+  },
+
+  /**
+   * Update a task
+   * @param orgId - Organization ID
+   * @param taskId - Task ID
+   * @param data - Partial task data to update
+   */
+  update: async (
+    orgId: string,
+    taskId: string,
+    data: Partial<{ title: string; description: string; completed: boolean }>
+  ): Promise<Task> => {
+    const response = await api.patch<Task>(`/orgs/${orgId}/tasks/${taskId}/`, data)
+    return response.data
+  },
+
+  /**
+   * Delete a task
+   * @param orgId - Organization ID
+   * @param taskId - Task ID
+   */
+  delete: async (orgId: string, taskId: string): Promise<void> => {
+    await api.delete(`/orgs/${orgId}/tasks/${taskId}/`)
+  },
+}
+
+// =============================================================================
 // PUBLIC API (Unauthenticated)
 // =============================================================================
 
