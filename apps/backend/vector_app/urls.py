@@ -17,6 +17,7 @@ from .views import (
     connector_runtime_views,
     member_views,
 )
+from tasklist.views import TaskViewSet
 
 # Router for viewsets
 router = DefaultRouter()
@@ -91,6 +92,27 @@ urlpatterns = [
         name='org-invite-resend'
     ),
     
+    # =========================================================================
+    # Tasklist endpoints
+    # =========================================================================
+    path(
+        'orgs/<uuid:org_id>/tasks/',
+        TaskViewSet.as_view({
+            'get': 'list',
+            'post': 'create',
+        }),
+        name='org-tasks'
+    ),
+    path(
+        'orgs/<uuid:org_id>/tasks/<uuid:pk>/',
+        TaskViewSet.as_view({
+            'get': 'retrieve',
+            'patch': 'partial_update',
+            'delete': 'destroy',
+        }),
+        name='org-task-detail'
+    ),
+
     # =========================================================================
     # App Favorites endpoints
     # =========================================================================

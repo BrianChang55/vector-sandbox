@@ -544,3 +544,29 @@ export interface LinkCallbackResponse {
   error?: string         // Present if there was a service error
 }
 
+// ============================================================================
+// Tasklist Types
+// ============================================================================
+
+export interface Task {
+  id: string
+  title: string
+  description: string
+  is_completed: boolean
+  completed_at: string | null
+  created_by_email: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateTaskRequest {
+  title: string
+  description?: string
+}
+
+export interface UpdateTaskRequest {
+  title?: string
+  description?: string
+  is_completed?: boolean
+}
+

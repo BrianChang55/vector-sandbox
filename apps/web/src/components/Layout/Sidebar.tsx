@@ -6,7 +6,7 @@ import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useAppSelector } from '../../store/hooks'
 import { useOrganizations, useSwitchOrganization } from '../../hooks/useOrganizations'
-import { Layers, Plug, Settings, ChevronDown, Check, Building2, Plus } from 'lucide-react'
+import { Layers, Plug, Settings, ChevronDown, Check, Building2, Plus, ListTodo } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import {
   DropdownMenu,
@@ -19,6 +19,7 @@ import { CreateOrganizationDialog } from './CreateOrganizationDialog'
 
 const navItems = [
   { path: '/apps', label: 'Apps', icon: Layers },
+  { path: '/tasklist', label: 'Tasklist', icon: ListTodo },
   { path: '/integrations', label: 'Integrations', icon: Plug },
   { path: '/settings', label: 'Settings', icon: Settings },
 ]

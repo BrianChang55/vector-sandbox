@@ -60,6 +60,9 @@ import type {
   LinkCallbackResponse,
   BackendConnection,
   ResourceRegistryEntry,
+  Task,
+  CreateTaskRequest,
+  UpdateTaskRequest,
 } from '../types/models'
 
 import type {
@@ -1385,6 +1388,76 @@ export const authApi = {
   getGoogleOAuthUrl: async (): Promise<{ oauth_url: string }> => {
     const response = await api.get<{ oauth_url: string }>('/auth/google')
     return response.data
+  },
+}
+
+// =============================================================================
+// TASKLIST API
+// =============================================================================
+
+/**
+ * Tasklist API
+ *
+ * Manage tasks within an organization.
+ */
+export const tasksApi = {
+  /**
+   * List all tasks for an organization
+   * @param orgId - Organization ID
+   */
+  list: async (orgId: string): Promise<Task[]> => {
+    const response = await api.get<Task[]>(`/orgs/${orgId}/tasks/`)
+    return response.data
+  },
+
+  /**
+   * Get a single task by ID
+   * @param orgId - Organization ID
+   * @param taskId - Task ID
+   */
+  get: async (orgId: string, taskId: string): Promise<Task> => {
+    const response = await api.get<Task>(`/orgs/${orgId}/tasks/${taskId}/`)
+    return response.data
+  },
+
+  /**
+   * Create a new task
+   * @param orgId - Organization ID
+   * @param data - Task creation data
+   */
+  create: async (orgId: string, data: CreateTaskRequest): Promise<Task> => {
+    const response = await api.post<Task>(`/orgs/${orgId}/tasks/`, data)
+    return response.data
+  },
+
+  /**
+   * Update a task
+   * @param orgId - Organization ID
+   * @param taskId - Task ID
+   * @param data - Updated task data
+   */
+  update: async (orgId: string, taskId: string, data: UpdateTaskRequest): Promise<Task> => {
+    const response = await api.patch<Task>(`/orgs/${orgId}/tasks/${taskId}/`, data)
+    return response.data
+  },
+
+  /**
+   * Delete a task
+   * @param orgId - Organization ID
+   * @param taskId - Task ID
+   */
+  delete: async (orgId: string, taskId: string): Promise<void> => {
+    await api.delete(`/orgs/${orgId}/tasks/${taskId}/`)
+  },
+
+  /**
+   * Toggle task completion
+   * @param orgId - Organization ID
+   * @param taskId - Task ID
+   * @param isCompleted - New completion status
+   */
+  toggleComplete: async (orgId: string, taskId: string, isCompleted: boolean): Promise<Task> => {
+    return tasksApi.update(orgId, taskId, { is_completed: isCompleted })
   },
 }
 
