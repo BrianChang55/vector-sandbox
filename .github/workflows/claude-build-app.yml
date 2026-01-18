@@ -40,7 +40,7 @@ jobs:
         with:
           prompt: ${{ inputs.prompt }}
           # Pass CLI args
-          claude_args: "--max-turns 20 --max-budget-usd 5 --dangerously-skip-permissions"
+          claude_args: "--max-turns 50 --max-budget-usd 5 --dangerously-skip-permissions"
           # API key for Anthropic
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           # Use GitHub token to bypass OIDC/App authentication
