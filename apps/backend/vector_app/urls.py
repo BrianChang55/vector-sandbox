@@ -16,6 +16,7 @@ from .views import (
     connector_views,
     connector_runtime_views,
     member_views,
+    task_views,
 )
 
 # Router for viewsets
@@ -91,6 +92,27 @@ urlpatterns = [
         name='org-invite-resend'
     ),
     
+    # =========================================================================
+    # Tasks endpoints
+    # =========================================================================
+    path(
+        'orgs/<uuid:org_id>/tasks/',
+        task_views.TaskViewSet.as_view({
+            'get': 'list',
+            'post': 'create',
+        }),
+        name='org-tasks'
+    ),
+    path(
+        'orgs/<uuid:org_id>/tasks/<uuid:pk>/',
+        task_views.TaskViewSet.as_view({
+            'get': 'retrieve',
+            'patch': 'partial_update',
+            'delete': 'destroy',
+        }),
+        name='org-task-detail'
+    ),
+
     # =========================================================================
     # App Favorites endpoints
     # =========================================================================

@@ -26,6 +26,7 @@ import { AppPreviewPage } from './pages/AppPreviewPage'
 import { PublishedAppPage } from './pages/PublishedAppPage'
 import { InviteAcceptPage } from './pages/InviteAcceptPage'
 import { AdminTemplatePage } from './pages/AdminTemplatePage'
+import { TasksPage } from './pages/TasksPage'
 
 // Dynamic import for dev-only page - excluded from production bundle via tree-shaking
 const DevAuthPage = import.meta.env.DEV
@@ -85,6 +86,16 @@ function App() {
               element={
                 <AuthGuard>
                   <AppPreviewPage />
+                </AuthGuard>
+              }
+            />
+            <Route
+              path="/tasks"
+              element={
+                <AuthGuard>
+                  <MainLayout>
+                    <TasksPage />
+                  </MainLayout>
                 </AuthGuard>
               }
             />
