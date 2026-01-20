@@ -544,3 +544,50 @@ export interface LinkCallbackResponse {
   error?: string         // Present if there was a service error
 }
 
+// ============================================================================
+// CRM Types
+// ============================================================================
+
+/**
+ * Health classification for customer groups.
+ */
+export type HealthCategory = 'prospect' | 'good' | 'average' | 'at_risk'
+
+/**
+ * Customer group for CRM tracking.
+ */
+export interface CustomerGroup {
+  id: string
+  organization: string
+  name: string
+  description: string
+  health: HealthCategory
+  health_display: string
+  potential_value: string  // Decimal comes as string from API
+  created_by: string | null
+  created_by_email: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Data for creating/updating a customer group.
+ */
+export interface CustomerGroupInput {
+  name: string
+  description?: string
+  health?: HealthCategory
+  potential_value?: number | string
+}
+
+/**
+ * Dashboard statistics response.
+ */
+export interface CustomerGroupStats {
+  total_groups: number
+  total_value: string  // Decimal comes as string
+  by_health: Record<HealthCategory, number>
+  value_by_health: Record<HealthCategory, string>
+  top_groups: CustomerGroup[]
+}
+

@@ -1440,6 +1440,96 @@ export const publicApi = {
 }
 
 // =============================================================================
+// CRM API
+// =============================================================================
+
+import type {
+  CustomerGroup,
+  CustomerGroupInput,
+  CustomerGroupStats,
+} from '../types/models'
+
+/**
+ * CRM API
+ *
+ * Manage customer groups for CRM dashboard.
+ *
+ * @example
+ * ```typescript
+ * // List all customer groups
+ * const groups = await crmApi.list('org-123')
+ *
+ * // Create a new customer group
+ * const group = await crmApi.create('org-123', { name: 'Acme Corp', health: 'good', potential_value: 50000 })
+ *
+ * // Update a customer group
+ * const updated = await crmApi.update('group-456', { health: 'at_risk' })
+ *
+ * // Delete a customer group
+ * await crmApi.delete('group-456')
+ *
+ * // Get dashboard statistics
+ * const stats = await crmApi.getStats('org-123')
+ * ```
+ */
+export const crmApi = {
+  /**
+   * List all customer groups for an organization
+   * @param orgId - Organization ID
+   */
+  list: async (orgId: string): Promise<CustomerGroup[]> => {
+    const response = await api.get<CustomerGroup[]>(`/orgs/${orgId}/customer-groups/`)
+    return response.data
+  },
+
+  /**
+   * Get a single customer group by ID
+   * @param groupId - Customer group ID
+   */
+  get: async (groupId: string): Promise<CustomerGroup> => {
+    const response = await api.get<CustomerGroup>(`/customer-groups/${groupId}/`)
+    return response.data
+  },
+
+  /**
+   * Create a new customer group
+   * @param orgId - Organization ID
+   * @param data - Customer group data
+   */
+  create: async (orgId: string, data: CustomerGroupInput): Promise<CustomerGroup> => {
+    const response = await api.post<CustomerGroup>(`/orgs/${orgId}/customer-groups/`, data)
+    return response.data
+  },
+
+  /**
+   * Update an existing customer group
+   * @param groupId - Customer group ID
+   * @param data - Partial customer group data to update
+   */
+  update: async (groupId: string, data: Partial<CustomerGroupInput>): Promise<CustomerGroup> => {
+    const response = await api.patch<CustomerGroup>(`/customer-groups/${groupId}/`, data)
+    return response.data
+  },
+
+  /**
+   * Delete a customer group
+   * @param groupId - Customer group ID
+   */
+  delete: async (groupId: string): Promise<void> => {
+    await api.delete(`/customer-groups/${groupId}/`)
+  },
+
+  /**
+   * Get dashboard statistics for an organization
+   * @param orgId - Organization ID
+   */
+  getStats: async (orgId: string): Promise<CustomerGroupStats> => {
+    const response = await api.get<CustomerGroupStats>(`/orgs/${orgId}/customer-groups/stats/`)
+    return response.data
+  },
+}
+
+// =============================================================================
 // RE-EXPORT API INSTANCE
 // =============================================================================
 

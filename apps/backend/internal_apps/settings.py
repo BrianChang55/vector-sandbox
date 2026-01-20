@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     'data_store',
     'integrations',
     'audit',
+    'crm',
     'vector_app',  # Legacy - kept temporarily during migration
 ]
 
