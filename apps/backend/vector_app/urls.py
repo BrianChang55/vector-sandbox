@@ -17,6 +17,7 @@ from .views import (
     connector_runtime_views,
     member_views,
 )
+from crm.views import CustomerGroupViewSet, CustomerGroupStatsView
 
 # Router for viewsets
 router = DefaultRouter()
@@ -296,5 +297,35 @@ urlpatterns = [
         'runtime/connectors/',
         connector_runtime_views.RuntimeConnectorProxyView.as_view(),
         name='runtime-connectors'
+    ),
+
+    # =========================================================================
+    # CRM Customer Groups endpoints
+    # =========================================================================
+
+    # List and create customer groups
+    path(
+        'orgs/<uuid:org_id>/customer-groups/',
+        CustomerGroupViewSet.as_view({
+            'get': 'list',
+            'post': 'create',
+        }),
+        name='customer-groups'
+    ),
+    # Dashboard statistics
+    path(
+        'orgs/<uuid:org_id>/customer-groups/stats/',
+        CustomerGroupStatsView.as_view(),
+        name='customer-groups-stats'
+    ),
+    # Direct access to customer group (get, update, delete)
+    path(
+        'customer-groups/<uuid:pk>/',
+        CustomerGroupViewSet.as_view({
+            'get': 'retrieve',
+            'patch': 'partial_update',
+            'delete': 'destroy',
+        }),
+        name='customer-group-detail'
     ),
 ]
